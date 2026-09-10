@@ -46,8 +46,8 @@ func TestStreamIsIncremental(t *testing.T) {
 		t.Fatal(err)
 	}
 	var got string
-	err = client.Stream(ctx, llm.Request{Model: "test-model", Messages: []llm.Message{{Role: "user", Content: "你好"}}}, func(s string) error {
-		got += s
+	_, err = client.Stream(ctx, llm.Request{Model: "test-model", Messages: []llm.Message{{Role: "user", Content: "你好"}}}, func(event llm.StreamEvent) error {
+		got += event.Text
 		if got == "你" {
 			close(first)
 		}
@@ -71,7 +71,7 @@ func TestStreamFailuresAndFraming(t *testing.T) {
 		{"large event", "data: " + strings.Repeat("x", 1<<20) + "\n\n", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			err := readStream(strings.NewReader(tc.body), func(string) error { return nil })
+			_, err := readStream(strings.NewReader(tc.body), func(llm.StreamEvent) error { return nil })
 			if (err == nil) != tc.ok {
 				t.Fatalf("error: %v", err)
 			}
@@ -81,7 +81,7 @@ func TestStreamFailuresAndFraming(t *testing.T) {
 		})
 	}
 	errOutput := errors.New("output closed")
-	err := readStream(strings.NewReader("data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n"), func(string) error { return errOutput })
+	_, err := readStream(strings.NewReader("data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n"), func(llm.StreamEvent) error { return errOutput })
 	if !errors.Is(err, errOutput) {
 		t.Fatalf("output error lost: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestHTTPErrorAndCancellation(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(status); io.WriteString(w, "secret") }))
 			defer server.Close()
 			client, _ := New(server.URL, "key")
-			err := client.Stream(context.Background(), llm.Request{}, func(string) error { return nil })
+			_, err := client.Stream(context.Background(), llm.Request{}, func(llm.StreamEvent) error { return nil })
 			if err == nil || !strings.Contains(err.Error(), fmt.Sprint(status)) || strings.Contains(err.Error(), "secret") {
 				t.Fatalf("error: %v", err)
 			}
@@ -109,8 +109,95 @@ func TestHTTPErrorAndCancellation(t *testing.T) {
 	}))
 	defer server.Close()
 	client, _ := New(server.URL, "key")
-	err := client.Stream(ctx, llm.Request{}, func(string) error { cancel(); return nil })
+	_, err := client.Stream(ctx, llm.Request{}, func(llm.StreamEvent) error { cancel(); return nil })
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancellation lost: %v", err)
 	}
+}
+
+func TestStreamAggregatesToolCall(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Tools    []llm.ToolDefinition `json:"tools"`
+			Messages []struct {
+				ToolCalls []struct {
+					ID       string `json:"id"`
+					Type     string `json:"type"`
+					Function struct {
+						Name      string `json:"name"`
+						Arguments string `json:"arguments"`
+					} `json:"function"`
+				} `json:"tool_calls"`
+			} `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.Tools) != 1 || req.Tools[0].Type != "function" || len(req.Messages) != 1 || len(req.Messages[0].ToolCalls) != 1 {
+			t.Fatalf("unexpected tools: %+v, %v", req.Tools, err)
+		}
+		call := req.Messages[0].ToolCalls[0]
+		if call.ID != "call_1" || call.Type != "function" || call.Function.Name != "read_file" || call.Function.Arguments != `{"path":"README.md"}` {
+			t.Fatalf("unexpected serialized call: %+v", call)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"read_file\",\"arguments\":\"{\\\"path\\\":\\\"REA\"}}]}}]}\n\n")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"checking file\",\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"DME.md\\\"}\"}}]}}]}\n\n")
+		fmt.Fprint(w, "data: {\"choices\":[{\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	defer server.Close()
+
+	client, err := New(server.URL, "test-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	completion, err := client.Stream(context.Background(), llm.Request{
+		Model: "test-model",
+		Messages: []llm.Message{{Role: "assistant", ToolCalls: []llm.ToolCall{{
+			ID: "call_1", Type: "function", Name: "read_file", Arguments: `{"path":"README.md"}`,
+		}}}},
+		Tools: []llm.ToolDefinition{{
+			Type:     "function",
+			Function: json.RawMessage(`{"name":"read_file","parameters":{"type":"object"}}`),
+		}},
+	}, func(llm.StreamEvent) error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completion.FinishReason != "tool_calls" || completion.Assistant.ReasoningContent != "checking file" || len(completion.Assistant.ToolCalls) != 1 {
+		t.Fatalf("unexpected completion: %+v", completion)
+	}
+	call := completion.Assistant.ToolCalls[0]
+	if call.ID != "call_1" || call.Type != "function" || call.Name != "read_file" || call.Arguments != `{"path":"README.md"}` {
+		t.Fatalf("unexpected call: %+v", call)
+	}
+}
+
+func TestReadStreamProtocolRegressions(t *testing.T) {
+	t.Run("stop text", func(t *testing.T) {
+		completion, err := readStream(strings.NewReader("data: {\"choices\":[{\"delta\":{\"content\":\"hello\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"), func(llm.StreamEvent) error { return nil })
+		if err != nil || completion.Assistant.Content != "hello" || completion.FinishReason != "stop" {
+			t.Fatalf("unexpected completion: %+v, %v", completion, err)
+		}
+	})
+
+	t.Run("two indexes preserve malformed arguments", func(t *testing.T) {
+		body := "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":1,\"id\":\"call_2\",\"type\":\"function\",\"function\":{\"name\":\"second\",\"arguments\":\"[broken\"}},{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"first\",\"arguments\":\"{}\"}}]}}]}\n\ndata: {\"choices\":[{\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n"
+		completion, err := readStream(strings.NewReader(body), func(llm.StreamEvent) error { return nil })
+		if err != nil || len(completion.Assistant.ToolCalls) != 2 || completion.Assistant.ToolCalls[0].Name != "first" || completion.Assistant.ToolCalls[1].Arguments != "[broken" {
+			t.Fatalf("unexpected completion: %+v, %v", completion, err)
+		}
+	})
+
+	t.Run("callback failure", func(t *testing.T) {
+		errCallback := errors.New("output closed")
+		_, err := readStream(strings.NewReader("data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n"), func(llm.StreamEvent) error { return errCallback })
+		if !errors.Is(err, errCallback) {
+			t.Fatalf("callback error lost: %v", err)
+		}
+	})
+
+	t.Run("length finish reason", func(t *testing.T) {
+		completion, err := readStream(strings.NewReader("data: {\"choices\":[{\"finish_reason\":\"length\"}]}\n\ndata: [DONE]\n\n"), func(llm.StreamEvent) error { return nil })
+		if err != nil || completion.FinishReason != "length" {
+			t.Fatalf("unexpected completion: %+v, %v", completion, err)
+		}
+	})
 }
