@@ -6,12 +6,23 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
+	"gitee.com/island0920/drift/internal/agent"
 	"gitee.com/island0920/drift/internal/llm"
 	"gitee.com/island0920/drift/internal/llm/openai"
-	"gitee.com/island0920/drift/internal/ui/print"
 )
+
+type modelClient struct {
+	llm.Client
+	model string
+}
+
+func (c modelClient) Stream(ctx context.Context, request llm.Request, emit func(llm.StreamEvent) error) (llm.Completion, error) {
+	request.Model = c.model
+	return c.Client.Stream(ctx, request, emit)
+}
 
 func Run(ctx context.Context, args []string, getenv func(string) string, out, stderr io.Writer) int {
 	flags := flag.NewFlagSet("drift", flag.ContinueOnError)
@@ -43,7 +54,17 @@ func Run(ctx context.Context, args []string, getenv func(string) string, out, st
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	err = print.Run(ctx, client, llm.Request{Model: *model, Messages: []llm.Message{{Role: "user", Content: *prompt}}}, out)
+	root, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintln(stderr, "错误：", err)
+		return 1
+	}
+	var lastText string
+	err = agent.Run(ctx, modelClient{Client: client, model: *model}, root, *prompt, func(text string) error {
+		lastText = text
+		_, err := io.WriteString(out, text)
+		return err
+	})
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			fmt.Fprintln(stderr, "已取消")
@@ -51,6 +72,12 @@ func Run(ctx context.Context, args []string, getenv func(string) string, out, st
 		}
 		fmt.Fprintln(stderr, "错误：", err)
 		return 1
+	}
+	if lastText != "" && !strings.HasSuffix(lastText, "\n") {
+		if _, err := io.WriteString(out, "\n"); err != nil {
+			fmt.Fprintln(stderr, "错误：", err)
+			return 1
+		}
 	}
 	return 0
 }
