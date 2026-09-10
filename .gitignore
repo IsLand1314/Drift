@@ -17,5 +17,6 @@
 # Local build and development state
 /drift
 /.codex-temp/
+/.worktrees/
 /.drift/
 /.env
