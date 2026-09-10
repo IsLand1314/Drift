@@ -2,6 +2,8 @@
 
 > 状态：Draft ｜ 更新：2026-09-10
 
+本文为目标架构提案，当前版本范围及验收标准以 [spec/current.md](../spec/current.md) 为准。M0 第一步运行方法见 [快速开始](getting-started.md)。
+
 ## 1. 结论
 
 Drift 建议定位为一个 **小内核、事件驱动、可嵌入的 Go Coding Agent Runtime**，而不是直接复制 FoxCode 的全部能力。
