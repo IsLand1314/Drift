@@ -2,7 +2,7 @@
 
 当前已实现单次文本对话；工具调用、目录读取、多轮历史、JSONL 会话与 TUI 留待后续步骤。正式范围与验收标准见 [spec/current.md](../spec/current.md)，目标架构见 [architecture.md](architecture.md)。
 
-## PowerShell 启动
+## 1. PowerShell 启动
 
 需要 Go 1.26+ 和支持 Chat Completions SSE 的模型服务：
 
@@ -29,7 +29,7 @@ go build -o drift.exe ./cmd/drift
 
 `-model` 和 `-base-url` 覆盖环境变量。stdout 输出回复，stderr 输出帮助和错误。Ctrl+C 取消，单次请求最多五分钟。退出码：0 成功、1 请求或输出失败、2 配置或参数错误、130 取消。失败时保留已输出的部分回复。
 
-## 开发检查
+**开发检查**
 
 ```powershell
 go test ./...
