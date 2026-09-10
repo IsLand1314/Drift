@@ -63,6 +63,9 @@ func Read(root, rawArguments string) (string, error) {
 	if filepath.IsAbs(args.Path) {
 		return "", fmt.Errorf("read_file path must be relative")
 	}
+	if containsParentSegment(args.Path) {
+		return "", fmt.Errorf("read_file path must not contain ..")
+	}
 
 	resolvedRoot, err := resolvePath(root)
 	if err != nil {
@@ -108,4 +111,14 @@ func resolvePath(path string) (string, error) {
 		return "", err
 	}
 	return filepath.EvalSymlinks(abs)
+}
+
+func containsParentSegment(path string) bool {
+	path = strings.ReplaceAll(path, string(filepath.Separator), "/")
+	for _, segment := range strings.Split(path, "/") {
+		if segment == ".." {
+			return true
+		}
+	}
+	return false
 }

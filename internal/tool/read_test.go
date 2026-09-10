@@ -32,6 +32,7 @@ func TestRead(t *testing.T) {
 		{name: "blank path", args: `{"path":"  "}`, want: ""},
 		{name: "absolute path", args: `{"path":"` + filepath.ToSlash(filepath.Join(root, "README.md")) + `"}`, want: ""},
 		{name: "parent path", args: `{"path":"../outside.txt"}`, want: ""},
+		{name: "parent path within root", args: `{"path":"unused/../README.md"}`, want: ""},
 		{name: "directory", args: `{"path":"."}`, want: ""},
 	}
 	for _, tt := range tests {
