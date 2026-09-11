@@ -81,6 +81,61 @@ func TestRunReadRoundTrip(t *testing.T) {
 	}
 }
 
+func TestRunReadRoundTripMultipleFiles(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		var request struct {
+			Model    string `json:"model"`
+			Messages []struct {
+				Role      string `json:"role"`
+				Content   string `json:"content"`
+				ToolCalls []struct {
+					ID       string `json:"id"`
+					Function struct {
+						Name      string `json:"name"`
+						Arguments string `json:"arguments"`
+					} `json:"function"`
+				} `json:"tool_calls"`
+				ToolCallID string `json:"tool_call_id"`
+			} `json:"messages"`
+			Tools []struct {
+				Type string `json:"type"`
+			} `json:"tools"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode request: %v", err)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		switch requests {
+		case 1:
+			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-app\",\"type\":\"function\",\"function\":{\"name\":\"read_file\",\"arguments\":\"{\\\"path\\\":\\\"app.go\\\"}\"}},{\"index\":1,\"id\":\"call-app-test\",\"type\":\"function\",\"function\":{\"name\":\"read_file\",\"arguments\":\"{\\\"path\\\":\\\"app_test.go\\\"}\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n")
+		case 2:
+			if request.Model != "test" || len(request.Tools) != 0 {
+				t.Errorf("second request model=%q tools=%#v", request.Model, request.Tools)
+			}
+			if len(request.Messages) != 4 || request.Messages[1].Role != "assistant" || len(request.Messages[1].ToolCalls) != 2 || request.Messages[1].ToolCalls[0].ID != "call-app" || request.Messages[1].ToolCalls[0].Function.Name != "read_file" || request.Messages[1].ToolCalls[0].Function.Arguments != `{"path":"app.go"}` || request.Messages[1].ToolCalls[1].ID != "call-app-test" || request.Messages[1].ToolCalls[1].Function.Name != "read_file" || request.Messages[1].ToolCalls[1].Function.Arguments != `{"path":"app_test.go"}` || request.Messages[2].Role != "tool" || request.Messages[2].ToolCallID != "call-app" || !strings.Contains(request.Messages[2].Content, "package app") || request.Messages[3].Role != "tool" || request.Messages[3].ToolCallID != "call-app-test" || !strings.Contains(request.Messages[3].Content, "TestRunReadRoundTrip") {
+				t.Errorf("second request messages = %#v", request.Messages)
+			}
+			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"项目摘要\"}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+		default:
+			t.Errorf("unexpected request %d", requests)
+		}
+	}))
+	defer server.Close()
+	getenv := func(key string) string {
+		return map[string]string{"OPENAI_API_KEY": "test-secret", "OPENAI_MODEL": "test", "OPENAI_BASE_URL": server.URL}[key]
+	}
+	var out, stderr bytes.Buffer
+	if code := Run(context.Background(), []string{"-p", "总结项目"}, getenv, &out, &stderr); code != 0 {
+		t.Fatalf("code = %d, stderr = %q", code, stderr.String())
+	}
+	if out.String() != "项目摘要\n" || stderr.String() != "" || requests != 2 {
+		t.Fatalf("out=%q stderr=%q requests=%d", out.String(), stderr.String(), requests)
+	}
+}
+
 func TestRunDirectAnswer(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
