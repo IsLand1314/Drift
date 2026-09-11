@@ -75,6 +75,13 @@ func Read(root, rawArguments string) (string, error) {
 		return "", fmt.Errorf("open read_file root: %w", err)
 	}
 	defer workspace.Close()
+	linkInfo, err := workspace.Lstat(args.Path)
+	if err != nil {
+		return "", fmt.Errorf("stat read_file target: %w", err)
+	}
+	if linkInfo.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("read_file target is not a regular file")
+	}
 
 	file, err := workspace.Open(args.Path)
 	if err != nil {

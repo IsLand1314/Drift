@@ -75,6 +75,23 @@ func TestRead(t *testing.T) {
 		}
 	})
 
+	t.Run("dotenv symlink alias", func(t *testing.T) {
+		secretFile := filepath.Join(root, ".env")
+		alias := filepath.Join(root, "env-link")
+		if err := os.WriteFile(secretFile, []byte("OPENAI_API_KEY=synthetic-secret"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(".env", alias); err != nil {
+			if errors.Is(err, os.ErrPermission) || errors.Is(err, os.ErrInvalid) || runtime.GOOS == "windows" {
+				t.Skipf("symlink unsupported: %v", err)
+			}
+			t.Fatal(err)
+		}
+		if got, err := Read(root, `{"path":"env-link"}`); err == nil || got != "" {
+			t.Fatalf("Read() = %q, %v; want denied dotenv symlink alias", got, err)
+		}
+	})
+
 	t.Run("symlink outside", func(t *testing.T) {
 		link := filepath.Join(root, "link.txt")
 		if err := os.Symlink(outside, link); err != nil {
