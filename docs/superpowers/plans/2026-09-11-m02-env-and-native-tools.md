@@ -17,6 +17,7 @@
 - Configuration precedence is CLI flags > process environment > project-local `.env` > built-in defaults.
 - A missing `.env` is valid; malformed `.env` lines fail before a provider request and must not print secret values.
 - `.env` is ignored; `.env.example` contains empty key material and is safe to commit.
+- The workspace reader refuses `.env` and every `.env.*` file so local credentials cannot enter model context.
 - First-turn text is buffered; only final native-tool-free text is emitted. Known DSML/pseudo-tool markers are an incompatibility error, not stdout content.
 - Commits use Chinese messages with `island` as author and committer.
 

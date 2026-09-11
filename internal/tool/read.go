@@ -66,6 +66,9 @@ func Read(root, rawArguments string) (string, error) {
 	if containsParentSegment(args.Path) {
 		return "", fmt.Errorf("read_file path must not contain ..")
 	}
+	if isDotEnvCredentialFile(filepath.Base(args.Path)) {
+		return "", fmt.Errorf("read_file target is restricted")
+	}
 
 	workspace, err := os.OpenRoot(root)
 	if err != nil {
@@ -103,4 +106,9 @@ func containsParentSegment(path string) bool {
 		}
 	}
 	return false
+}
+
+func isDotEnvCredentialFile(name string) bool {
+	name = strings.ToLower(name)
+	return name == ".env" || strings.HasPrefix(name, ".env.")
 }

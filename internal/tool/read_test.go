@@ -62,6 +62,19 @@ func TestRead(t *testing.T) {
 		}
 	})
 
+	t.Run("dotenv credential files", func(t *testing.T) {
+		for _, name := range []string{".env", ".env.local", ".env.example"} {
+			t.Run(name, func(t *testing.T) {
+				if err := os.WriteFile(filepath.Join(root, name), []byte("OPENAI_API_KEY=synthetic-secret"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if got, err := Read(root, `{"path":"`+name+`"}`); err == nil || got != "" {
+					t.Fatalf("Read() = %q, %v; want denied dotenv credential file", got, err)
+				}
+			})
+		}
+	})
+
 	t.Run("symlink outside", func(t *testing.T) {
 		link := filepath.Join(root, "link.txt")
 		if err := os.Symlink(outside, link); err != nil {

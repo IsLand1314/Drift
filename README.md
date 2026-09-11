@@ -2,7 +2,7 @@
 
 使用 Go 构建的本地只读 Coding Agent Runtime。当前完成 M0.2.2：模型可以在当前工作目录内读取一个小型文件集，再基于内容给出解释；本地配置和原生工具兼容性也有明确边界。
 
-M0.2 的单文件行为保持不变；M0.2.1 允许模型在首轮最多调用四次 `read_file`。每个文件最大 128 KiB、成功读取内容合计最大 512 KiB，且一次命令仍最多发起两次模型请求：首轮选择直接回答或读取文件，读取后第二轮生成最终回答。宽泛问题可在模型把读取控制在这四个文件内时得到项目摘要；需要更多文件时会收到明确的受限上限错误。没有写文件、删除文件、执行命令或运行程序的能力。
+M0.2 的单文件行为保持不变；M0.2.1 允许模型在首轮最多调用四次 `read_file`。每个文件最大 128 KiB、成功读取内容合计最大 512 KiB，且一次命令仍最多发起两次模型请求：首轮选择直接回答或读取文件，读取后第二轮生成最终回答。宽泛问题可在模型把读取控制在这四个文件内时得到项目摘要；需要更多文件时会收到明确的受限上限错误。`read_file` 不读取 dotenv 凭据文件：`.env` 与所有 `.env.*` 文件均会被拒绝。没有写文件、删除文件、执行命令或运行程序的能力。
 
 ## 快速开始
 
@@ -25,7 +25,7 @@ go run ./cmd/drift -p "解释 README.md 的项目作用"
 
 该示例会让模型按需读取当前目录的 `README.md`，然后只在 stdout 输出最终解释。模型也可在四文件、单文件 128 KiB、合计 512 KiB 的受限范围内读取更多上下文；一次命令最多发起两次模型请求。API 地址不含 `/chat/completions`；模型和地址也可通过 `-model`、`-base-url` 指定，`-h` 查看帮助。当前配置、只读边界和兼容性说明见 [M0.2.2 阶段说明](doc/m0.2.2-env-and-native-tools.md)；[历史快速开始](doc/getting-started.md) 仅供了解早期阶段行为。
 
-Drift 目前只提供原生 OpenAI `tool_calls` 中的 `read_file`，没有 `run_command`、shell 或 exec 工具，因此不会执行命令。若模型输出 `<｜｜DSML｜｜ calls>`（或 ASCII 变体）等文本，这不是原生 `tool_calls` 事件，而是模型生成的不兼容伪工具格式；Drift 会报告兼容性错误，不会把它打印到 stdout，也不会执行它。
+Drift 目前只提供原生 OpenAI `tool_calls` 中的 `read_file`，没有 `run_command`、shell 或 exec 工具，因此不会执行命令。若模型输出 `<｜｜DSML｜｜ calls>`（或 ASCII 变体）等文本，这不是原生 `tool_calls` 事件，而是模型生成的不兼容伪工具格式。当前兼容性守卫只检查“首轮没有原生 `tool_calls`、`finish_reason` 为 `stop`”时缓存的首轮文本；该范围内会报告错误，不会把文本打印到 stdout，也不会执行它。它不会拒绝伴随原生工具调用的 DSML 文本，也不会检查第二轮文本。
 
 ## 开发
 
@@ -41,4 +41,5 @@ go build ./cmd/drift
 
 - [当前交付范围与验收标准](spec/current.md)
 - [架构草案](doc/architecture.md)
-- [运行与开发说明](doc/getting-started.md)
+- [M0.2.2 配置、边界与兼容说明](doc/m0.2.2-env-and-native-tools.md)
+- [历史 M0 快速开始](doc/getting-started.md)

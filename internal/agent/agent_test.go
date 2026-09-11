@@ -383,6 +383,33 @@ func TestRunReadFailuresStillReachSecondTurn(t *testing.T) {
 	}
 }
 
+func TestRunSanitizesDotEnvReadFailureForSecondTurn(t *testing.T) {
+	root := t.TempDir()
+	const secret = "synthetic-openai-key-must-not-reach-model"
+	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("OPENAI_API_KEY="+secret+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	call := llm.ToolCall{ID: "call-env", Type: "function", Name: "read_file", Arguments: `{"path":".env"}`}
+	client := &scriptedClient{steps: []scriptedStep{
+		{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{call}}, FinishReason: "tool_calls"}},
+		{completion: llm.Completion{Assistant: llm.Message{Role: "assistant"}, FinishReason: "stop"}},
+	}}
+
+	if err := Run(context.Background(), client, root, "inspect configuration", func(string) error { return nil }); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if len(client.requests) != 2 {
+		t.Fatalf("requests = %d, want 2", len(client.requests))
+	}
+	result := client.requests[1].Messages[2]
+	if result.Content != "read_file failed: unable to read requested file" {
+		t.Fatalf("second-turn tool result = %q, want sanitized failure", result.Content)
+	}
+	if strings.Contains(result.Content, secret) {
+		t.Fatalf("second-turn tool result leaked credential: %q", result.Content)
+	}
+}
+
 func TestRunRejectsUnsupportedToolCallStates(t *testing.T) {
 	tests := []struct {
 		name        string

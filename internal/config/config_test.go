@@ -30,11 +30,12 @@ func TestLoadDotEnvParsesCommentsBlanksAndQuotedValues(t *testing.T) {
 
 func TestLoadDotEnvRejectsMalformedLineWithLineNumberWithoutValue(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".env")
-	if err := os.WriteFile(path, []byte("GOOD=ok\nNO_EQUALS\n"), 0600); err != nil {
+	const secret = "SECRET_VALUE"
+	if err := os.WriteFile(path, []byte("GOOD=ok\n"+secret+"\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	_, err := LoadDotEnv(path)
-	if err == nil || !strings.Contains(err.Error(), "line 2") || strings.Contains(err.Error(), "secret") {
+	if err == nil || !strings.Contains(err.Error(), "line 2") || strings.Contains(err.Error(), secret) {
 		t.Fatalf("LoadDotEnv() error = %v, want line number and no value", err)
 	}
 }
