@@ -92,6 +92,26 @@ func TestRead(t *testing.T) {
 		}
 	})
 
+	t.Run("symlink directory component", func(t *testing.T) {
+		targetDir := filepath.Join(root, "secret-dir")
+		aliasDir := filepath.Join(root, "dir-link")
+		if err := os.Mkdir(targetDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(targetDir, "secret.txt"), []byte("synthetic-secret"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink("secret-dir", aliasDir); err != nil {
+			if errors.Is(err, os.ErrPermission) || errors.Is(err, os.ErrInvalid) || runtime.GOOS == "windows" {
+				t.Skipf("symlink unsupported: %v", err)
+			}
+			t.Fatal(err)
+		}
+		if got, err := Read(root, `{"path":"dir-link/secret.txt"}`); err == nil || got != "" {
+			t.Fatalf("Read() = %q, %v; want denied symlink directory component", got, err)
+		}
+	})
+
 	t.Run("symlink outside", func(t *testing.T) {
 		link := filepath.Join(root, "link.txt")
 		if err := os.Symlink(outside, link); err != nil {

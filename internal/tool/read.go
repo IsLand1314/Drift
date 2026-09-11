@@ -75,11 +75,11 @@ func Read(root, rawArguments string) (string, error) {
 		return "", fmt.Errorf("open read_file root: %w", err)
 	}
 	defer workspace.Close()
-	linkInfo, err := workspace.Lstat(args.Path)
+	hasSymlink, err := hasSymlinkComponent(workspace, args.Path)
 	if err != nil {
 		return "", fmt.Errorf("stat read_file target: %w", err)
 	}
-	if linkInfo.Mode()&os.ModeSymlink != 0 {
+	if hasSymlink {
 		return "", fmt.Errorf("read_file target is not a regular file")
 	}
 
@@ -118,4 +118,27 @@ func containsParentSegment(path string) bool {
 func isDotEnvCredentialFile(name string) bool {
 	name = strings.ToLower(name)
 	return name == ".env" || strings.HasPrefix(name, ".env.")
+}
+
+func hasSymlinkComponent(root *os.Root, path string) (bool, error) {
+	clean := filepath.Clean(path)
+	current := ""
+	for _, component := range strings.Split(filepath.ToSlash(clean), "/") {
+		if component == "" || component == "." {
+			continue
+		}
+		if current == "" {
+			current = component
+		} else {
+			current = filepath.Join(current, component)
+		}
+		info, err := root.Lstat(current)
+		if err != nil {
+			return false, err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return true, nil
+		}
+	}
+	return false, nil
 }
