@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"gitee.com/island0920/drift/internal/llm"
+	"github.com/IsLand1314/Drift/internal/llm"
 )
 
 const wantNativeToolSystemInstruction = "Drift is read-only. Only use the supplied native read_file tool. run_command, shell, and exec are unavailable. Never emit XML, DSML, or pseudo-tool syntax."

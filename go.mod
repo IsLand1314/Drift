@@ -1,3 +1,3 @@
-module gitee.com/island0920/drift
+module github.com/IsLand1314/Drift
 
 go 1.26.0

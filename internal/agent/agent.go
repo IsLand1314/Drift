@@ -6,8 +6,8 @@ import (
 	"errors"
 	"strings"
 
-	"gitee.com/island0920/drift/internal/llm"
-	"gitee.com/island0920/drift/internal/tool"
+	"github.com/IsLand1314/Drift/internal/llm"
+	"github.com/IsLand1314/Drift/internal/tool"
 )
 
 const (

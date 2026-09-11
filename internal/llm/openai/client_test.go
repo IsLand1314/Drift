@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"gitee.com/island0920/drift/internal/llm"
+	"github.com/IsLand1314/Drift/internal/llm"
 )
 
 func TestStreamIsIncremental(t *testing.T) {

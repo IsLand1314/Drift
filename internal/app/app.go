@@ -9,10 +9,10 @@ import (
 	"os"
 	"strings"
 
-	"gitee.com/island0920/drift/internal/agent"
-	"gitee.com/island0920/drift/internal/config"
-	"gitee.com/island0920/drift/internal/llm"
-	"gitee.com/island0920/drift/internal/llm/openai"
+	"github.com/IsLand1314/Drift/internal/agent"
+	"github.com/IsLand1314/Drift/internal/config"
+	"github.com/IsLand1314/Drift/internal/llm"
+	"github.com/IsLand1314/Drift/internal/llm/openai"
 )
 
 type modelClient struct {

@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"gitee.com/island0920/drift/internal/llm"
+	"github.com/IsLand1314/Drift/internal/llm"
 )
 
 // MaxReadBytes 限制单个文件进入模型上下文的最大大小。
