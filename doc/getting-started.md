@@ -1,29 +1,25 @@
-# M0.2：运行只读文件解释 Agent
+# M0 第一步：运行流式对话
 
-Drift 是一个本地只读 Coding Agent Runtime。它使用 OpenAI Compatible Chat Completions SSE 连接模型，并只提供一个受限的 `read_file` 工具。
+当前已实现单次文本对话；工具调用、目录读取、多轮历史、JSONL 会话与 TUI 留待后续步骤。正式范围与验收标准见 [spec/current.md](../spec/current.md)，目标架构见 [architecture.md](architecture.md)。
 
-## 1. PowerShell 启动
+## PowerShell 启动
 
 需要 Go 1.26+ 和支持 Chat Completions SSE 的模型服务：
 
 ```powershell
-$env:OPENAI_API_KEY = "你的 API Key"
+$env:OPENAI_API_KEY = "你的 DeepSeek API Key"
 $env:OPENAI_BASE_URL = "https://api.deepseek.com"
 $env:OPENAI_MODEL = "deepseek-v4-flash"
-go run ./cmd/drift -p "解释 README.md 的项目作用"
+go run ./cmd/drift -p "你好，介绍一下自己"
 ```
 
-API 地址是根地址，不含 `/chat/completions`。`-model` 和 `-base-url` 可以覆盖环境变量，API Key 只从 `OPENAI_API_KEY` 读取，切勿写入仓库或终端日志。
+DeepSeek 的 OpenAI 兼容地址是 `https://api.deepseek.com`；Anthropic 兼容地址 `https://api.deepseek.com/anthropic` 不适用于当前 Provider。变量名中的下划线不需要反斜杠，URL 也不要写成 Markdown 的 `[地址](地址)` 格式。
 
-程序把启动目录作为 workspace。上例中模型可按需请求读取 `README.md`，然后输出最终解释。首轮直接回答会在收到 `stop` 后输出；读取路径则流式输出第二轮文字，首轮文本、推理和工具过程不会写入 stdout。成功时会补一个结尾换行；若第二轮失败，已写入的部分回答会保留在 stdout，错误信息写入 stderr 且以 1 退出。
+如下：
 
-## 2. 明确边界
+![第一次聊天](https://gitee.com/island1314/img/raw/master/img/image-20260910170438648.png)
 
-一次命令最多执行两次模型请求：第一轮只能选择直接回答，或调用一次 `read_file`；调用后才发送第二轮，且第二轮没有任何工具。直接回答只需要第一轮。
-
-`read_file` 只能读取 workspace 内的相对常规文件，且文件最多 128 KiB。它拒绝绝对路径、`..`、符号链接逃逸、目录和非常规文件。Drift 没有写入、删除、重命名或修改文件的工具，也不能执行 shell 命令或运行程序。
-
-## 3. 参数、取消和退出码
+地址默认 `https://api.openai.com/v1`，应填 API 根地址，不含 `/chat/completions`。密钥只从环境变量读取，不要提交到仓库。
 
 ```powershell
 go build -o drift.exe ./cmd/drift
@@ -31,18 +27,9 @@ go build -o drift.exe ./cmd/drift
 ./drift.exe -h
 ```
 
-地址默认 `https://api.openai.com/v1`。缺少 Key、模型、提示词或命令参数错误时不会发出请求。Ctrl+C 取消正在进行的请求；每次模型请求最多五分钟。
+`-model` 和 `-base-url` 覆盖环境变量。stdout 输出回复，stderr 输出帮助和错误。Ctrl+C 取消，单次请求最多五分钟。退出码：0 成功、1 请求或输出失败、2 配置或参数错误、130 取消。失败时保留已输出的部分回复。
 
-无法解析读取参数或找不到可读取文件时，`read_file` 会把脱敏失败结果交给第二轮模型；若第二轮正常完成，命令仍以 0 退出。网络、SSE 协议、无效 Agent 状态或 stdout 错误才会终止运行。
-
-| 情况 | 退出码 |
-| --- | ---: |
-| 正常完成 | 0 |
-| 网络、协议、无效 Agent 状态或 stdout 错误 | 1 |
-| 参数或配置错误 | 2 |
-| Ctrl+C / context 取消 | 130 |
-
-## 4. 开发检查
+## 开发检查
 
 ```powershell
 go test ./...
@@ -50,4 +37,262 @@ go vet ./...
 go build ./cmd/drift
 ```
 
-测试使用本地模拟 SSE 服务，不需要 API Key，也不调用外部模型。当前调用链是 `cmd/drift → app → agent → llm/openai`；app 负责命令行、模型配置、workspace 和 stdout/stderr，agent 负责受限的两轮只读循环。
+测试使用本地模拟服务，不需要密钥，不调用外部模型。只依赖标准库，因此没有 `go.sum`。
+
+当前调用链：`cmd/drift → app → llm/openai + ui/print`。print 只依赖统一的 `llm.Client`；实现采用同步增量回调，输出失败和取消可以沿调用链直接返回。
+
+协议参考：[Chat Completions API](https://developers.openai.com/api/reference/resources/chat)。当前处理文本增量与 `[DONE]` 标记，非正常结束、服务端错误及提前断流均返回错误。
+
+
+## 2. 当前代码目录
+
+~~~text
+cmd/drift/main.go                 # 进程入口、Ctrl+C 信号
+internal/app/app.go               # 参数、环境变量、依赖组装、退出码
+internal/llm/client.go            # Provider 无关的消息和 Client 接口
+internal/llm/openai/client.go     # OpenAI Compatible HTTP + SSE 适配器
+internal/ui/print/print.go        # 把文本增量写到 stdout
+internal/*/*_test.go              # 本地模拟服务和参数测试
+spec/current.md                   # 当前版本范围与验收标准
+doc/architecture.md               # 目标架构
+~~~
+
+第一步刻意只有一个 Go Module 和标准库。Provider、运行时和输出层已经分包，但没有提前建立 Agent、Tool、Session 等尚未使用的抽象。
+
+## 3. 调用流程
+
+~~~mermaid
+sequenceDiagram
+    participant OS as PowerShell
+    participant Main as cmd/drift
+    participant App as internal/app
+    participant UI as ui/print
+    participant LLM as llm/openai
+    participant API as 模型服务
+
+    OS->>Main: drift -p "你好"
+    Main->>Main: NotifyContext(os.Interrupt)
+    Main->>App: Run(ctx, args, os.Getenv, stdout, stderr)
+    App->>App: 解析 -p / -model / -base-url
+    App->>LLM: New(baseURL, apiKey)
+    App->>UI: Run(ctx, client, request, stdout)
+    UI->>LLM: Stream(ctx, request, emit)
+    LLM->>API: POST {baseURL}/chat/completions
+    API-->>LLM: SSE data 增量
+    LLM-->>UI: emit("文本片段")
+    UI-->>OS: stdout 实时显示
+    API-->>LLM: data: [DONE]
+    LLM-->>App: nil
+    App-->>Main: 退出码 0
+~~~
+
+### 3.1 入口和取消
+
+`cmd/drift/main.go` 不知道 Provider 的具体实现，只做两件事：建立带 Ctrl+C 的 `context.Context`，再把命令行参数和标准输入输出交给 `app.Run`。
+
+~~~go
+ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+code := app.Run(ctx, os.Args[1:], os.Getenv, os.Stdout, os.Stderr)
+stop()
+os.Exit(code)
+~~~
+
+`http.NewRequestWithContext` 会把这个 context 传到 HTTP 请求。用户按 Ctrl+C 后，请求会被取消，错误一路返回到 `app.Run`，最后返回 130。
+
+### 3.2 参数和环境变量
+
+`internal/app/app.go` 使用标准库 `flag`，解析结果按以下优先级处理：
+
+~~~text
+-model / -base-url 命令行参数
+        > OPENAI_MODEL / OPENAI_BASE_URL 环境变量
+        > 默认 base URL：https://api.openai.com/v1
+~~~
+
+`OPENAI_API_KEY` 没有命令行参数，避免 Key 出现在进程命令行和进程列表中。缺少 Key、模型、提示词或命令参数错误时，请求不会发出，直接返回 2。
+
+### 3.3 Provider 接口
+
+Agent 层未来只依赖这个接口，不依赖 OpenAI、Anthropic 或 DeepSeek 的 SDK 类型：
+
+~~~go
+type Client interface {
+    Stream(
+        context.Context,
+        Request,
+        func(text string) error,
+    ) error
+}
+
+type Message struct {
+    Role    string `json:"role"`
+    Content string `json:"content"`
+}
+
+type Request struct {
+    Model    string    `json:"model"`
+    Messages []Message `json:"messages"`
+}
+~~~
+
+这里使用同步增量回调，而不是让每层各自创建 channel。回调返回错误即可停止输出，context 负责停止网络请求；第一步不需要额外的 goroutine 生命周期管理。未来 Agent Loop 可以继续消费同一接口。
+
+### 3.4 HTTP 请求
+
+`openai.New` 接收 API 根地址，并统一补上 `/chat/completions`：
+
+~~~go
+u.Path = strings.TrimRight(u.Path, "/") + "/chat/completions"
+~~~
+
+例如：
+
+~~~text
+OPENAI_BASE_URL=https://api.deepseek.com
+实际请求=https://api.deepseek.com/chat/completions
+~~~
+
+请求体目前只包含一条用户消息和 `stream: true`：
+
+~~~json
+{
+  "model": "deepseek-v4-flash",
+  "messages": [
+    {"role": "user", "content": "你好，介绍一下自己"}
+  ],
+  "stream": true
+}
+~~~
+
+请求头为：
+
+~~~text
+Authorization: Bearer <API Key>
+Content-Type: application/json
+Accept: text/event-stream
+~~~
+
+Provider 返回非 200 状态码时，程序只显示状态码，不原样打印服务端响应体。这样可以避免服务端错误体意外包含 Key、提示词或其他敏感信息。
+
+### 3.5 SSE 解析
+
+模型的流式响应通常是一组空行分隔的 SSE 事件：
+
+~~~text
+data: {"choices":[{"delta":{"content":"你"}}]}
+
+data: {"choices":[{"delta":{"content":"好"}}]}
+
+data: [DONE]
+~~~
+
+`readStream` 的处理顺序是：
+
+1. 使用 `bufio.Scanner` 按行读取，并把单个事件限制在 1 MiB 内。
+2. 收集 `data:` 行，遇到空行时合并为一个事件。
+3. `[DONE]` 表示正常结束并返回 `nil`。
+4. 其他事件解析 JSON，只取 `choices[0].delta.content`。
+5. 每取得一个文本片段就调用 `emit`，因此终端不需要等待完整回复。
+6. 无效 JSON、服务端错误、非正常 finish reason、Scanner 错误和提前断流都返回错误。
+
+当前只处理文本增量。思考块、工具调用增量、usage 和多 choice 会在引入 Agent Loop 后扩展统一事件类型。
+
+### 3.6 终端输出
+
+`internal/ui/print` 只做输出适配：Provider 每给一段文本，它就写一段 stdout；回复末尾没有换行时补一个换行。它不认识 HTTP，也不认识任何具体模型。
+
+~~~go
+err := client.Stream(ctx, req, func(text string) error {
+    _, err := io.WriteString(out, text)
+    return err
+})
+~~~
+
+因此未来增加 TUI 或 Web 时，可以复用 `llm.Client` 和运行时事件，不需要把 HTTP 代码复制到 UI 中。
+
+
+## 4. 错误和退出码
+
+| 情况 | 行为 | 退出码 |
+| --- | --- | ---: |
+| 正常收到 `[DONE]` | stdout 输出完整文本 | 0 |
+| 参数、模型或 Key 缺失 | stderr 提示，请求不发送 | 2 |
+| HTTP 非 200、SSE 无效或提前断流 | stderr 输出脱敏错误 | 1 |
+| Ctrl+C / context 取消 | stderr 输出“已取消” | 130 |
+| stdout 写入失败 | 停止流并返回错误 | 1 |
+
+已经输出的文本不会回滚，这是流式终端程序的正常行为。下一阶段加入会话存储后，再定义中断消息如何落盘。
+
+## 5. 测试设计
+
+测试不调用真实模型，使用 `httptest.NewServer` 模拟 SSE 服务，因此不需要 API Key，也不会消耗额度。当前覆盖：
+
+- 请求路径、Authorization、模型、用户消息和 `stream: true`；
+- 中文文本分片是否按顺序拼接；
+- CRLF、空行和 `[DONE]`；
+- 401、429、500、302 等 HTTP 错误；
+- 无效 JSON、服务端错误、超长事件、提前断流；
+- callback 输出失败和 context 取消；
+- CLI 缺少配置、帮助、非法参数、错误 URL 和成功退出。
+
+运行检查：
+
+~~~powershell
+go test ./...
+go vet ./...
+go build ./cmd/drift
+~~~
+
+## 6. 当前设计边界和下一步
+
+这一阶段完成的是一次模型请求，不是完整 Agent：
+
+~~~text
+一次用户输入 -> 一次模型请求 -> 一次文本流输出
+~~~
+
+现在还不能读取目录、调用工具、根据工具结果继续请求，也没有多轮上下文。先把 Provider 协议、流式事件、取消和错误边界稳定下来，下一步就能在不改 UI 的情况下加入 `agent` 包。
+
+加入第一个 `read` 工具后，调用链会变成：
+
+~~~text
+用户输入
+  -> Agent 发送带工具 schema 的请求
+  -> 模型返回文本或 Tool Call
+  -> Tool Registry 找到 read
+  -> workspace policy 校验路径
+  -> read 执行并返回 Tool Result
+  -> Agent 把 Tool Result 放入下一轮上下文
+  -> 模型生成最终回复
+~~~
+
+这也是当前 `llm.Client` 接口保留 `Request.Messages` 和统一 `Stream` 方法的原因：Provider 适配层可以继续复用，Agent 只扩展消息和事件，不重写 HTTP 层。
+
+## 7. 常见问题
+
+### HTTP 401
+
+先确认当前地址和模型：
+
+~~~powershell
+$env:OPENAI_BASE_URL
+$env:OPENAI_MODEL
+[bool]$env:OPENAI_API_KEY
+~~~
+
+然后直接验证 Key（不会把 Key 打到终端）：
+
+~~~powershell
+curl.exe -i https://api.deepseek.com/models `
+  -H "Authorization: Bearer $env:OPENAI_API_KEY"
+~~~
+
+如果 DeepSeek 返回 `Authentication Fails` 或 `api key ... is invalid`，是 Key 无效、撤销或复制错误，需要在 DeepSeek 开放平台重新创建。`HTTP/1.1 200 Connection established` 只代表代理建立了 HTTPS 隧道，不代表 API 认证成功。
+
+### 为什么不能填 Anthropic 地址
+
+当前代码发送的是 OpenAI Chat Completions 请求，路径固定为 `/chat/completions`。Anthropic 兼容接口使用另一套 `/messages` 请求体和事件格式，必须等 Drift 增加独立的 `internal/llm/anthropic` Provider 后才能使用。
+
+### API Key 会不会提交到 Git
+
+不会。程序只读取 `OPENAI_API_KEY`，仓库里没有保存它。不要把 Key 放在 `README`、`.env`、代码、截图或错误日志中；如果曾经泄露，立即在服务商控制台撤销并重建。
