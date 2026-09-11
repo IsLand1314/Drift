@@ -110,6 +110,9 @@ func TestRunReadRoundTripMultipleFiles(t *testing.T) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		switch requests {
 		case 1:
+			if request.Model != "test" || len(request.Messages) != 1 || request.Messages[0].Role != "user" || request.Messages[0].Content != "总结项目" {
+				t.Errorf("first request messages = %#v", request.Messages)
+			}
 			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-app\",\"type\":\"function\",\"function\":{\"name\":\"read_file\",\"arguments\":\"{\\\"path\\\":\\\"app.go\\\"}\"}},{\"index\":1,\"id\":\"call-app-test\",\"type\":\"function\",\"function\":{\"name\":\"read_file\",\"arguments\":\"{\\\"path\\\":\\\"app_test.go\\\"}\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n")
 		case 2:
 			if request.Model != "test" || len(request.Tools) != 0 {
