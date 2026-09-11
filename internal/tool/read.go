@@ -67,34 +67,24 @@ func Read(root, rawArguments string) (string, error) {
 		return "", fmt.Errorf("read_file path must not contain ..")
 	}
 
-	resolvedRoot, err := resolvePath(root)
+	workspace, err := os.OpenRoot(root)
 	if err != nil {
-		return "", fmt.Errorf("resolve read_file root: %w", err)
+		return "", fmt.Errorf("open read_file root: %w", err)
 	}
-	resolvedTarget, err := resolvePath(filepath.Join(resolvedRoot, args.Path))
-	if err != nil {
-		return "", fmt.Errorf("resolve read_file target: %w", err)
-	}
-	relative, err := filepath.Rel(resolvedRoot, resolvedTarget)
-	if err != nil {
-		return "", fmt.Errorf("check read_file containment: %w", err)
-	}
-	if filepath.IsAbs(relative) || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("read_file path escapes root")
-	}
+	defer workspace.Close()
 
-	info, err := os.Stat(resolvedTarget)
+	file, err := workspace.Open(args.Path)
+	if err != nil {
+		return "", fmt.Errorf("open read_file target: %w", err)
+	}
+	defer file.Close()
+	info, err := file.Stat()
 	if err != nil {
 		return "", fmt.Errorf("stat read_file target: %w", err)
 	}
 	if !info.Mode().IsRegular() {
 		return "", fmt.Errorf("read_file target is not a regular file")
 	}
-	file, err := os.Open(resolvedTarget)
-	if err != nil {
-		return "", fmt.Errorf("open read_file target: %w", err)
-	}
-	defer file.Close()
 	content, err := io.ReadAll(io.LimitReader(file, MaxReadBytes+1))
 	if err != nil {
 		return "", fmt.Errorf("read_file target: %w", err)
@@ -103,14 +93,6 @@ func Read(root, rawArguments string) (string, error) {
 		return "", fmt.Errorf("read_file target exceeds %d bytes", MaxReadBytes)
 	}
 	return string(content), nil
-}
-
-func resolvePath(path string) (string, error) {
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return "", err
-	}
-	return filepath.EvalSymlinks(abs)
 }
 
 func containsParentSegment(path string) bool {

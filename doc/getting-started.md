@@ -15,7 +15,7 @@ go run ./cmd/drift -p "解释 README.md 的项目作用"
 
 API 地址是根地址，不含 `/chat/completions`。`-model` 和 `-base-url` 可以覆盖环境变量，API Key 只从 `OPENAI_API_KEY` 读取，切勿写入仓库或终端日志。
 
-程序把启动目录作为 workspace。上例中模型可按需请求读取 `README.md`，然后输出最终解释。stdout 只包含最终模型文字；帮助、错误和取消信息写入 stderr。成功时会补一个结尾换行。
+程序把启动目录作为 workspace。上例中模型可按需请求读取 `README.md`，然后输出最终解释。首轮直接回答会在收到 `stop` 后输出；读取路径则流式输出第二轮文字，首轮文本、推理和工具过程不会写入 stdout。成功时会补一个结尾换行；若第二轮失败，已写入的部分回答会保留在 stdout，错误信息写入 stderr 且以 1 退出。
 
 ## 2. 明确边界
 

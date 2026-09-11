@@ -38,15 +38,14 @@ func Run(
 		return err
 	}
 
-	switch completion.FinishReason {
-	case "stop":
-		return emitText(firstText.String())
-	case "tool_calls":
-		if len(completion.Assistant.ToolCalls) != 1 {
-			return errExpectedOneToolCall
+	if len(completion.Assistant.ToolCalls) == 0 {
+		if completion.FinishReason == "stop" {
+			return emitText(firstText.String())
 		}
-	default:
 		return errUnexpectedFirstCompletion
+	}
+	if len(completion.Assistant.ToolCalls) != 1 {
+		return errExpectedOneToolCall
 	}
 
 	call := completion.Assistant.ToolCalls[0]
@@ -69,7 +68,7 @@ func Run(
 	if err != nil {
 		return err
 	}
-	if completion.FinishReason != "stop" {
+	if completion.FinishReason != "stop" || len(completion.Assistant.ToolCalls) != 0 {
 		return errUnexpectedSecondCompletion
 	}
 	return nil

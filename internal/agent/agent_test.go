@@ -130,6 +130,37 @@ func TestRunReadRoundTrip(t *testing.T) {
 	}
 }
 
+func TestRunFirstStopWithToolCallUsesReadRoundTrip(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("hello from readme\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	call := llm.ToolCall{ID: "call-1", Type: "function", Name: "read_file", Arguments: `{"path":"README.md"}`}
+	client := &scriptedClient{steps: []scriptedStep{
+		{
+			events:     []llm.StreamEvent{{Text: "I will inspect it."}},
+			completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "I will inspect it.", ToolCalls: []llm.ToolCall{call}}, FinishReason: "stop"},
+		},
+		{
+			events:     []llm.StreamEvent{{Text: "The README says hello."}},
+			completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "The README says hello."}, FinishReason: "stop"},
+		},
+	}}
+	var output []string
+	if err := Run(context.Background(), client, root, "read the readme", func(text string) error {
+		output = append(output, text)
+		return nil
+	}); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if !reflect.DeepEqual(output, []string{"The README says hello."}) {
+		t.Fatalf("output = %q, want final answer only", output)
+	}
+	if len(client.requests) != 2 {
+		t.Fatalf("requests = %d, want 2", len(client.requests))
+	}
+}
+
 func TestRunReadFailuresStillReachSecondTurn(t *testing.T) {
 	for _, test := range []struct {
 		name      string
@@ -220,6 +251,28 @@ func TestRunRejectsSecondTurnToolCalls(t *testing.T) {
 	}
 	if !reflect.DeepEqual(output, []string{"partial final"}) {
 		t.Fatalf("output = %q, want streamed second-turn text", output)
+	}
+}
+
+func TestRunRejectsSecondStopWithToolCall(t *testing.T) {
+	call := llm.ToolCall{ID: "call-1", Type: "function", Name: "read_file", Arguments: `{"path":"README.md"}`}
+	client := &scriptedClient{steps: []scriptedStep{
+		{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{call}}, FinishReason: "tool_calls"}},
+		{events: []llm.StreamEvent{{Text: "partial final"}}, completion: llm.Completion{
+			Assistant:    llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{call}},
+			FinishReason: "stop",
+		}},
+	}}
+	var output []string
+	err := Run(context.Background(), client, t.TempDir(), "test", func(text string) error {
+		output = append(output, text)
+		return nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "unexpected second completion") {
+		t.Fatalf("Run() error = %v, want unexpected second completion", err)
+	}
+	if !reflect.DeepEqual(output, []string{"partial final"}) {
+		t.Fatalf("output = %q, want streamed second-turn text preserved", output)
 	}
 }
 
