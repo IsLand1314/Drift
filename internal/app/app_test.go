@@ -7,9 +7,38 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestRunLoadsDotEnv(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"dotenv answer\"}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	defer server.Close()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("OPENAI_API_KEY=dotenv-secret\nOPENAI_MODEL=dotenv-model\nOPENAI_BASE_URL="+server.URL+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	old, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(old) })
+	var out, stderr bytes.Buffer
+	if code := Run(context.Background(), []string{"-p", "hello"}, func(string) string { return "" }, &out, &stderr); code != 0 {
+		t.Fatalf("code = %d, stderr = %q", code, stderr.String())
+	}
+	if out.String() != "dotenv answer\n" || stderr.String() != "" {
+		t.Fatalf("out=%q stderr=%q", out.String(), stderr.String())
+	}
+}
 
 func TestRunReadRoundTrip(t *testing.T) {
 	requests := 0

@@ -20,3 +20,5 @@
 /.worktrees/
 /.drift/
 /.env
+/.env.*
+!/.env.example

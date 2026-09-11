@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"gitee.com/island0920/drift/internal/agent"
+	"gitee.com/island0920/drift/internal/config"
 	"gitee.com/island0920/drift/internal/llm"
 	"gitee.com/island0920/drift/internal/llm/openai"
 )
@@ -27,12 +28,18 @@ func (c modelClient) Stream(ctx context.Context, request llm.Request, emit func(
 func Run(ctx context.Context, args []string, getenv func(string) string, out, stderr io.Writer) int {
 	flags := flag.NewFlagSet("drift", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	base := getenv("OPENAI_BASE_URL")
+	dotenv, err := config.LoadDotEnv(".env")
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	lookup := func(key string) string { return config.MergeLookup(dotenv, getenv, key) }
+	base := lookup("OPENAI_BASE_URL")
 	if base == "" {
 		base = "https://api.openai.com/v1"
 	}
 	prompt := flags.String("p", "", "发送一次提示词并流式输出回复")
-	model := flags.String("model", getenv("OPENAI_MODEL"), "模型名称（默认 OPENAI_MODEL）")
+	model := flags.String("model", lookup("OPENAI_MODEL"), "模型名称（默认 OPENAI_MODEL）")
 	baseURL := flags.String("base-url", base, "API 根地址，包含 /v1，不含 /chat/completions")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -44,7 +51,7 @@ func Run(ctx context.Context, args []string, getenv func(string) string, out, st
 		fmt.Fprintln(stderr, "用法：drift -p \"你好\" [-model 模型名] [-base-url API根地址]")
 		return 2
 	}
-	key := strings.TrimSpace(getenv("OPENAI_API_KEY"))
+	key := strings.TrimSpace(lookup("OPENAI_API_KEY"))
 	if key == "" || strings.TrimSpace(*model) == "" {
 		fmt.Fprintln(stderr, "请设置 OPENAI_API_KEY，并通过 OPENAI_MODEL 或 -model 指定模型")
 		return 2
