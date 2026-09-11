@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRunLoadsDotEnv(t *testing.T) {
@@ -37,6 +38,89 @@ func TestRunLoadsDotEnv(t *testing.T) {
 	}
 	if out.String() != "dotenv answer\n" || stderr.String() != "" {
 		t.Fatalf("out=%q stderr=%q", out.String(), stderr.String())
+	}
+}
+
+func TestRunFlagConfigOverridesProcessAndDotEnv(t *testing.T) {
+	type observation struct {
+		model string
+		path  string
+	}
+	newServer := func(observed chan<- observation) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var request struct {
+				Model string `json:"model"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				t.Errorf("decode request: %v", err)
+				return
+			}
+			observed <- observation{model: request.Model, path: r.URL.Path}
+			w.Header().Set("Content-Type", "text/event-stream")
+			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+		}))
+	}
+	dotenvObserved := make(chan observation, 1)
+	envObserved := make(chan observation, 1)
+	flagObserved := make(chan observation, 1)
+	dotenvServer := newServer(dotenvObserved)
+	envServer := newServer(envObserved)
+	flagServer := newServer(flagObserved)
+	defer dotenvServer.Close()
+	defer envServer.Close()
+	defer flagServer.Close()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("OPENAI_API_KEY=dotenv-secret\nOPENAI_MODEL=dotenv-model\nOPENAI_BASE_URL="+dotenvServer.URL+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	old, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(old) })
+	getenv := func(key string) string {
+		return map[string]string{
+			"OPENAI_API_KEY":  "process-secret",
+			"OPENAI_MODEL":    "process-model",
+			"OPENAI_BASE_URL": envServer.URL,
+		}[key]
+	}
+	var out, stderr bytes.Buffer
+	if code := Run(context.Background(), []string{"-p", "process config"}, getenv, &out, &stderr); code != 0 {
+		t.Fatalf("process config code=%d stderr=%q", code, stderr.String())
+	}
+	select {
+	case got := <-envObserved:
+		if got.model != "process-model" || got.path != "/chat/completions" {
+			t.Fatalf("process config observation=%+v", got)
+		}
+	case <-dotenvObserved:
+		t.Fatal("dotenv endpoint used despite process override")
+	case <-time.After(time.Second):
+		t.Fatal("process endpoint did not receive a request")
+	}
+	out.Reset()
+	stderr.Reset()
+	if code := Run(context.Background(), []string{"-p", "flag config", "-model", "flag-model", "-base-url", flagServer.URL}, getenv, &out, &stderr); code != 0 {
+		t.Fatalf("flag config code=%d stderr=%q", code, stderr.String())
+	}
+	select {
+	case got := <-flagObserved:
+		if got.model != "flag-model" || got.path != "/chat/completions" {
+			t.Fatalf("flag config observation=%+v", got)
+		}
+	case <-envObserved:
+		t.Fatal("process endpoint used despite flag override")
+	case <-dotenvObserved:
+		t.Fatal("dotenv endpoint used despite flag override")
+	case <-time.After(time.Second):
+		t.Fatal("flag endpoint did not receive a request")
+	}
+	if strings.Contains(out.String()+stderr.String(), "secret") {
+		t.Fatal("configuration secret leaked")
 	}
 }
 

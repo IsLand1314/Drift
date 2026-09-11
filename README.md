@@ -23,7 +23,7 @@ go run ./cmd/drift -p "解释 README.md 的项目作用"
 
 配置优先级为：命令行 `-model`/`-base-url` > 进程环境变量 > 当前目录 `.env` > 内置默认值。API Key 没有命令行参数，只从环境变量或 `.env` 读取；缺少 Key 或模型时，请求不会发出。
 
-该示例会让模型按需读取当前目录的 `README.md`，然后只在 stdout 输出最终解释。模型也可在四文件、单文件 128 KiB、合计 512 KiB 的受限范围内读取更多上下文；一次命令最多发起两次模型请求。API 地址不含 `/chat/completions`；模型和地址也可通过 `-model`、`-base-url` 指定，`-h` 查看帮助。完整配置、构建、只读边界和退出码说明见 [快速开始](doc/getting-started.md) 与 [M0.2.2 阶段说明](doc/m0.2.2-env-and-native-tools.md)。
+该示例会让模型按需读取当前目录的 `README.md`，然后只在 stdout 输出最终解释。模型也可在四文件、单文件 128 KiB、合计 512 KiB 的受限范围内读取更多上下文；一次命令最多发起两次模型请求。API 地址不含 `/chat/completions`；模型和地址也可通过 `-model`、`-base-url` 指定，`-h` 查看帮助。当前配置、只读边界和兼容性说明见 [M0.2.2 阶段说明](doc/m0.2.2-env-and-native-tools.md)；[历史快速开始](doc/getting-started.md) 仅供了解早期阶段行为。
 
 Drift 目前只提供原生 OpenAI `tool_calls` 中的 `read_file`，没有 `run_command`、shell 或 exec 工具，因此不会执行命令。若模型输出 `<｜｜DSML｜｜ calls>`（或 ASCII 变体）等文本，这不是原生 `tool_calls` 事件，而是模型生成的不兼容伪工具格式；Drift 会报告兼容性错误，不会把它打印到 stdout，也不会执行它。
 
