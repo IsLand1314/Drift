@@ -10,10 +10,15 @@ import (
 	"gitee.com/island0920/drift/internal/tool"
 )
 
+const (
+	MaxToolCalls      = 4
+	MaxTotalReadBytes = 512 << 10
+)
+
 var (
 	errUnexpectedFirstCompletion  = errors.New("agent: unexpected first completion")
 	errUnexpectedSecondCompletion = errors.New("agent: unexpected second completion")
-	errExpectedOneToolCall        = errors.New("agent: expected exactly one tool call")
+	errTooManyToolCalls           = errors.New("agent: 最多读取 4 个文件")
 	errUnsupportedTool            = errors.New("agent: unsupported tool")
 )
 
@@ -44,20 +49,29 @@ func Run(
 		}
 		return errUnexpectedFirstCompletion
 	}
-	if len(completion.Assistant.ToolCalls) != 1 {
-		return errExpectedOneToolCall
+	calls := completion.Assistant.ToolCalls
+	if len(calls) > MaxToolCalls {
+		return errTooManyToolCalls
+	}
+	for _, call := range calls {
+		if call.Name != "read_file" {
+			return errUnsupportedTool
+		}
 	}
 
-	call := completion.Assistant.ToolCalls[0]
-	if call.Name != "read_file" {
-		return errUnsupportedTool
-	}
 	messages = append(messages, completion.Assistant)
-	content, readErr := tool.Read(root, call.Arguments)
-	if readErr != nil {
-		content = "read_file failed: unable to read requested file"
+	readBytes := 0
+	for _, call := range calls {
+		content, readErr := tool.Read(root, call.Arguments)
+		if readErr != nil {
+			content = "read_file failed: unable to read requested file"
+		} else if readBytes+len(content) > MaxTotalReadBytes {
+			content = "read_file failed: total read limit exceeded"
+		} else {
+			readBytes += len(content)
+		}
+		messages = append(messages, llm.Message{Role: "tool", Content: content, ToolCallID: call.ID})
 	}
-	messages = append(messages, llm.Message{Role: "tool", Content: content, ToolCallID: call.ID})
 
 	completion, err = client.Stream(ctx, llm.Request{Messages: messages}, func(event llm.StreamEvent) error {
 		if event.Text == "" {

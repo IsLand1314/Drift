@@ -130,6 +130,118 @@ func TestRunReadRoundTrip(t *testing.T) {
 	}
 }
 
+func TestRunMultipleReadRoundTrip(t *testing.T) {
+	root := t.TempDir()
+	for path, content := range map[string]string{
+		"README.md":       "readme\n",
+		"go.mod":          "module example.com/drift\n",
+		"spec/current.md": "current spec\n",
+	} {
+		filename := filepath.Join(root, path)
+		if err := os.MkdirAll(filepath.Dir(filename), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filename, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	calls := []llm.ToolCall{
+		{ID: "call-readme", Type: "function", Name: "read_file", Arguments: `{"path":"README.md"}`},
+		{ID: "call-module", Type: "function", Name: "read_file", Arguments: `{"path":"go.mod"}`},
+		{ID: "call-spec", Type: "function", Name: "read_file", Arguments: `{"path":"spec/current.md"}`},
+	}
+	first := llm.Message{Role: "assistant", Content: "I will inspect the files.", ToolCalls: calls}
+	client := &scriptedClient{steps: []scriptedStep{
+		{events: []llm.StreamEvent{{Text: "I will inspect the files."}}, completion: llm.Completion{Assistant: first, FinishReason: "tool_calls"}},
+		{events: []llm.StreamEvent{{Text: "The files are consistent."}}, completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "The files are consistent."}, FinishReason: "stop"}},
+	}}
+	var output []string
+	if err := Run(context.Background(), client, root, "inspect the project", func(text string) error {
+		output = append(output, text)
+		return nil
+	}); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if !reflect.DeepEqual(output, []string{"The files are consistent."}) {
+		t.Fatalf("output = %#v, want final text only", output)
+	}
+	if len(client.requests) != 2 {
+		t.Fatalf("requests = %d, want 2", len(client.requests))
+	}
+	second := client.requests[1]
+	if len(second.Tools) != 0 {
+		t.Fatalf("second request tools = %#v, want none", second.Tools)
+	}
+	wantMessages := []llm.Message{
+		{Role: "user", Content: "inspect the project"},
+		first,
+		{Role: "tool", Content: "readme\n", ToolCallID: "call-readme"},
+		{Role: "tool", Content: "module example.com/drift\n", ToolCallID: "call-module"},
+		{Role: "tool", Content: "current spec\n", ToolCallID: "call-spec"},
+	}
+	if !reflect.DeepEqual(second.Messages, wantMessages) {
+		t.Fatalf("second request messages = %#v, want %#v", second.Messages, wantMessages)
+	}
+}
+
+func TestRunRejectsTooManyToolCalls(t *testing.T) {
+	calls := make([]llm.ToolCall, 5)
+	for i := range calls {
+		calls[i] = llm.ToolCall{ID: string(rune('a' + i)), Type: "function", Name: "read_file", Arguments: `{"path":"README.md"}`}
+	}
+	client := &scriptedClient{steps: []scriptedStep{{
+		completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: calls}, FinishReason: "tool_calls"},
+	}}}
+	err := Run(context.Background(), client, t.TempDir(), "read files", func(string) error { return nil })
+	if err == nil || !strings.Contains(err.Error(), "最多读取 4 个文件") {
+		t.Fatalf("Run() error = %v, want maximum files error", err)
+	}
+	if len(client.requests) != 1 {
+		t.Fatalf("requests = %d, want 1", len(client.requests))
+	}
+}
+
+func TestRunEnforcesAggregateReadBudget(t *testing.T) {
+	root := t.TempDir()
+	calls := make([]llm.ToolCall, 4)
+	for i := range calls {
+		path := "file" + string(rune('a'+i)) + ".txt"
+		content := strings.Repeat(string(rune('a'+i)), 128<<10)
+		if err := os.WriteFile(filepath.Join(root, path), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		calls[i] = llm.ToolCall{ID: "call-" + string(rune('a'+i)), Type: "function", Name: "read_file", Arguments: `{"path":"` + path + `"}`}
+	}
+	client := &scriptedClient{steps: []scriptedStep{
+		{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: calls}, FinishReason: "tool_calls"}},
+		{completion: llm.Completion{Assistant: llm.Message{Role: "assistant"}, FinishReason: "stop"}},
+	}}
+	if err := Run(context.Background(), client, root, "read the files", func(string) error { return nil }); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if len(client.requests) != 2 {
+		t.Fatalf("requests = %d, want 2", len(client.requests))
+	}
+	second := client.requests[1]
+	if len(second.Messages) != 6 {
+		t.Fatalf("second request messages = %d, want 6", len(second.Messages))
+	}
+	total := 0
+	for i, call := range calls {
+		result := second.Messages[i+2]
+		if result.Role != "tool" || result.ToolCallID != call.ID {
+			t.Fatalf("tool message %d = %#v, want result for %q", i, result, call.ID)
+		}
+		if len(result.Content) != 128<<10 {
+			t.Fatalf("tool message %d content length = %d, want %d", i, len(result.Content), 128<<10)
+		}
+		total += len(result.Content)
+	}
+	if total != 512<<10 {
+		t.Fatalf("total read bytes = %d, want %d", total, 512<<10)
+	}
+}
+
 func TestRunFirstStopWithToolCallUsesReadRoundTrip(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("hello from readme\n"), 0o644); err != nil {
@@ -199,14 +311,6 @@ func TestRunRejectsUnsupportedToolCallStates(t *testing.T) {
 		wantError   string
 		wantRequest int
 	}{
-		{
-			name: "multiple calls",
-			calls: []llm.ToolCall{
-				{ID: "one", Type: "function", Name: "read_file", Arguments: `{"path":"README.md"}`},
-				{ID: "two", Type: "function", Name: "read_file", Arguments: `{"path":"README.md"}`},
-			},
-			finish: "tool_calls", wantError: "exactly one", wantRequest: 1,
-		},
 		{
 			name:        "unknown tool",
 			calls:       []llm.ToolCall{{ID: "one", Type: "function", Name: "delete_file", Arguments: `{}`}},
