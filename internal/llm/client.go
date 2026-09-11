@@ -11,6 +11,8 @@ type ToolDefinition struct {
 	Function json.RawMessage `json:"function"`
 }
 
+// ToolCall 是 Provider 聚合后的完整工具调用；Arguments 仍保持 JSON 字符串，
+// 由具体工具自行做严格解码。
 type ToolCall struct {
 	ID        string
 	Type      string
@@ -18,6 +20,7 @@ type ToolCall struct {
 	Arguments string
 }
 
+// Message 是 Provider 无关的对话消息，既可以是 user/assistant，也可以是 tool 结果。
 type Message struct {
 	Role             string
 	Content          string
@@ -50,7 +53,8 @@ type Completion struct {
 	FinishReason string
 }
 
-// Client emits stream events synchronously. Returning an error from emit stops the stream.
+// Client 同步发出文本、推理和工具调用增量事件。
+// emit 返回错误时，Provider 应立即停止读取流并把错误传回调用方。
 type Client interface {
 	Stream(context.Context, Request, func(StreamEvent) error) (Completion, error)
 }

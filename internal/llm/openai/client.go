@@ -25,6 +25,8 @@ type Client struct {
 	http     *http.Client
 }
 
+// New 将 API 根地址规范化为 /chat/completions，并保存请求所需的密钥。
+// 密钥只保存在内存中，不会出现在错误文本或日志中。
 func New(baseURL, key string) (*Client, error) {
 	u, err := url.Parse(baseURL)
 	if err != nil || u.Hostname() == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
@@ -38,6 +40,8 @@ func New(baseURL, key string) (*Client, error) {
 	}}, nil
 }
 
+// Stream 把 llm.Request 序列化为 OpenAI Chat Completions SSE 请求，
+// 再由 readStream 聚合成一次完整的 llm.Completion。
 func (c *Client) Stream(ctx context.Context, input llm.Request, emit func(llm.StreamEvent) error) (llm.Completion, error) {
 	body, err := json.Marshal(request{Model: input.Model, Messages: openAIMessages(input.Messages), Tools: input.Tools, Stream: true})
 	if err != nil {
@@ -98,6 +102,7 @@ type toolCall struct {
 }
 
 func openAIMessages(messages []llm.Message) []message {
+	// Provider 的 wire message 与内部 message 分离，避免 OpenAI 字段污染核心接口。
 	result := make([]message, len(messages))
 	for i, input := range messages {
 		result[i] = message{Role: input.Role, Content: input.Content, ToolCallID: input.ToolCallID, ReasoningContent: input.ReasoningContent}
@@ -112,6 +117,7 @@ func openAIMessages(messages []llm.Message) []message {
 }
 
 func readStream(r io.Reader, emit func(llm.StreamEvent) error) (llm.Completion, error) {
+	// SSE 以空行分隔事件；工具参数可能跨多个 delta，需要按 index 聚合。
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 4096), 1<<20)
 	var data []string

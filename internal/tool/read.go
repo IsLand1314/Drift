@@ -12,13 +12,14 @@ import (
 	"gitee.com/island0920/drift/internal/llm"
 )
 
+// MaxReadBytes 限制单个文件进入模型上下文的最大大小。
 const MaxReadBytes = 128 << 10
 
 type readArguments struct {
 	Path string `json:"path"`
 }
 
-// ReadDefinition returns the schema for the bounded read_file tool.
+// ReadDefinition 返回给模型的唯一工具 schema；它只描述“读取文件”，不包含写入或执行能力。
 func ReadDefinition() llm.ToolDefinition {
 	function := map[string]any{
 		"name":        "read_file",
@@ -42,7 +43,9 @@ func ReadDefinition() llm.ToolDefinition {
 	return llm.ToolDefinition{Type: "function", Function: raw}
 }
 
-// Read reads one regular file below root, with a strict argument shape and a size limit.
+// Read 在 workspace 内安全读取一个普通文件。
+// 校验顺序是：JSON 参数 → 相对路径 → dotenv/软链接保护 → 普通文件 → 大小限制。
+// 调用方会把这里的错误脱敏后再交给模型。
 func Read(root, rawArguments string) (string, error) {
 	var args readArguments
 	decoder := json.NewDecoder(strings.NewReader(rawArguments))
@@ -67,6 +70,7 @@ func Read(root, rawArguments string) (string, error) {
 		return "", fmt.Errorf("read_file path must not contain ..")
 	}
 	if isDotEnvCredentialFile(filepath.Base(args.Path)) {
+		// .env 即使被 .gitignore 忽略，也可能包含 API Key，不能进入模型上下文。
 		return "", fmt.Errorf("read_file target is restricted")
 	}
 
@@ -80,6 +84,7 @@ func Read(root, rawArguments string) (string, error) {
 		return "", fmt.Errorf("stat read_file target: %w", err)
 	}
 	if hasSymlink {
+		// 禁止工作区内软链接，避免用别名绕过敏感文件名或路径边界。
 		return "", fmt.Errorf("read_file target is not a regular file")
 	}
 
@@ -121,6 +126,7 @@ func isDotEnvCredentialFile(name string) bool {
 }
 
 func hasSymlinkComponent(root *os.Root, path string) (bool, error) {
+	// 逐级 Lstat，而不是只检查最终文件名，覆盖“软链接目录/普通文件”的组合路径。
 	clean := filepath.Clean(path)
 	current := ""
 	for _, component := range strings.Split(filepath.ToSlash(clean), "/") {
