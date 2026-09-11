@@ -12,6 +12,8 @@ import (
 	"gitee.com/island0920/drift/internal/llm"
 )
 
+const wantNativeToolSystemInstruction = "Drift is read-only. Only use the supplied native read_file tool. run_command, shell, and exec are unavailable. Never emit XML, DSML, or pseudo-tool syntax."
+
 type scriptedStep struct {
 	events     []llm.StreamEvent
 	completion llm.Completion
@@ -74,11 +76,89 @@ func TestRunDirectStopBuffersFirstTurnText(t *testing.T) {
 		t.Fatalf("requests = %d, want 1", len(client.requests))
 	}
 	request := client.requests[0]
-	if !reflect.DeepEqual(request.Messages, []llm.Message{{Role: "user", Content: "answer directly"}}) {
+	if !reflect.DeepEqual(request.Messages, []llm.Message{
+		{Role: "system", Content: wantNativeToolSystemInstruction},
+		{Role: "user", Content: "answer directly"},
+	}) {
 		t.Fatalf("first request messages = %#v", request.Messages)
 	}
 	if len(request.Tools) != 1 {
 		t.Fatalf("first request tools = %d, want 1", len(request.Tools))
+	}
+}
+
+func TestRunRejectsDSMLText(t *testing.T) {
+	var output []string
+	client := &scriptedClient{steps: []scriptedStep{{
+		events: []llm.StreamEvent{{Text: "<｜｜DSML｜｜ calls>"}},
+		completion: llm.Completion{
+			Assistant:    llm.Message{Role: "assistant", Content: "<｜｜DSML｜｜ calls>"},
+			FinishReason: "stop",
+		},
+	}}}
+
+	err := Run(context.Background(), client, t.TempDir(), "answer directly", func(text string) error {
+		output = append(output, text)
+		return nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "模型返回了不兼容的伪工具调用格式") {
+		t.Fatalf("Run() error = %v, want incompatible pseudo-tool error", err)
+	}
+	if len(output) != 0 {
+		t.Fatalf("output = %q, want no text", output)
+	}
+	if len(client.requests) != 1 {
+		t.Fatalf("requests = %d, want 1", len(client.requests))
+	}
+}
+
+func TestRunRejectsASCIIDSMLText(t *testing.T) {
+	var output []string
+	client := &scriptedClient{steps: []scriptedStep{{
+		events: []llm.StreamEvent{{Text: "<|DSML|> calls"}},
+		completion: llm.Completion{
+			Assistant:    llm.Message{Role: "assistant", Content: "<|DSML|> calls"},
+			FinishReason: "stop",
+		},
+	}}}
+
+	err := Run(context.Background(), client, t.TempDir(), "answer directly", func(text string) error {
+		output = append(output, text)
+		return nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "模型返回了不兼容的伪工具调用格式") {
+		t.Fatalf("Run() error = %v, want incompatible pseudo-tool error", err)
+	}
+	if len(output) != 0 {
+		t.Fatalf("output = %q, want no text", output)
+	}
+	if len(client.requests) != 1 {
+		t.Fatalf("requests = %d, want 1", len(client.requests))
+	}
+}
+
+func TestRunUsesNativeToolSystemInstruction(t *testing.T) {
+	client := &scriptedClient{steps: []scriptedStep{{
+		completion: llm.Completion{
+			Assistant:    llm.Message{Role: "assistant"},
+			FinishReason: "stop",
+		},
+	}}}
+
+	if err := Run(context.Background(), client, t.TempDir(), "answer directly", func(string) error { return nil }); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if len(client.requests) != 1 || len(client.requests[0].Messages) == 0 {
+		t.Fatalf("first request messages = %#v, want system instruction", client.requests)
+	}
+	system := client.requests[0].Messages[0]
+	if system.Role != "system" {
+		t.Fatalf("first message role = %q, want system", system.Role)
+	}
+	for _, required := range []string{"read_file", "run_command", "DSML", "pseudo-tool"} {
+		if !strings.Contains(system.Content, required) {
+			t.Fatalf("system instruction = %q, want %q", system.Content, required)
+		}
 	}
 }
 

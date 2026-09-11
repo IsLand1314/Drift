@@ -13,6 +13,8 @@ import (
 const (
 	MaxToolCalls      = 4
 	MaxTotalReadBytes = 512 << 10
+
+	nativeToolSystemInstruction = "Drift is read-only. Only use the supplied native read_file tool. run_command, shell, and exec are unavailable. Never emit XML, DSML, or pseudo-tool syntax."
 )
 
 var (
@@ -20,6 +22,7 @@ var (
 	errUnexpectedSecondCompletion = errors.New("agent: unexpected second completion")
 	errTooManyToolCalls           = errors.New("agent: 最多读取 4 个文件")
 	errUnsupportedTool            = errors.New("agent: unsupported tool")
+	errIncompatiblePseudoToolCall = errors.New("agent: 模型返回了不兼容的伪工具调用格式")
 )
 
 // Run completes either a direct answer or one read_file tool round trip.
@@ -33,8 +36,11 @@ func Run(
 	messages := []llm.Message{{Role: "user", Content: prompt}}
 	var firstText strings.Builder
 	completion, err := client.Stream(ctx, llm.Request{
-		Messages: messages,
-		Tools:    []llm.ToolDefinition{tool.ReadDefinition()},
+		Messages: []llm.Message{
+			{Role: "system", Content: nativeToolSystemInstruction},
+			{Role: "user", Content: prompt},
+		},
+		Tools: []llm.ToolDefinition{tool.ReadDefinition()},
 	}, func(event llm.StreamEvent) error {
 		firstText.WriteString(event.Text)
 		return nil
@@ -45,6 +51,9 @@ func Run(
 
 	if len(completion.Assistant.ToolCalls) == 0 {
 		if completion.FinishReason == "stop" {
+			if strings.Contains(firstText.String(), "<｜｜DSML｜｜") || strings.Contains(firstText.String(), "<|DSML|>") {
+				return errIncompatiblePseudoToolCall
+			}
 			return emitText(firstText.String())
 		}
 		return errUnexpectedFirstCompletion
