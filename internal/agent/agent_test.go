@@ -522,3 +522,76 @@ func TestRunPreservesReasoningContentForSecondRequest(t *testing.T) {
 		t.Fatalf("second request reasoning content = %q, want preserved value", got)
 	}
 }
+
+func TestRunEventsEmitsOrderedRuntimeEvents(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("hello from readme\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	call := llm.ToolCall{ID: "call-1", Type: "function", Name: "read_file", Arguments: `{"path":"README.md"}`}
+	client := &scriptedClient{steps: []scriptedStep{
+		{
+			events:     []llm.StreamEvent{{Text: "I will inspect it."}},
+			completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "I will inspect it.", ToolCalls: []llm.ToolCall{call}}, FinishReason: "tool_calls"},
+		},
+		{
+			events:     []llm.StreamEvent{{Text: "The "}, {Text: "README says hello."}},
+			completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "The README says hello."}, FinishReason: "stop"},
+		},
+	}}
+
+	var events []Event
+	err := RunEvents(context.Background(), client, root, "read the readme", func(event Event) error {
+		events = append(events, event)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("RunEvents() error = %v", err)
+	}
+	if got := []EventType{
+		events[0].Type,
+		events[1].Type,
+		events[2].Type,
+		events[3].Type,
+		events[4].Type,
+		events[5].Type,
+	}; !reflect.DeepEqual(got, []EventType{
+		EventRunStarted,
+		EventToolCall,
+		EventToolResult,
+		EventTextDelta,
+		EventTextDelta,
+		EventRunFinished,
+	}) {
+		t.Fatalf("event types = %#v, want ordered runtime events", got)
+	}
+	if events[0].Text != "read the readme" {
+		t.Fatalf("run_started text = %q, want prompt", events[0].Text)
+	}
+	if events[1].ToolCallID != call.ID || events[1].ToolName != call.Name || events[1].Arguments != call.Arguments {
+		t.Fatalf("tool_call event = %#v, want call metadata", events[1])
+	}
+	if events[2].ToolCallID != call.ID || events[2].Result != "hello from readme\n" || strings.Contains(events[2].Result, root) {
+		t.Fatalf("tool_result event = %#v, want sanitized file content", events[2])
+	}
+	if events[3].Text != "The " || events[4].Text != "README says hello." {
+		t.Fatalf("text events = %#v, want final text chunks", events[3:5])
+	}
+}
+
+func TestRunCompatibilityWrapperEmitsOnlyFinalText(t *testing.T) {
+	client := &scriptedClient{steps: []scriptedStep{{
+		events:     []llm.StreamEvent{{Text: "final"}, {Text: " answer"}},
+		completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "final answer"}, FinishReason: "stop"},
+	}}}
+	var output []string
+	if err := Run(context.Background(), client, t.TempDir(), "answer directly", func(text string) error {
+		output = append(output, text)
+		return nil
+	}); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if !reflect.DeepEqual(output, []string{"final answer"}) {
+		t.Fatalf("output = %#v, want buffered final text only", output)
+	}
+}
