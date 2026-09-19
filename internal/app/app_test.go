@@ -252,6 +252,81 @@ func TestRunReadRoundTripMultipleFiles(t *testing.T) {
 	}
 }
 
+func TestRunWritesSessionAudit(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.Header().Set("Content-Type", "text/event-stream")
+		switch requests {
+		case 1:
+			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-1\",\"type\":\"function\",\"function\":{\"name\":\"read_file\",\"arguments\":\"{\\\"path\\\":\\\"README.md\\\"}\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n")
+		case 2:
+			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"最终回答\"}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+		default:
+			t.Errorf("unexpected request %d", requests)
+		}
+	}))
+	defer server.Close()
+
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("session fixture\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	old, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(old) })
+
+	getenv := func(key string) string {
+		return map[string]string{
+			"OPENAI_API_KEY":  "test-secret",
+			"OPENAI_MODEL":    "test",
+			"OPENAI_BASE_URL": server.URL,
+		}[key]
+	}
+	var out, stderr bytes.Buffer
+	if code := Run(context.Background(), []string{"-p", "解释 README.md"}, getenv, &out, &stderr); code != 0 {
+		t.Fatalf("code = %d, stderr = %q", code, stderr.String())
+	}
+	if out.String() != "最终回答\n" || stderr.String() != "" || requests != 2 {
+		t.Fatalf("out=%q stderr=%q requests=%d", out.String(), stderr.String(), requests)
+	}
+
+	files, err := filepath.Glob(filepath.Join(root, ".drift", "sessions", "*.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 {
+		t.Fatalf("session files = %#v, want one JSONL file", files)
+	}
+	content, err := os.ReadFile(files[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for _, line := range strings.Split(strings.TrimSpace(string(content)), "\n") {
+		var entry struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			t.Fatalf("invalid session line %q: %v", line, err)
+		}
+		seen[entry.Type] = true
+	}
+	for _, eventType := range []string{"run_started", "tool_call", "tool_result", "text_delta", "run_finished"} {
+		if !seen[eventType] {
+			t.Fatalf("session events = %#v, missing %q", seen, eventType)
+		}
+	}
+	if strings.Contains(string(content), "test-secret") || strings.Contains(string(content), root) || strings.Contains(string(content), "OPENAI_API_KEY") {
+		t.Fatalf("session leaked sensitive data: %s", content)
+	}
+}
+
 func TestRunDirectAnswer(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")

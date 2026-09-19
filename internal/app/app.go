@@ -7,12 +7,16 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/IsLand1314/Drift/internal/agent"
 	"github.com/IsLand1314/Drift/internal/config"
 	"github.com/IsLand1314/Drift/internal/llm"
 	"github.com/IsLand1314/Drift/internal/llm/openai"
+	"github.com/IsLand1314/Drift/internal/session"
+	"github.com/IsLand1314/Drift/internal/tool"
 )
 
 type modelClient struct {
@@ -73,19 +77,36 @@ func Run(ctx context.Context, args []string, getenv func(string) string, out, st
 		fmt.Fprintln(stderr, "错误：", err)
 		return 1
 	}
+	sessionPath := filepath.Join(root, ".drift", "sessions", fmt.Sprintf("run-%d.jsonl", time.Now().UTC().UnixNano()))
+	sessionWriter, err := session.NewJSONLWriter(sessionPath)
+	if err != nil {
+		fmt.Fprintln(stderr, "错误：", err)
+		return 1
+	}
 	var lastText string
-	// Agent 只把最终文本交给 emit；工具调用过程不会直接写入 stdout。
-	err = agent.Run(ctx, modelClient{Client: client, model: *model}, root, *prompt, func(text string) error {
-		lastText = text
-		_, err := io.WriteString(out, text)
+	// Event Sink 先追加脱敏审计记录，再把最终文本事件写到 stdout。
+	err = agent.RunEventsWithRegistry(ctx, modelClient{Client: client, model: *model}, root, *prompt, tool.NewDefaultRegistry(), func(event agent.Event) error {
+		if err := sessionWriter.Append(event); err != nil {
+			return err
+		}
+		if event.Type != agent.EventTextDelta {
+			return nil
+		}
+		lastText = event.Text
+		_, err := io.WriteString(out, event.Text)
 		return err
 	})
+	closeErr := sessionWriter.Close()
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			fmt.Fprintln(stderr, "已取消")
 			return 130
 		}
 		fmt.Fprintln(stderr, "错误：", err)
+		return 1
+	}
+	if closeErr != nil {
+		fmt.Fprintln(stderr, "错误：", closeErr)
 		return 1
 	}
 	// CLI 输出约定：成功文本末尾补一个换行，便于回到 PowerShell 提示符。

@@ -2,6 +2,22 @@
 
 本文件是当前版本范围与验收标准的唯一事实来源；架构演进建议见 `doc/architecture.md`。
 
+## M0.3：Runtime 核心与 JSONL 会话审计
+
+- Agent 新增 provider-independent 的 Runtime Event：`run_started`、`tool_call`、`tool_result`、`text_delta`、`error` 和 `run_finished`；CLI 仍只把最终文本写入 stdout。
+- 工具通过 Tool Registry 提供 schema 和按名称查找；当前默认 Registry 只有 `read_file`，不增加写入、删除、编辑、shell 或 exec 能力。
+- 每次成功启动的运行在当前 workspace 的 `.drift/sessions/<run-id>.jsonl` 追加脱敏审计事件；该目录被 Git 忽略，当前只支持记录，不支持会话恢复、加载或上下文压缩。
+- 会话记录不包含 API Key、Authorization header、`.env` 内容或本地绝对路径；JSONL 每行可独立解码，单行追加后立即 Flush。
+- M0.2.1/M0.2.2 的四文件、单文件 128 KiB、总量 512 KiB、最多两次模型请求和 DSML 兼容性边界保持不变。
+
+## M0.3 验收
+
+- 直接回答仍只请求一次 Provider；工具路径仍按调用顺序执行，并且第二轮不携带工具 schema。
+- fake tool 可以通过 Registry 注入并执行；重复工具名和未知工具返回受控错误。
+- 本地 SSE 模拟服务验证 stdout 只包含最终文本，`.drift/sessions` 中包含运行开始、工具调用、工具结果、文本和结束事件。
+- 每个 JSONL 行可被标准 JSON 解码器读取；错误、取消和工具失败不会把密钥、绝对路径或 dotenv 内容写入文件。
+- `go test ./... -count=1`、`go vet ./...`、`go build ./cmd/drift` 和 `git diff --check` 通过。
+
 ## M0.2.2：环境配置与原生工具兼容性
 
 - `.env` 位于当前工作目录时会被读取；缺少该文件是正常情况。可用 `Copy-Item .env.example .env` 创建本地模板。`.env` 被 Git 忽略，`.env.example` 只含空的 `OPENAI_API_KEY`，密钥不得提交、打印或写入日志。
