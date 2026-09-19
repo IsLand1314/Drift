@@ -124,3 +124,91 @@ func TestJSONLWriterRedactsSecretsAndAbsolutePaths(t *testing.T) {
 		t.Fatalf("session missing redaction markers: %s", text)
 	}
 }
+
+func TestJSONLWriterRedactsQuotedAndJSONSecrets(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "run.jsonl")
+	writer, err := NewJSONLWriter(path)
+	if err != nil {
+		t.Fatalf("NewJSONLWriter() error = %v", err)
+	}
+	secret := "quoted-secret"
+	if err := writer.Append(agent.Event{
+		Type: agent.EventRunStarted,
+		Text: `OPENAI_API_KEY="` + secret + `"`,
+	}); err != nil {
+		t.Fatalf("Append(start) error = %v", err)
+	}
+	if err := writer.Append(agent.Event{
+		Type:      agent.EventToolCall,
+		ToolName:  "read_file",
+		Arguments: `{"OPENAI_API_KEY":"` + secret + `","path":"README.md"}`,
+	}); err != nil {
+		t.Fatalf("Append(tool) error = %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(content), secret) {
+		t.Fatalf("session leaked quoted or JSON secret: %s", content)
+	}
+}
+
+func TestJSONLWriterRedactsPathsInAllTextFields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "run.jsonl")
+	writer, err := NewJSONLWriter(path)
+	if err != nil {
+		t.Fatalf("NewJSONLWriter() error = %v", err)
+	}
+	absolutePath := `F:\private\report.txt`
+	serializedPath := strings.ReplaceAll(absolutePath, `\`, `\\`)
+	for _, event := range []agent.Event{
+		{Type: agent.EventRunStarted, Text: "解释 " + absolutePath},
+		{Type: agent.EventToolResult, Result: "发现 " + absolutePath},
+		{Type: agent.EventError, Error: "无法读取 " + absolutePath},
+	} {
+		if err := writer.Append(event); err != nil {
+			t.Fatalf("Append(%s) error = %v", event.Type, err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(content), serializedPath) {
+		t.Fatalf("session leaked path in text/result/error: %s", content)
+	}
+}
+
+func TestJSONLWriterRedactsSecretAcrossTextDeltas(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "run.jsonl")
+	writer, err := NewJSONLWriter(path)
+	if err != nil {
+		t.Fatalf("NewJSONLWriter() error = %v", err)
+	}
+	if err := writer.Append(agent.Event{Type: agent.EventTextDelta, Text: "OPENAI_API_KEY="}); err != nil {
+		t.Fatalf("Append(prefix) error = %v", err)
+	}
+	if err := writer.Append(agent.Event{Type: agent.EventTextDelta, Text: "split-secret"}); err != nil {
+		t.Fatalf("Append(value) error = %v", err)
+	}
+	if err := writer.Append(agent.Event{Type: agent.EventRunFinished}); err != nil {
+		t.Fatalf("Append(finished) error = %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(content), "split-secret") {
+		t.Fatalf("session leaked cross-event secret: %s", content)
+	}
+}

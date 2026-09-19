@@ -78,7 +78,7 @@ func Run(ctx context.Context, args []string, getenv func(string) string, out, st
 		return 1
 	}
 	sessionPath := filepath.Join(root, ".drift", "sessions", fmt.Sprintf("run-%d.jsonl", time.Now().UTC().UnixNano()))
-	sessionWriter, err := session.NewJSONLWriter(sessionPath)
+	sessionWriter, err := session.NewJSONLWriterWithSecrets(sessionPath, root, key)
 	if err != nil {
 		fmt.Fprintln(stderr, "错误：", err)
 		return 1

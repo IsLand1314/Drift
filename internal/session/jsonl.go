@@ -15,18 +15,36 @@ import (
 	"github.com/IsLand1314/Drift/internal/agent"
 )
 
-var sensitivePattern = regexp.MustCompile("(?i)(openai_api_key\\s*=\\s*|authorization:\\s*bearer\\s+|bearer\\s+)[^\\s\"']+")
+var sensitivePattern = regexp.MustCompile("(?i)(openai_api_key\\s*=\\s*\"?|authorization:\\s*bearer\\s+|bearer\\s+)[^\\s\"',}]+")
+var windowsPathPattern = regexp.MustCompile("(?i)(?:[a-z]:[\\\\/]|\\\\\\\\)[^\\s\"'<>]+")
+var unixPathPattern = regexp.MustCompile("(^|[\\s(])\\/[^\\s\"']+")
+
+type sanitizer struct {
+	root    string
+	secrets []string
+}
 
 // JSONLWriter 将事件以追加模式写入一个本地 JSONL 文件。
 type JSONLWriter struct {
-	mu     sync.Mutex
-	file   *os.File
-	writer *bufio.Writer
-	closed bool
+	mu          sync.Mutex
+	file        *os.File
+	writer      *bufio.Writer
+	closed      bool
+	sanitizer   sanitizer
+	pendingText strings.Builder
 }
 
 // NewJSONLWriter 创建父目录并打开指定的 JSONL 文件。
 func NewJSONLWriter(path string) (*JSONLWriter, error) {
+	return newJSONLWriter(path, "", nil)
+}
+
+// NewJSONLWriterWithSecrets 创建带 workspace 和配置密钥脱敏规则的 Writer。
+func NewJSONLWriterWithSecrets(path, root string, secrets ...string) (*JSONLWriter, error) {
+	return newJSONLWriter(path, root, secrets)
+}
+
+func newJSONLWriter(path, root string, secrets []string) (*JSONLWriter, error) {
 	if strings.TrimSpace(path) == "" {
 		return nil, fmt.Errorf("session: path is blank")
 	}
@@ -38,19 +56,66 @@ func NewJSONLWriter(path string) (*JSONLWriter, error) {
 		return nil, fmt.Errorf("session: open JSONL file: %w", err)
 	}
 	return &JSONLWriter{
-		file:   file,
-		writer: bufio.NewWriter(file),
+		file:      file,
+		writer:    bufio.NewWriter(file),
+		sanitizer: sanitizer{root: root, secrets: append([]string(nil), secrets...)},
 	}, nil
 }
 
 // Append 编码一条完整记录并立即 Flush，保证每次调用对应一行。
+// 连续的 text_delta 会先缓冲到下一条非文本事件，以避免跨分片密钥泄露。
 func (w *JSONLWriter) Append(event agent.Event) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.closed {
 		return fmt.Errorf("session: writer is closed")
 	}
-	entry := entryFromEvent(event)
+	if event.Type == agent.EventTextDelta {
+		w.pendingText.WriteString(event.Text)
+		return nil
+	}
+	if err := w.flushPendingTextLocked(); err != nil {
+		return err
+	}
+	return w.appendEntryLocked(entryFromEvent(event, w.sanitizer))
+}
+
+// Close Flush 并关闭文件；重复关闭是幂等的。
+func (w *JSONLWriter) Close() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.closed {
+		return nil
+	}
+	flushErr := w.flushPendingTextLocked()
+	w.closed = true
+	finalFlushErr := w.writer.Flush()
+	closeErr := w.file.Close()
+	if flushErr != nil {
+		return flushErr
+	}
+	if finalFlushErr != nil {
+		return fmt.Errorf("session: flush on close: %w", finalFlushErr)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("session: close file: %w", closeErr)
+	}
+	return nil
+}
+
+func (w *JSONLWriter) flushPendingTextLocked() error {
+	if w.pendingText.Len() == 0 {
+		return nil
+	}
+	text := w.pendingText.String()
+	w.pendingText.Reset()
+	return w.appendEntryLocked(entryFromEvent(agent.Event{
+		Type: agent.EventTextDelta,
+		Text: text,
+	}, w.sanitizer))
+}
+
+func (w *JSONLWriter) appendEntryLocked(entry Entry) error {
 	encoder := json.NewEncoder(w.writer)
 	encoder.SetEscapeHTML(false)
 	if err := encoder.Encode(entry); err != nil {
@@ -62,57 +127,73 @@ func (w *JSONLWriter) Append(event agent.Event) error {
 	return nil
 }
 
-// Close Flush 并关闭文件；重复关闭是幂等的。
-func (w *JSONLWriter) Close() error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if w.closed {
-		return nil
-	}
-	w.closed = true
-	flushErr := w.writer.Flush()
-	closeErr := w.file.Close()
-	if flushErr != nil {
-		return fmt.Errorf("session: flush on close: %w", flushErr)
-	}
-	if closeErr != nil {
-		return fmt.Errorf("session: close file: %w", closeErr)
-	}
-	return nil
-}
-
-func entryFromEvent(event agent.Event) Entry {
+func entryFromEvent(event agent.Event, clean sanitizer) Entry {
 	return Entry{
 		Version:    1,
 		Type:       string(event.Type),
 		Time:       time.Now().UTC(),
-		Text:       redactText(event.Text),
-		ToolCallID: redactText(event.ToolCallID),
-		Tool:       redactText(event.ToolName),
-		Arguments:  sanitizeArguments(event.Arguments),
-		Result:     redactText(event.Result),
-		Error:      redactText(event.Error),
+		Text:       clean.text(event.Text),
+		ToolCallID: clean.text(event.ToolCallID),
+		Tool:       clean.text(event.ToolName),
+		Arguments:  sanitizeArguments(event.Arguments, clean),
+		Result:     clean.text(event.Result),
+		Error:      clean.text(event.Error),
 	}
 }
 
-func sanitizeArguments(raw string) string {
+func sanitizeArguments(raw string, clean sanitizer) string {
 	if strings.TrimSpace(raw) == "" {
 		return ""
 	}
-	var value map[string]any
+	var value any
 	if err := json.Unmarshal([]byte(raw), &value); err != nil {
-		return redactText(raw)
+		return "<invalid-json>"
 	}
-	if path, ok := value["path"].(string); ok && restrictedPath(path) {
-		value["path"] = "<restricted>"
-	}
+	value = sanitizeJSONValue(value, clean)
 	var buffer bytes.Buffer
 	encoder := json.NewEncoder(&buffer)
 	encoder.SetEscapeHTML(false)
 	if err := encoder.Encode(value); err != nil {
-		return redactText(raw)
+		return "<invalid-json>"
 	}
-	return redactText(strings.TrimSpace(buffer.String()))
+	return strings.TrimSpace(buffer.String())
+}
+
+func sanitizeJSONValue(value any, clean sanitizer) any {
+	switch current := value.(type) {
+	case map[string]any:
+		for key, child := range current {
+			if sensitiveJSONKey(key) {
+				current[key] = "<redacted>"
+				continue
+			}
+			if key == "path" {
+				if path, ok := child.(string); ok && restrictedPath(path) {
+					current[key] = "<restricted>"
+					continue
+				}
+			}
+			current[key] = sanitizeJSONValue(child, clean)
+		}
+		return current
+	case []any:
+		for index, child := range current {
+			current[index] = sanitizeJSONValue(child, clean)
+		}
+		return current
+	case string:
+		return clean.text(current)
+	default:
+		return value
+	}
+}
+
+func sensitiveJSONKey(key string) bool {
+	normalized := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(key, "_", ""), "-", ""))
+	return strings.Contains(normalized, "apikey") ||
+		strings.Contains(normalized, "authorization") ||
+		strings.Contains(normalized, "token") ||
+		strings.Contains(normalized, "secret")
 }
 
 func restrictedPath(path string) bool {
@@ -134,6 +215,17 @@ func restrictedPath(path string) bool {
 	return false
 }
 
-func redactText(value string) string {
-	return sensitivePattern.ReplaceAllString(value, "$1<redacted>")
+func (clean sanitizer) text(value string) string {
+	for _, secret := range clean.secrets {
+		if secret != "" {
+			value = strings.ReplaceAll(value, secret, "<redacted>")
+		}
+	}
+	value = sensitivePattern.ReplaceAllString(value, "$1<redacted>")
+	if clean.root != "" {
+		value = strings.ReplaceAll(value, clean.root, "<workspace>")
+		value = strings.ReplaceAll(value, filepath.ToSlash(clean.root), "<workspace>")
+	}
+	value = windowsPathPattern.ReplaceAllString(value, "<path>")
+	return unixPathPattern.ReplaceAllString(value, "$1<path>")
 }
