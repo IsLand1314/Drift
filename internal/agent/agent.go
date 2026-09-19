@@ -51,6 +51,18 @@ func RunEvents(
 	prompt string,
 	sink EventSink,
 ) error {
+	return RunEventsWithRegistry(ctx, client, root, prompt, tool.NewDefaultRegistry(), sink)
+}
+
+// RunEventsWithRegistry 使用调用方提供的工具注册表执行 Agent Loop。
+func RunEventsWithRegistry(
+	ctx context.Context,
+	client llm.Client,
+	root string,
+	prompt string,
+	registry tool.Registry,
+	sink EventSink,
+) error {
 	emit := func(event Event) error {
 		if sink == nil {
 			return nil
@@ -79,7 +91,7 @@ func RunEvents(
 			{Role: "system", Content: nativeToolSystemInstruction},
 			{Role: "user", Content: prompt},
 		},
-		Tools: []llm.ToolDefinition{tool.ReadDefinition()},
+		Tools: registry.Definitions(),
 	}, func(event llm.StreamEvent) error {
 		firstText.WriteString(event.Text)
 		return nil
@@ -110,7 +122,7 @@ func RunEvents(
 		return fail(errTooManyToolCalls)
 	}
 	for _, call := range calls {
-		if call.Name != "read_file" {
+		if _, ok := registry.Lookup(call.Name); !ok {
 			return fail(errUnsupportedTool)
 		}
 	}
@@ -126,8 +138,12 @@ func RunEvents(
 		}); err != nil {
 			return err
 		}
+		registeredTool, ok := registry.Lookup(call.Name)
+		if !ok {
+			return fail(errUnsupportedTool)
+		}
 		// 工具错误会被替换成脱敏结果；模型只能知道读取失败，不能看到本地路径细节。
-		content, readErr := tool.Read(root, call.Arguments)
+		content, readErr := registeredTool.Execute(ctx, root, call.Arguments)
 		if readErr != nil {
 			content = "read_file failed: unable to read requested file"
 		} else if readBytes+len(content) > MaxTotalReadBytes {

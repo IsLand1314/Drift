@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -8,6 +9,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/IsLand1314/Drift/internal/llm"
 )
 
 func TestRead(t *testing.T) {
@@ -149,4 +152,49 @@ func TestReadDefinition(t *testing.T) {
 	if function.Parameters.Type != "object" || len(function.Parameters.Properties) != 1 || function.Parameters.Properties["path"] == nil || len(function.Parameters.Required) != 1 || function.Parameters.Required[0] != "path" || function.Parameters.AdditionalProperties {
 		t.Fatalf("unexpected parameters schema: %s", strings.TrimSpace(string(definition.Function)))
 	}
+}
+
+func TestDefaultRegistryExposesReadFile(t *testing.T) {
+	registry := NewDefaultRegistry()
+	definitions := registry.Definitions()
+	if len(definitions) != 1 {
+		t.Fatalf("Definitions() length = %d, want 1", len(definitions))
+	}
+	var function struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(definitions[0].Function, &function); err != nil {
+		t.Fatal(err)
+	}
+	if function.Name != "read_file" {
+		t.Fatalf("default tool name = %q, want read_file", function.Name)
+	}
+	if _, ok := registry.Lookup("read_file"); !ok {
+		t.Fatal("Lookup(read_file) = false, want true")
+	}
+}
+
+func TestNewRegistryRejectsDuplicateToolNames(t *testing.T) {
+	first := testTool{name: "same"}
+	second := testTool{name: "same"}
+	if _, err := NewRegistry(first, second); err == nil || !strings.Contains(err.Error(), "duplicate tool") {
+		t.Fatalf("NewRegistry() error = %v, want duplicate tool error", err)
+	}
+}
+
+type testTool struct {
+	name string
+}
+
+func (t testTool) Name() string {
+	return t.name
+}
+
+func (t testTool) Definition() llm.ToolDefinition {
+	raw := json.RawMessage(`{"name":"` + t.name + `"}`)
+	return llm.ToolDefinition{Type: "function", Function: raw}
+}
+
+func (t testTool) Execute(context.Context, string, string) (string, error) {
+	return "fake result", nil
 }

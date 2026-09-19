@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/IsLand1314/Drift/internal/llm"
+	"github.com/IsLand1314/Drift/internal/tool"
 )
 
 const wantNativeToolSystemInstruction = "Drift is read-only. Only use the supplied native read_file tool. run_command, shell, and exec are unavailable. Never emit XML, DSML, or pseudo-tool syntax."
@@ -594,4 +595,53 @@ func TestRunCompatibilityWrapperEmitsOnlyFinalText(t *testing.T) {
 	if !reflect.DeepEqual(output, []string{"final answer"}) {
 		t.Fatalf("output = %#v, want buffered final text only", output)
 	}
+}
+
+func TestRunWithRegistryUsesRegisteredTool(t *testing.T) {
+	call := llm.ToolCall{ID: "call-fake", Type: "function", Name: "fake_tool", Arguments: `{}`}
+	client := &scriptedClient{steps: []scriptedStep{
+		{
+			completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{call}}, FinishReason: "tool_calls"},
+		},
+		{
+			events:     []llm.StreamEvent{{Text: "fake answer"}},
+			completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "fake answer"}, FinishReason: "stop"},
+		},
+	}}
+	fake := &registryTestTool{}
+	registry, err := tool.NewRegistry(fake)
+	if err != nil {
+		t.Fatalf("NewRegistry() error = %v", err)
+	}
+	if err := RunEventsWithRegistry(context.Background(), client, t.TempDir(), "use fake", registry, func(Event) error {
+		return nil
+	}); err != nil {
+		t.Fatalf("RunEventsWithRegistry() error = %v", err)
+	}
+	if !fake.called {
+		t.Fatal("fake tool was not executed")
+	}
+	if len(client.requests) != 2 || client.requests[0].Tools[0].Function == nil {
+		t.Fatalf("requests = %#v, want registered tool schema and two turns", client.requests)
+	}
+	if got := client.requests[1].Messages[2].Content; got != "fake result" {
+		t.Fatalf("tool result = %q, want fake result", got)
+	}
+}
+
+type registryTestTool struct {
+	called bool
+}
+
+func (t *registryTestTool) Name() string {
+	return "fake_tool"
+}
+
+func (t *registryTestTool) Definition() llm.ToolDefinition {
+	return llm.ToolDefinition{Type: "function", Function: []byte(`{"name":"fake_tool"}`)}
+}
+
+func (t *registryTestTool) Execute(context.Context, string, string) (string, error) {
+	t.called = true
+	return "fake result", nil
 }

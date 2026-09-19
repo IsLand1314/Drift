@@ -2,6 +2,7 @@
 package tool
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,6 +15,23 @@ import (
 
 // MaxReadBytes 限制单个文件进入模型上下文的最大大小。
 const MaxReadBytes = 128 << 10
+
+type readFileTool struct{}
+
+func (readFileTool) Name() string {
+	return "read_file"
+}
+
+func (readFileTool) Definition() llm.ToolDefinition {
+	return ReadDefinition()
+}
+
+func (readFileTool) Execute(ctx context.Context, root string, rawArguments string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	return Read(root, rawArguments)
+}
 
 type readArguments struct {
 	Path string `json:"path"`
