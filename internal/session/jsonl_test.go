@@ -223,7 +223,7 @@ func TestJSONLWriterRedactsConfiguredSecretAcrossTextDeltas(t *testing.T) {
 		parts  []string
 	}{
 		{name: "long secret", secret: "split-secret", parts: []string{"prefix split-", "secret suffix"}},
-		{name: "two-character prefix", secret: "sk-test-secret", parts: []string{"s", "k-test-secret"}},
+		{name: "two-character prefix", secret: "sk-test-secret", parts: []string{"prefix s", "k-test-secret"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -259,7 +259,7 @@ func TestJSONLWriterRedactsSplitCredentialAndPathAcrossTextDeltas(t *testing.T) 
 	}{
 		{name: "openai key", parts: []string{"OPENAI_API_", "KEY=split-secret"}, forbidden: []string{"OPENAI_API_", "KEY=split-secret"}},
 		{name: "api key", parts: []string{"api_key", "=demo-secret"}, forbidden: []string{"api_key", "=demo-secret"}},
-		{name: "bearer", parts: []string{"Bearer ", "demo-credential"}, forbidden: []string{"Bearer ", "demo-credential"}},
+		{name: "bearer", parts: []string{"Bea", "rer demo-credential"}, forbidden: []string{"Bea", "rer demo-credential"}},
 		{name: "windows path", parts: []string{"路径：C:", `\private\report.txt`}, forbidden: []string{"路径：C:", `C:\private\report.txt`}},
 	}
 	for _, tc := range cases {
@@ -284,6 +284,23 @@ func TestJSONLWriterRedactsSplitCredentialAndPathAcrossTextDeltas(t *testing.T) 
 			for _, value := range tc.forbidden {
 				if strings.Contains(string(content), value) {
 					t.Fatalf("session leaked split credential or path %q: %s", value, content)
+				}
+			}
+			scanner := bufio.NewScanner(strings.NewReader(string(content)))
+			var combined strings.Builder
+			for scanner.Scan() {
+				var entry Entry
+				if err := json.Unmarshal(scanner.Bytes(), &entry); err != nil {
+					t.Fatalf("invalid session line: %v", err)
+				}
+				combined.WriteString(entry.Text)
+			}
+			if err := scanner.Err(); err != nil {
+				t.Fatal(err)
+			}
+			for _, value := range tc.forbidden {
+				if strings.Contains(combined.String(), value) {
+					t.Fatalf("session reconstructed split secret or path %q: %s", value, combined.String())
 				}
 			}
 		})
@@ -328,6 +345,7 @@ func TestJSONLWriterRedactsQuotedJSONPathsAndCredentialsInTextFields(t *testing.
 		`{"path":"/home/alice/private.txt"}`,
 		"`C:\\private\\report.txt`",
 		`OPENAI_API_KEY='another-secret'`,
+		`OPENAI_API_KEY="a\"b tail-leak"`,
 		`{"OPENAI_API_KEY":"json-secret"}`,
 		`{"password":"a'b c"}`,
 		`{"password":"a\"b tail-leak"}`,

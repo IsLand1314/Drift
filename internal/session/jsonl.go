@@ -15,11 +15,11 @@ import (
 	"github.com/IsLand1314/Drift/internal/agent"
 )
 
-var sensitivePattern = regexp.MustCompile("(?i)(openai_api_key\\s*=\\s*\"?|authorization:\\s*bearer\\s+|bearer\\s+)[^\\s\"',}]+")
+var sensitivePattern = regexp.MustCompile("(?i)(authorization:\\s*bearer\\s+|bearer\\s+)[^\\s\"',}]+")
 var credentialPattern = regexp.MustCompile("(?i)([\\\"']?(?:openai[_-]?api[_-]?key|api[_-]?key|authorization|access[_-]?token|refresh[_-]?token|password|secret)[\\\"']?\\s*[:=]\\s*)(?:\"(?:\\\\.|[^\"\\\\])*\"|'[^']*'|[^,\\s}\\]]*)")
 var credentialPrefixPattern = regexp.MustCompile("(?i)[\\\"']?(?:openai[_-]?api[_-]?key|api[_-]?key|authorization|access[_-]?token|refresh[_-]?token|password|secret)[\\\"']?\\s*[:=]")
 var windowsPathPattern = regexp.MustCompile("(?i)(?:[a-z]:[\\\\/]|\\\\\\\\)[^\\s\"'`<>\\]}]+")
-var unixPathPattern = regexp.MustCompile("(^|[\\s(（\"'`=:,：\\[{])\\/[^\\s\"'`<>\\]}]+")
+var unixPathPattern = regexp.MustCompile("(^|[\\s(（\"'`=:,：，【\\[{])\\/[^\\s\"'`<>\\]}]+")
 
 var streamingCredentialMarkers = []string{
 	"openai_api_key",
@@ -252,7 +252,7 @@ func (clean sanitizer) secretFragment(value string) bool {
 				return true
 			}
 		}
-		if strings.EqualFold(strings.TrimSpace(value), secret[:1]) {
+		if strings.HasSuffix(strings.ToLower(value), strings.ToLower(secret[:1])) && suffixHasBoundary(value, 1) {
 			return true
 		}
 	}
@@ -260,17 +260,18 @@ func (clean sanitizer) secretFragment(value string) bool {
 }
 
 func (clean sanitizer) streamingSensitiveFragment(value string) bool {
-	lower := strings.ToLower(value)
+	trimmedValue := strings.TrimSpace(value)
+	lower := strings.ToLower(trimmedValue)
 	for _, marker := range streamingCredentialMarkers {
 		for size := 3; size < len(marker); size++ {
-			if !strings.HasSuffix(marker[:size], "_") {
+			if !strings.HasSuffix(marker[:size], "_") && marker != "bearer" && !(marker == "api_key" && size == 3) {
 				continue
 			}
-			if strings.HasSuffix(lower, marker[:size]) && suffixHasBoundary(value, size) {
+			if strings.HasSuffix(lower, marker[:size]) && suffixHasBoundary(trimmedValue, size) {
 				return true
 			}
 		}
-		if strings.EqualFold(strings.TrimSpace(value), marker) {
+		if strings.EqualFold(trimmedValue, marker) {
 			return true
 		}
 	}
