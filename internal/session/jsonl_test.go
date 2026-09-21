@@ -236,6 +236,56 @@ func TestJSONLWriterRedactsConfiguredSecretAcrossTextDeltas(t *testing.T) {
 	}
 }
 
+func TestJSONLWriterRedactsSplitCredentialAndPathAcrossTextDeltas(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "run.jsonl")
+	writer, err := NewJSONLWriter(path)
+	if err != nil {
+		t.Fatalf("NewJSONLWriter() error = %v", err)
+	}
+	for _, text := range []string{"OPENAI_API_", "KEY=split-secret", "C:", `\private\report.txt`} {
+		if err := writer.Append(agent.Event{Type: agent.EventTextDelta, Text: text}); err != nil {
+			t.Fatalf("Append(%q) error = %v", text, err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range []string{"OPENAI_API_", "KEY=split-secret", `C:\private\report.txt`} {
+		if strings.Contains(string(content), value) {
+			t.Fatalf("session leaked split credential or path %q: %s", value, content)
+		}
+	}
+}
+
+func TestJSONLWriterKeepsNormalTextWithConfiguredSecret(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "run.jsonl")
+	writer, err := NewJSONLWriterWithSecrets(path, "", "sk-test-secret")
+	if err != nil {
+		t.Fatalf("NewJSONLWriterWithSecrets() error = %v", err)
+	}
+	for _, text := range []string{"This is a normal answer.", "It remains readable."} {
+		if err := writer.Append(agent.Event{Type: agent.EventTextDelta, Text: text}); err != nil {
+			t.Fatalf("Append(%q) error = %v", text, err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, text := range []string{"This is a normal answer.", "It remains readable."} {
+		if !strings.Contains(string(content), text) {
+			t.Fatalf("normal text was over-redacted: %s", content)
+		}
+	}
+}
+
 func TestJSONLWriterRedactsQuotedJSONPathsAndCredentialsInTextFields(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "run.jsonl")
 	writer, err := NewJSONLWriter(path)
@@ -244,6 +294,7 @@ func TestJSONLWriterRedactsQuotedJSONPathsAndCredentialsInTextFields(t *testing.
 	}
 	values := []string{
 		`path=/home/alice/private.txt`,
+		`路径：/home/alice/private.txt`,
 		`{"path":"/home/alice/private.txt"}`,
 		"`C:\\private\\report.txt`",
 		`OPENAI_API_KEY='another-secret'`,

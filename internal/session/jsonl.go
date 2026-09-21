@@ -19,7 +19,17 @@ var sensitivePattern = regexp.MustCompile("(?i)(openai_api_key\\s*=\\s*\"?|autho
 var credentialPattern = regexp.MustCompile("(?i)([\\\"']?(?:openai[_-]?api[_-]?key|api[_-]?key|authorization|access[_-]?token|refresh[_-]?token|password|secret)[\\\"']?\\s*[:=]\\s*)(?:[\\\"'][^\\\"']*[\\\"']|[^,\\s}\\]]*)")
 var credentialPrefixPattern = regexp.MustCompile("(?i)[\\\"']?(?:openai[_-]?api[_-]?key|api[_-]?key|authorization|access[_-]?token|refresh[_-]?token|password|secret)[\\\"']?\\s*[:=]")
 var windowsPathPattern = regexp.MustCompile("(?i)(?:[a-z]:[\\\\/]|\\\\\\\\)[^\\s\"'`<>\\]}]+")
-var unixPathPattern = regexp.MustCompile("(^|[\\s(\"'`=:,\\[{])\\/[^\\s\"'`<>\\]}]+")
+var unixPathPattern = regexp.MustCompile("(^|[\\s(\"'`=:,：\\[{])\\/[^\\s\"'`<>\\]}]+")
+
+var streamingCredentialMarkers = []string{
+	"openai_api_key",
+	"api_key",
+	"authorization",
+	"access_token",
+	"refresh_token",
+	"password",
+	"secret",
+}
 
 type sanitizer struct {
 	root    string
@@ -221,7 +231,7 @@ func (clean sanitizer) textDelta(value string, pending *bool) string {
 	if *pending {
 		return "<redacted>"
 	}
-	if clean.secretFragment(value) {
+	if clean.streamingSensitiveFragment(value) {
 		*pending = true
 		return "<redacted>"
 	}
@@ -236,11 +246,37 @@ func (clean sanitizer) secretFragment(value string) bool {
 		if secret == "" {
 			continue
 		}
-		for size := 1; size < len(secret); size++ {
+		for size := 3; size < len(secret); size++ {
 			if strings.HasSuffix(value, secret[:size]) {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+func (clean sanitizer) streamingSensitiveFragment(value string) bool {
+	lower := strings.ToLower(value)
+	for _, marker := range streamingCredentialMarkers {
+		for size := 3; size < len(marker); size++ {
+			if strings.HasSuffix(lower, marker[:size]) {
+				return true
+			}
+		}
+	}
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "/" || trimmed == `\` {
+		return true
+	}
+	if len(trimmed) == 2 && isDriveLetter(trimmed[0]) && trimmed[1] == ':' {
+		return true
+	}
+	if len(trimmed) >= 3 && isDriveLetter(trimmed[0]) && trimmed[1] == ':' && (strings.HasSuffix(trimmed, "\\") || strings.HasSuffix(trimmed, "/")) {
+		return true
+	}
+	return clean.secretFragment(value)
+}
+
+func isDriveLetter(value byte) bool {
+	return (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z')
 }

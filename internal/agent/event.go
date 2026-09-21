@@ -13,7 +13,7 @@ const (
 )
 
 // Event 是脱离 Provider SSE 分片后的 Runtime 事件。
-// 工具结果和错误由 Agent 先做脱敏，再交给上层消费者。
+// Agent 只对内部错误做最小脱敏；完整的凭据和路径脱敏由持久化消费者负责。
 type Event struct {
 	Type       EventType
 	Text       string
