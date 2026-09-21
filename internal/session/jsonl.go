@@ -16,8 +16,10 @@ import (
 )
 
 var sensitivePattern = regexp.MustCompile("(?i)(openai_api_key\\s*=\\s*\"?|authorization:\\s*bearer\\s+|bearer\\s+)[^\\s\"',}]+")
-var windowsPathPattern = regexp.MustCompile("(?i)(?:[a-z]:[\\\\/]|\\\\\\\\)[^\\s\"'<>]+")
-var unixPathPattern = regexp.MustCompile("(^|[\\s(])\\/[^\\s\"']+")
+var credentialPattern = regexp.MustCompile("(?i)([\\\"']?(?:openai[_-]?api[_-]?key|api[_-]?key|authorization|access[_-]?token|refresh[_-]?token|password|secret)[\\\"']?\\s*[:=]\\s*)(?:[\\\"'][^\\\"']*[\\\"']|[^,\\s}\\]]*)")
+var credentialPrefixPattern = regexp.MustCompile("(?i)[\\\"']?(?:openai[_-]?api[_-]?key|api[_-]?key|authorization|access[_-]?token|refresh[_-]?token|password|secret)[\\\"']?\\s*[:=]")
+var windowsPathPattern = regexp.MustCompile("(?i)(?:[a-z]:[\\\\/]|\\\\\\\\)[^\\s\"'`<>\\]}]+")
+var unixPathPattern = regexp.MustCompile("(^|[\\s(\"'`=:,\\[{])\\/[^\\s\"'`<>\\]}]+")
 
 type sanitizer struct {
 	root    string
@@ -26,12 +28,12 @@ type sanitizer struct {
 
 // JSONLWriter 将事件以追加模式写入一个本地 JSONL 文件。
 type JSONLWriter struct {
-	mu          sync.Mutex
-	file        *os.File
-	writer      *bufio.Writer
-	closed      bool
-	sanitizer   sanitizer
-	pendingText strings.Builder
+	mu                   sync.Mutex
+	file                 *os.File
+	writer               *bufio.Writer
+	closed               bool
+	sanitizer            sanitizer
+	textSensitivePending bool
 }
 
 // NewJSONLWriter 创建父目录并打开指定的 JSONL 文件。
@@ -63,7 +65,6 @@ func newJSONLWriter(path, root string, secrets []string) (*JSONLWriter, error) {
 }
 
 // Append 编码一条完整记录并立即 Flush，保证每次调用对应一行。
-// 连续的 text_delta 会先缓冲到下一条非文本事件，以避免跨分片密钥泄露。
 func (w *JSONLWriter) Append(event agent.Event) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -71,13 +72,10 @@ func (w *JSONLWriter) Append(event agent.Event) error {
 		return fmt.Errorf("session: writer is closed")
 	}
 	if event.Type == agent.EventTextDelta {
-		w.pendingText.WriteString(event.Text)
-		return nil
+		return w.appendEntryLocked(entryFromEvent(event, w.sanitizer, &w.textSensitivePending))
 	}
-	if err := w.flushPendingTextLocked(); err != nil {
-		return err
-	}
-	return w.appendEntryLocked(entryFromEvent(event, w.sanitizer))
+	w.textSensitivePending = false
+	return w.appendEntryLocked(entryFromEvent(event, w.sanitizer, nil))
 }
 
 // Close Flush 并关闭文件；重复关闭是幂等的。
@@ -87,13 +85,9 @@ func (w *JSONLWriter) Close() error {
 	if w.closed {
 		return nil
 	}
-	flushErr := w.flushPendingTextLocked()
 	w.closed = true
 	finalFlushErr := w.writer.Flush()
 	closeErr := w.file.Close()
-	if flushErr != nil {
-		return flushErr
-	}
 	if finalFlushErr != nil {
 		return fmt.Errorf("session: flush on close: %w", finalFlushErr)
 	}
@@ -101,18 +95,6 @@ func (w *JSONLWriter) Close() error {
 		return fmt.Errorf("session: close file: %w", closeErr)
 	}
 	return nil
-}
-
-func (w *JSONLWriter) flushPendingTextLocked() error {
-	if w.pendingText.Len() == 0 {
-		return nil
-	}
-	text := w.pendingText.String()
-	w.pendingText.Reset()
-	return w.appendEntryLocked(entryFromEvent(agent.Event{
-		Type: agent.EventTextDelta,
-		Text: text,
-	}, w.sanitizer))
 }
 
 func (w *JSONLWriter) appendEntryLocked(entry Entry) error {
@@ -127,12 +109,16 @@ func (w *JSONLWriter) appendEntryLocked(entry Entry) error {
 	return nil
 }
 
-func entryFromEvent(event agent.Event, clean sanitizer) Entry {
+func entryFromEvent(event agent.Event, clean sanitizer, textSensitivePending *bool) Entry {
+	text := clean.text(event.Text)
+	if textSensitivePending != nil {
+		text = clean.textDelta(event.Text, textSensitivePending)
+	}
 	return Entry{
 		Version:    1,
 		Type:       string(event.Type),
 		Time:       time.Now().UTC(),
-		Text:       clean.text(event.Text),
+		Text:       text,
 		ToolCallID: clean.text(event.ToolCallID),
 		Tool:       clean.text(event.ToolName),
 		Arguments:  sanitizeArguments(event.Arguments, clean),
@@ -222,10 +208,39 @@ func (clean sanitizer) text(value string) string {
 		}
 	}
 	value = sensitivePattern.ReplaceAllString(value, "$1<redacted>")
+	value = credentialPattern.ReplaceAllString(value, "$1<redacted>")
 	if clean.root != "" {
 		value = strings.ReplaceAll(value, clean.root, "<workspace>")
 		value = strings.ReplaceAll(value, filepath.ToSlash(clean.root), "<workspace>")
 	}
 	value = windowsPathPattern.ReplaceAllString(value, "<path>")
 	return unixPathPattern.ReplaceAllString(value, "$1<path>")
+}
+
+func (clean sanitizer) textDelta(value string, pending *bool) string {
+	if *pending {
+		return "<redacted>"
+	}
+	if clean.secretFragment(value) {
+		*pending = true
+		return "<redacted>"
+	}
+	if credentialPrefixPattern.MatchString(value) {
+		*pending = true
+	}
+	return clean.text(value)
+}
+
+func (clean sanitizer) secretFragment(value string) bool {
+	for _, secret := range clean.secrets {
+		if secret == "" {
+			continue
+		}
+		for size := 1; size < len(secret); size++ {
+			if strings.HasSuffix(value, secret[:size]) {
+				return true
+			}
+		}
+	}
+	return false
 }

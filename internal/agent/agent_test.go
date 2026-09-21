@@ -13,7 +13,7 @@ import (
 	"github.com/IsLand1314/Drift/internal/tool"
 )
 
-const wantNativeToolSystemInstruction = "Drift is read-only. Only use the supplied native read_file tool. run_command, shell, and exec are unavailable. Never emit XML, DSML, or pseudo-tool syntax."
+const wantNativeToolSystemInstruction = "Drift is read-only. Only use the supplied native read-only tools. run_command, shell, and exec are unavailable. Never emit XML, DSML, or pseudo-tool syntax."
 
 type scriptedStep struct {
 	events     []llm.StreamEvent
@@ -156,10 +156,13 @@ func TestRunUsesNativeToolSystemInstruction(t *testing.T) {
 	if system.Role != "system" {
 		t.Fatalf("first message role = %q, want system", system.Role)
 	}
-	for _, required := range []string{"read_file", "run_command", "DSML", "pseudo-tool"} {
+	for _, required := range []string{"native read-only tools", "run_command", "DSML", "pseudo-tool"} {
 		if !strings.Contains(system.Content, required) {
 			t.Fatalf("system instruction = %q, want %q", system.Content, required)
 		}
+	}
+	if strings.Contains(system.Content, "read_file") {
+		t.Fatalf("system instruction hardcodes read_file: %q", system.Content)
 	}
 }
 
@@ -623,6 +626,9 @@ func TestRunWithRegistryUsesRegisteredTool(t *testing.T) {
 	}
 	if len(client.requests) != 2 || client.requests[0].Tools[0].Function == nil {
 		t.Fatalf("requests = %#v, want registered tool schema and two turns", client.requests)
+	}
+	if strings.Contains(client.requests[0].Messages[0].Content, "read_file") {
+		t.Fatalf("custom registry system instruction hardcodes read_file: %q", client.requests[0].Messages[0].Content)
 	}
 	if got := client.requests[1].Messages[2].Content; got != "fake result" {
 		t.Fatalf("tool result = %q, want fake result", got)

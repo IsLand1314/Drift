@@ -212,3 +212,79 @@ func TestJSONLWriterRedactsSecretAcrossTextDeltas(t *testing.T) {
 		t.Fatalf("session leaked cross-event secret: %s", content)
 	}
 }
+
+func TestJSONLWriterRedactsConfiguredSecretAcrossTextDeltas(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "run.jsonl")
+	writer, err := NewJSONLWriterWithSecrets(path, "", "split-secret")
+	if err != nil {
+		t.Fatalf("NewJSONLWriterWithSecrets() error = %v", err)
+	}
+	for _, text := range []string{"prefix split-", "secret suffix"} {
+		if err := writer.Append(agent.Event{Type: agent.EventTextDelta, Text: text}); err != nil {
+			t.Fatalf("Append(%q) error = %v", text, err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(content), "split-secret") || strings.Contains(string(content), "prefix split-") {
+		t.Fatalf("session leaked configured cross-event secret: %s", content)
+	}
+}
+
+func TestJSONLWriterRedactsQuotedJSONPathsAndCredentialsInTextFields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "run.jsonl")
+	writer, err := NewJSONLWriter(path)
+	if err != nil {
+		t.Fatalf("NewJSONLWriter() error = %v", err)
+	}
+	values := []string{
+		`path=/home/alice/private.txt`,
+		`{"path":"/home/alice/private.txt"}`,
+		"`C:\\private\\report.txt`",
+		`OPENAI_API_KEY='another-secret'`,
+		`{"OPENAI_API_KEY":"json-secret"}`,
+	}
+	for _, value := range values {
+		if err := writer.Append(agent.Event{Type: agent.EventToolResult, Result: value}); err != nil {
+			t.Fatalf("Append() error = %v", err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range values {
+		if strings.Contains(string(content), value) {
+			t.Fatalf("session leaked free-text secret or path %q: %s", value, content)
+		}
+	}
+}
+
+func TestJSONLWriterFlushesTextDeltaImmediately(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "run.jsonl")
+	writer, err := NewJSONLWriter(path)
+	if err != nil {
+		t.Fatalf("NewJSONLWriter() error = %v", err)
+	}
+	if err := writer.Append(agent.Event{Type: agent.EventTextDelta, Text: "第一段"}); err != nil {
+		t.Fatalf("Append() error = %v", err)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(content), `"text":"第一段"`) {
+		t.Fatalf("text delta was not flushed immediately: %s", content)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+}

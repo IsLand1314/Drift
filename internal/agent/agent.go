@@ -14,7 +14,7 @@ const (
 	MaxToolCalls      = 4
 	MaxTotalReadBytes = 512 << 10
 
-	nativeToolSystemInstruction = "Drift is read-only. Only use the supplied native read_file tool. run_command, shell, and exec are unavailable. Never emit XML, DSML, or pseudo-tool syntax."
+	nativeToolSystemInstruction = "Drift is read-only. Only use the supplied native read-only tools. run_command, shell, and exec are unavailable. Never emit XML, DSML, or pseudo-tool syntax."
 )
 
 var (
@@ -43,7 +43,7 @@ func Run(
 }
 
 // RunEvents 执行 Agent Loop，并把稳定的 Runtime 事件交给 sink。
-// 当前阶段仍直接使用内建 read_file；工具注册表注入在后续阶段接入。
+// 默认使用内建只读工具注册表；需要扩展时调用 RunEventsWithRegistry。
 func RunEvents(
 	ctx context.Context,
 	client llm.Client,
@@ -85,7 +85,7 @@ func RunEventsWithRegistry(
 
 	messages := []llm.Message{{Role: "user", Content: prompt}}
 	var firstText strings.Builder
-	// 首轮同时发送只读 system 指令、用户问题和唯一的 read_file schema。
+	// 首轮同时发送只读 system 指令、用户问题和注册表中的工具 schema。
 	completion, err := client.Stream(ctx, llm.Request{
 		Messages: []llm.Message{
 			{Role: "system", Content: nativeToolSystemInstruction},
