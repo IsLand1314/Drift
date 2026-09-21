@@ -16,10 +16,10 @@ import (
 )
 
 var sensitivePattern = regexp.MustCompile("(?i)(openai_api_key\\s*=\\s*\"?|authorization:\\s*bearer\\s+|bearer\\s+)[^\\s\"',}]+")
-var credentialPattern = regexp.MustCompile("(?i)([\\\"']?(?:openai[_-]?api[_-]?key|api[_-]?key|authorization|access[_-]?token|refresh[_-]?token|password|secret)[\\\"']?\\s*[:=]\\s*)(?:[\\\"'][^\\\"']*[\\\"']|[^,\\s}\\]]*)")
+var credentialPattern = regexp.MustCompile("(?i)([\\\"']?(?:openai[_-]?api[_-]?key|api[_-]?key|authorization|access[_-]?token|refresh[_-]?token|password|secret)[\\\"']?\\s*[:=]\\s*)(?:\"(?:\\\\.|[^\"\\\\])*\"|'[^']*'|[^,\\s}\\]]*)")
 var credentialPrefixPattern = regexp.MustCompile("(?i)[\\\"']?(?:openai[_-]?api[_-]?key|api[_-]?key|authorization|access[_-]?token|refresh[_-]?token|password|secret)[\\\"']?\\s*[:=]")
 var windowsPathPattern = regexp.MustCompile("(?i)(?:[a-z]:[\\\\/]|\\\\\\\\)[^\\s\"'`<>\\]}]+")
-var unixPathPattern = regexp.MustCompile("(^|[\\s(\"'`=:,：\\[{])\\/[^\\s\"'`<>\\]}]+")
+var unixPathPattern = regexp.MustCompile("(^|[\\s(（\"'`=:,：\\[{])\\/[^\\s\"'`<>\\]}]+")
 
 var streamingCredentialMarkers = []string{
 	"openai_api_key",
@@ -28,7 +28,7 @@ var streamingCredentialMarkers = []string{
 	"access_token",
 	"refresh_token",
 	"password",
-	"secret",
+	"bearer",
 }
 
 type sanitizer struct {
@@ -189,6 +189,7 @@ func sensitiveJSONKey(key string) bool {
 	return strings.Contains(normalized, "apikey") ||
 		strings.Contains(normalized, "authorization") ||
 		strings.Contains(normalized, "token") ||
+		strings.Contains(normalized, "password") ||
 		strings.Contains(normalized, "secret")
 }
 
@@ -246,10 +247,13 @@ func (clean sanitizer) secretFragment(value string) bool {
 		if secret == "" {
 			continue
 		}
-		for size := 3; size < len(secret); size++ {
-			if strings.HasSuffix(value, secret[:size]) {
+		for size := 2; size < len(secret); size++ {
+			if strings.HasSuffix(value, secret[:size]) && suffixHasBoundary(value, size) {
 				return true
 			}
+		}
+		if strings.EqualFold(strings.TrimSpace(value), secret[:1]) {
+			return true
 		}
 	}
 	return false
@@ -259,13 +263,22 @@ func (clean sanitizer) streamingSensitiveFragment(value string) bool {
 	lower := strings.ToLower(value)
 	for _, marker := range streamingCredentialMarkers {
 		for size := 3; size < len(marker); size++ {
-			if strings.HasSuffix(lower, marker[:size]) {
+			if !strings.HasSuffix(marker[:size], "_") {
+				continue
+			}
+			if strings.HasSuffix(lower, marker[:size]) && suffixHasBoundary(value, size) {
 				return true
 			}
+		}
+		if strings.EqualFold(strings.TrimSpace(value), marker) {
+			return true
 		}
 	}
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "/" || trimmed == `\` {
+		return true
+	}
+	if drivePrefixSuffix(value) || unixPathPrefixSuffix(value) {
 		return true
 	}
 	if len(trimmed) == 2 && isDriveLetter(trimmed[0]) && trimmed[1] == ':' {
@@ -277,6 +290,36 @@ func (clean sanitizer) streamingSensitiveFragment(value string) bool {
 	return clean.secretFragment(value)
 }
 
+func suffixHasBoundary(value string, suffixLength int) bool {
+	start := len(value) - suffixLength
+	if start <= 0 {
+		return true
+	}
+	previous := value[start-1]
+	return !((previous >= 'a' && previous <= 'z') || (previous >= 'A' && previous <= 'Z') || (previous >= '0' && previous <= '9') || previous == '_')
+}
+
 func isDriveLetter(value byte) bool {
 	return (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z')
+}
+
+func drivePrefixSuffix(value string) bool {
+	for _, suffix := range []string{"C:", `C:\`, "C:/"} {
+		if len(value) < len(suffix) {
+			continue
+		}
+		start := len(value) - len(suffix)
+		candidate := value[start:]
+		if len(candidate) >= 1 && isDriveLetter(candidate[0]) && candidate[1:] == suffix[1:] && suffixHasBoundary(value, len(suffix)) {
+			return true
+		}
+	}
+	return false
+}
+
+func unixPathPrefixSuffix(value string) bool {
+	if !strings.HasSuffix(value, "/") {
+		return false
+	}
+	return len(value) == 1 || suffixHasBoundary(value, 1)
 }

@@ -141,7 +141,7 @@ func TestJSONLWriterRedactsQuotedAndJSONSecrets(t *testing.T) {
 	if err := writer.Append(agent.Event{
 		Type:      agent.EventToolCall,
 		ToolName:  "read_file",
-		Arguments: `{"OPENAI_API_KEY":"` + secret + `","path":"README.md"}`,
+		Arguments: `{"OPENAI_API_KEY":"` + secret + `","password":"demo-password","path":"README.md"}`,
 	}); err != nil {
 		t.Fatalf("Append(tool) error = %v", err)
 	}
@@ -154,6 +154,9 @@ func TestJSONLWriterRedactsQuotedAndJSONSecrets(t *testing.T) {
 	}
 	if strings.Contains(string(content), secret) {
 		t.Fatalf("session leaked quoted or JSON secret: %s", content)
+	}
+	if strings.Contains(string(content), "demo-password") {
+		t.Fatalf("session leaked JSON password: %s", content)
 	}
 }
 
@@ -214,50 +217,76 @@ func TestJSONLWriterRedactsSecretAcrossTextDeltas(t *testing.T) {
 }
 
 func TestJSONLWriterRedactsConfiguredSecretAcrossTextDeltas(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "run.jsonl")
-	writer, err := NewJSONLWriterWithSecrets(path, "", "split-secret")
-	if err != nil {
-		t.Fatalf("NewJSONLWriterWithSecrets() error = %v", err)
+	cases := []struct {
+		name   string
+		secret string
+		parts  []string
+	}{
+		{name: "long secret", secret: "split-secret", parts: []string{"prefix split-", "secret suffix"}},
+		{name: "two-character prefix", secret: "sk-test-secret", parts: []string{"s", "k-test-secret"}},
 	}
-	for _, text := range []string{"prefix split-", "secret suffix"} {
-		if err := writer.Append(agent.Event{Type: agent.EventTextDelta, Text: text}); err != nil {
-			t.Fatalf("Append(%q) error = %v", text, err)
-		}
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close() error = %v", err)
-	}
-	content, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(content), "split-secret") || strings.Contains(string(content), "prefix split-") {
-		t.Fatalf("session leaked configured cross-event secret: %s", content)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "run.jsonl")
+			writer, err := NewJSONLWriterWithSecrets(path, "", tc.secret)
+			if err != nil {
+				t.Fatalf("NewJSONLWriterWithSecrets() error = %v", err)
+			}
+			for _, text := range tc.parts {
+				if err := writer.Append(agent.Event{Type: agent.EventTextDelta, Text: text}); err != nil {
+					t.Fatalf("Append(%q) error = %v", text, err)
+				}
+			}
+			if err := writer.Close(); err != nil {
+				t.Fatalf("Close() error = %v", err)
+			}
+			content, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(content), tc.secret) {
+				t.Fatalf("session leaked configured cross-event secret: %s", content)
+			}
+		})
 	}
 }
 
 func TestJSONLWriterRedactsSplitCredentialAndPathAcrossTextDeltas(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "run.jsonl")
-	writer, err := NewJSONLWriter(path)
-	if err != nil {
-		t.Fatalf("NewJSONLWriter() error = %v", err)
+	cases := []struct {
+		name      string
+		parts     []string
+		forbidden []string
+	}{
+		{name: "openai key", parts: []string{"OPENAI_API_", "KEY=split-secret"}, forbidden: []string{"OPENAI_API_", "KEY=split-secret"}},
+		{name: "api key", parts: []string{"api_key", "=demo-secret"}, forbidden: []string{"api_key", "=demo-secret"}},
+		{name: "bearer", parts: []string{"Bearer ", "demo-credential"}, forbidden: []string{"Bearer ", "demo-credential"}},
+		{name: "windows path", parts: []string{"路径：C:", `\private\report.txt`}, forbidden: []string{"路径：C:", `C:\private\report.txt`}},
 	}
-	for _, text := range []string{"OPENAI_API_", "KEY=split-secret", "C:", `\private\report.txt`} {
-		if err := writer.Append(agent.Event{Type: agent.EventTextDelta, Text: text}); err != nil {
-			t.Fatalf("Append(%q) error = %v", text, err)
-		}
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close() error = %v", err)
-	}
-	content, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, value := range []string{"OPENAI_API_", "KEY=split-secret", `C:\private\report.txt`} {
-		if strings.Contains(string(content), value) {
-			t.Fatalf("session leaked split credential or path %q: %s", value, content)
-		}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "run.jsonl")
+			writer, err := NewJSONLWriter(path)
+			if err != nil {
+				t.Fatalf("NewJSONLWriter() error = %v", err)
+			}
+			for _, text := range tc.parts {
+				if err := writer.Append(agent.Event{Type: agent.EventTextDelta, Text: text}); err != nil {
+					t.Fatalf("Append(%q) error = %v", text, err)
+				}
+			}
+			if err := writer.Close(); err != nil {
+				t.Fatalf("Close() error = %v", err)
+			}
+			content, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, value := range tc.forbidden {
+				if strings.Contains(string(content), value) {
+					t.Fatalf("session leaked split credential or path %q: %s", value, content)
+				}
+			}
+		})
 	}
 }
 
@@ -267,7 +296,7 @@ func TestJSONLWriterKeepsNormalTextWithConfiguredSecret(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewJSONLWriterWithSecrets() error = %v", err)
 	}
-	for _, text := range []string{"This is a normal answer.", "It remains readable."} {
+	for _, text := range []string{"This is a section about README.", "Open", " source text", "It remains readable."} {
 		if err := writer.Append(agent.Event{Type: agent.EventTextDelta, Text: text}); err != nil {
 			t.Fatalf("Append(%q) error = %v", text, err)
 		}
@@ -279,7 +308,7 @@ func TestJSONLWriterKeepsNormalTextWithConfiguredSecret(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, text := range []string{"This is a normal answer.", "It remains readable."} {
+	for _, text := range []string{"This is a section about README.", "Open", " source text", "It remains readable."} {
 		if !strings.Contains(string(content), text) {
 			t.Fatalf("normal text was over-redacted: %s", content)
 		}
@@ -295,10 +324,13 @@ func TestJSONLWriterRedactsQuotedJSONPathsAndCredentialsInTextFields(t *testing.
 	values := []string{
 		`path=/home/alice/private.txt`,
 		`路径：/home/alice/private.txt`,
+		`路径（/home/alice/private.txt）`,
 		`{"path":"/home/alice/private.txt"}`,
 		"`C:\\private\\report.txt`",
 		`OPENAI_API_KEY='another-secret'`,
 		`{"OPENAI_API_KEY":"json-secret"}`,
+		`{"password":"a'b c"}`,
+		`{"password":"a\"b tail-leak"}`,
 	}
 	for _, value := range values {
 		if err := writer.Append(agent.Event{Type: agent.EventToolResult, Result: value}); err != nil {
@@ -316,6 +348,12 @@ func TestJSONLWriterRedactsQuotedJSONPathsAndCredentialsInTextFields(t *testing.
 		if strings.Contains(string(content), value) {
 			t.Fatalf("session leaked free-text secret or path %q: %s", value, content)
 		}
+	}
+	if strings.Contains(string(content), "a'b c") {
+		t.Fatalf("session leaked mismatched-quote credential value: %s", content)
+	}
+	if strings.Contains(string(content), "b tail-leak") {
+		t.Fatalf("session leaked escaped-quote credential tail: %s", content)
 	}
 }
 
