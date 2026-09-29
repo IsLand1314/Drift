@@ -309,7 +309,7 @@ func TestJSONLWriterRedactsSplitCredentialAndPathAcrossTextDeltas(t *testing.T) 
 	}
 }
 
-func TestJSONLWriterKeepsNormalTextWithConfiguredSecret(t *testing.T) {
+func TestJSONLWriterRedactsNormalTextWithConfiguredSecret(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "run.jsonl")
 	writer, err := NewJSONLWriterWithSecrets(path, "", "sk-test-secret")
 	if err != nil {
@@ -354,6 +354,8 @@ func TestJSONLWriterRedactsQuotedJSONPathsAndCredentialsInTextFields(t *testing.
 		`{"OPENAI_API_KEY":"json-secret"}`,
 		`{"password":"a'b c"}`,
 		`{"password":"a\"b tail-leak"}`,
+		`Authorization: Basic dXNlcjpwYXNz`,
+		`请读取/home/alice/private.txt`,
 	}
 	for _, value := range values {
 		if err := writer.Append(agent.Event{Type: agent.EventToolResult, Result: value}); err != nil {
@@ -377,6 +379,9 @@ func TestJSONLWriterRedactsQuotedJSONPathsAndCredentialsInTextFields(t *testing.
 	}
 	if strings.Contains(string(content), "b tail-leak") {
 		t.Fatalf("session leaked escaped-quote credential tail: %s", content)
+	}
+	if strings.Contains(string(content), "dXNlcjpwYXNz") {
+		t.Fatalf("session leaked Basic authorization payload: %s", content)
 	}
 }
 

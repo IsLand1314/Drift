@@ -15,10 +15,10 @@ import (
 	"github.com/IsLand1314/Drift/internal/agent"
 )
 
-var sensitivePattern = regexp.MustCompile("(?i)(authorization:\\s*bearer\\s+|bearer\\s+)[^\\s\"',}]+")
+var sensitivePattern = regexp.MustCompile("(?i)(authorization:\\s+(?:[a-z]+\\s+)?|bearer\\s+)[^\\s\"',}]+")
 var credentialPattern = regexp.MustCompile("(?i)([\\\"']?(?:openai[_-]?api[_-]?key|api[_-]?key|authorization|access[_-]?token|refresh[_-]?token|password|secret)[\\\"']?\\s*[:=]\\s*)(?:\"(?:\\\\.|[^\"\\\\])*\"|'[^']*'|[^,\\s}\\]]*)")
 var windowsPathPattern = regexp.MustCompile("(?i)(?:[a-z]:[\\\\/]|\\\\\\\\)[^\\s\"'`<>\\]}]+")
-var unixPathPattern = regexp.MustCompile("(^|[\\s(（\"'`=:,：，【\\[{])\\/[^\\s\"'`<>\\]}]+")
+var unixPathPattern = regexp.MustCompile("(^|[^A-Za-z0-9_])\\/[^\\s\"'`<>\\]}]+")
 
 type sanitizer struct {
 	root    string
@@ -69,9 +69,6 @@ func (w *JSONLWriter) Append(event agent.Event) error {
 	if w.closed {
 		return fmt.Errorf("session: writer is closed")
 	}
-	if event.Type == agent.EventTextDelta {
-		return w.appendEntryLocked(entryFromEvent(event, w.sanitizer))
-	}
 	return w.appendEntryLocked(entryFromEvent(event, w.sanitizer))
 }
 
@@ -108,7 +105,7 @@ func (w *JSONLWriter) appendEntryLocked(entry Entry) error {
 
 func entryFromEvent(event agent.Event, clean sanitizer) Entry {
 	text := clean.text(event.Text)
-	if event.Type == agent.EventTextDelta && event.Text != "" {
+	if event.Type == agent.EventTextDelta {
 		text = "<redacted>"
 	}
 	return Entry{
