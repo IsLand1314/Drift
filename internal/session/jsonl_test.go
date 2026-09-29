@@ -258,8 +258,10 @@ func TestJSONLWriterRedactsSplitCredentialAndPathAcrossTextDeltas(t *testing.T) 
 		forbidden []string
 	}{
 		{name: "openai key", parts: []string{"OPENAI_API_", "KEY=split-secret"}, forbidden: []string{"OPENAI_API_", "KEY=split-secret"}},
-		{name: "api key", parts: []string{"api_key", "=demo-secret"}, forbidden: []string{"api_key", "=demo-secret"}},
-		{name: "bearer", parts: []string{"Bea", "rer demo-credential"}, forbidden: []string{"Bea", "rer demo-credential"}},
+		{name: "api key", parts: []string{"prefix api", "_key=demo-secret"}, forbidden: []string{"prefix api", "_key=demo-secret"}},
+		{name: "api key short", parts: []string{"ap", "i_key=short-secret"}, forbidden: []string{"ap", "i_key=short-secret"}},
+		{name: "bearer", parts: []string{"prefix Bearer ", "demo-credential"}, forbidden: []string{"prefix Bearer ", "demo-credential"}},
+		{name: "bearer short", parts: []string{"B", "earer short-credential"}, forbidden: []string{"B", "earer short-credential"}},
 		{name: "windows path", parts: []string{"路径：C:", `\private\report.txt`}, forbidden: []string{"路径：C:", `C:\private\report.txt`}},
 	}
 	for _, tc := range cases {

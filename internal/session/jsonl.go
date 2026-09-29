@@ -263,15 +263,21 @@ func (clean sanitizer) streamingSensitiveFragment(value string) bool {
 	trimmedValue := strings.TrimSpace(value)
 	lower := strings.ToLower(trimmedValue)
 	for _, marker := range streamingCredentialMarkers {
-		for size := 3; size < len(marker); size++ {
-			if !strings.HasSuffix(marker[:size], "_") && marker != "bearer" && !(marker == "api_key" && size == 3) {
+		minSize := 3
+		if marker == "bearer" {
+			minSize = 1
+		} else if marker == "api_key" {
+			minSize = 2
+		}
+		for size := minSize; size < len(marker); size++ {
+			if !strings.HasSuffix(marker[:size], "_") && marker != "bearer" && marker != "api_key" {
 				continue
 			}
 			if strings.HasSuffix(lower, marker[:size]) && suffixHasBoundary(trimmedValue, size) {
 				return true
 			}
 		}
-		if strings.EqualFold(trimmedValue, marker) {
+		if strings.HasSuffix(lower, marker) && suffixHasBoundary(trimmedValue, len(marker)) {
 			return true
 		}
 	}
