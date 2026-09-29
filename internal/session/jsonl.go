@@ -15,7 +15,7 @@ import (
 	"github.com/IsLand1314/Drift/internal/agent"
 )
 
-var sensitivePattern = regexp.MustCompile("(?i)(authorization:\\s+(?:[a-z]+\\s+)?|bearer\\s+)[^\\s\"',}]+")
+var sensitivePattern = regexp.MustCompile("(?i)(authorization\\s*[:=]\\s*(?:[a-z]+\\s+)?|bearer\\s+)[^\\s\"',}]+")
 var credentialPattern = regexp.MustCompile("(?i)([\\\"']?(?:openai[_-]?api[_-]?key|api[_-]?key|authorization|access[_-]?token|refresh[_-]?token|password|secret)[\\\"']?\\s*[:=]\\s*)(?:\"(?:\\\\.|[^\"\\\\])*\"|'[^']*'|[^,\\s}\\]]*)")
 var windowsPathPattern = regexp.MustCompile("(?i)(?:[a-z]:[\\\\/]|\\\\\\\\)[^\\s\"'`<>\\]}]+")
 var unixPathPattern = regexp.MustCompile("(^|[^A-Za-z0-9_])\\/[^\\s\"'`<>\\]}]+")

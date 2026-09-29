@@ -355,6 +355,8 @@ func TestJSONLWriterRedactsQuotedJSONPathsAndCredentialsInTextFields(t *testing.
 		`{"password":"a'b c"}`,
 		`{"password":"a\"b tail-leak"}`,
 		`Authorization: Basic dXNlcjpwYXNz`,
+		`Authorization:Basic dXNlcjpwYXNz`,
+		`Authorization = Basic dXNlcjpwYXNz`,
 		`请读取/home/alice/private.txt`,
 	}
 	for _, value := range values {
