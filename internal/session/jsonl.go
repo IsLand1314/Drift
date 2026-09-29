@@ -17,19 +17,8 @@ import (
 
 var sensitivePattern = regexp.MustCompile("(?i)(authorization:\\s*bearer\\s+|bearer\\s+)[^\\s\"',}]+")
 var credentialPattern = regexp.MustCompile("(?i)([\\\"']?(?:openai[_-]?api[_-]?key|api[_-]?key|authorization|access[_-]?token|refresh[_-]?token|password|secret)[\\\"']?\\s*[:=]\\s*)(?:\"(?:\\\\.|[^\"\\\\])*\"|'[^']*'|[^,\\s}\\]]*)")
-var credentialPrefixPattern = regexp.MustCompile("(?i)[\\\"']?(?:openai[_-]?api[_-]?key|api[_-]?key|authorization|access[_-]?token|refresh[_-]?token|password|secret)[\\\"']?\\s*[:=]")
 var windowsPathPattern = regexp.MustCompile("(?i)(?:[a-z]:[\\\\/]|\\\\\\\\)[^\\s\"'`<>\\]}]+")
 var unixPathPattern = regexp.MustCompile("(^|[\\s(（\"'`=:,：，【\\[{])\\/[^\\s\"'`<>\\]}]+")
-
-var streamingCredentialMarkers = []string{
-	"openai_api_key",
-	"api_key",
-	"authorization",
-	"access_token",
-	"refresh_token",
-	"password",
-	"bearer",
-}
 
 type sanitizer struct {
 	root    string
@@ -38,12 +27,11 @@ type sanitizer struct {
 
 // JSONLWriter 将事件以追加模式写入一个本地 JSONL 文件。
 type JSONLWriter struct {
-	mu                   sync.Mutex
-	file                 *os.File
-	writer               *bufio.Writer
-	closed               bool
-	sanitizer            sanitizer
-	textSensitivePending bool
+	mu        sync.Mutex
+	file      *os.File
+	writer    *bufio.Writer
+	closed    bool
+	sanitizer sanitizer
 }
 
 // NewJSONLWriter 创建父目录并打开指定的 JSONL 文件。
@@ -82,10 +70,9 @@ func (w *JSONLWriter) Append(event agent.Event) error {
 		return fmt.Errorf("session: writer is closed")
 	}
 	if event.Type == agent.EventTextDelta {
-		return w.appendEntryLocked(entryFromEvent(event, w.sanitizer, &w.textSensitivePending))
+		return w.appendEntryLocked(entryFromEvent(event, w.sanitizer))
 	}
-	w.textSensitivePending = false
-	return w.appendEntryLocked(entryFromEvent(event, w.sanitizer, nil))
+	return w.appendEntryLocked(entryFromEvent(event, w.sanitizer))
 }
 
 // Close Flush 并关闭文件；重复关闭是幂等的。
@@ -119,10 +106,10 @@ func (w *JSONLWriter) appendEntryLocked(entry Entry) error {
 	return nil
 }
 
-func entryFromEvent(event agent.Event, clean sanitizer, textSensitivePending *bool) Entry {
+func entryFromEvent(event agent.Event, clean sanitizer) Entry {
 	text := clean.text(event.Text)
-	if textSensitivePending != nil {
-		text = clean.textDelta(event.Text, textSensitivePending)
+	if event.Type == agent.EventTextDelta && event.Text != "" {
+		text = "<redacted>"
 	}
 	return Entry{
 		Version:    1,
@@ -226,107 +213,4 @@ func (clean sanitizer) text(value string) string {
 	}
 	value = windowsPathPattern.ReplaceAllString(value, "<path>")
 	return unixPathPattern.ReplaceAllString(value, "$1<path>")
-}
-
-func (clean sanitizer) textDelta(value string, pending *bool) string {
-	if *pending {
-		return "<redacted>"
-	}
-	if clean.streamingSensitiveFragment(value) {
-		*pending = true
-		return "<redacted>"
-	}
-	if credentialPrefixPattern.MatchString(value) {
-		*pending = true
-	}
-	return clean.text(value)
-}
-
-func (clean sanitizer) secretFragment(value string) bool {
-	for _, secret := range clean.secrets {
-		if secret == "" {
-			continue
-		}
-		for size := 2; size < len(secret); size++ {
-			if strings.HasSuffix(value, secret[:size]) && suffixHasBoundary(value, size) {
-				return true
-			}
-		}
-		if strings.HasSuffix(strings.ToLower(value), strings.ToLower(secret[:1])) && suffixHasBoundary(value, 1) {
-			return true
-		}
-	}
-	return false
-}
-
-func (clean sanitizer) streamingSensitiveFragment(value string) bool {
-	trimmedValue := strings.TrimSpace(value)
-	lower := strings.ToLower(trimmedValue)
-	for _, marker := range streamingCredentialMarkers {
-		minSize := 3
-		if marker == "bearer" {
-			minSize = 1
-		} else if marker == "api_key" {
-			minSize = 2
-		}
-		for size := minSize; size < len(marker); size++ {
-			if !strings.HasSuffix(marker[:size], "_") && marker != "bearer" && marker != "api_key" {
-				continue
-			}
-			if strings.HasSuffix(lower, marker[:size]) && suffixHasBoundary(trimmedValue, size) {
-				return true
-			}
-		}
-		if strings.HasSuffix(lower, marker) && suffixHasBoundary(trimmedValue, len(marker)) {
-			return true
-		}
-	}
-	trimmed := strings.TrimSpace(value)
-	if trimmed == "/" || trimmed == `\` {
-		return true
-	}
-	if drivePrefixSuffix(value) || unixPathPrefixSuffix(value) {
-		return true
-	}
-	if len(trimmed) == 2 && isDriveLetter(trimmed[0]) && trimmed[1] == ':' {
-		return true
-	}
-	if len(trimmed) >= 3 && isDriveLetter(trimmed[0]) && trimmed[1] == ':' && (strings.HasSuffix(trimmed, "\\") || strings.HasSuffix(trimmed, "/")) {
-		return true
-	}
-	return clean.secretFragment(value)
-}
-
-func suffixHasBoundary(value string, suffixLength int) bool {
-	start := len(value) - suffixLength
-	if start <= 0 {
-		return true
-	}
-	previous := value[start-1]
-	return !((previous >= 'a' && previous <= 'z') || (previous >= 'A' && previous <= 'Z') || (previous >= '0' && previous <= '9') || previous == '_')
-}
-
-func isDriveLetter(value byte) bool {
-	return (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z')
-}
-
-func drivePrefixSuffix(value string) bool {
-	for _, suffix := range []string{"C:", `C:\`, "C:/"} {
-		if len(value) < len(suffix) {
-			continue
-		}
-		start := len(value) - len(suffix)
-		candidate := value[start:]
-		if len(candidate) >= 1 && isDriveLetter(candidate[0]) && candidate[1:] == suffix[1:] && suffixHasBoundary(value, len(suffix)) {
-			return true
-		}
-	}
-	return false
-}
-
-func unixPathPrefixSuffix(value string) bool {
-	if !strings.HasSuffix(value, "/") {
-		return false
-	}
-	return len(value) == 1 || suffixHasBoundary(value, 1)
 }

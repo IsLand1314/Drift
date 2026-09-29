@@ -51,8 +51,8 @@ func TestJSONLWriterAppendsVersionedEntries(t *testing.T) {
 	if entries[0].Version != 1 || entries[0].Type != string(agent.EventRunStarted) || entries[0].Text != "解释 README.md" {
 		t.Fatalf("start entry = %#v", entries[0])
 	}
-	if entries[1].Type != string(agent.EventTextDelta) || entries[1].Text != "项目说明" {
-		t.Fatalf("text entry = %#v", entries[1])
+	if entries[1].Type != string(agent.EventTextDelta) || entries[1].Text != "<redacted>" {
+		t.Fatalf("text entry = %#v, want redacted placeholder", entries[1])
 	}
 	for _, entry := range entries {
 		if entry.Time.IsZero() || entry.Time.Location() != time.UTC {
@@ -327,9 +327,12 @@ func TestJSONLWriterKeepsNormalTextWithConfiguredSecret(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !strings.Contains(string(content), `"text":"<redacted>"`) {
+		t.Fatalf("text delta was not stored as a redacted placeholder: %s", content)
+	}
 	for _, text := range []string{"This is a section about README.", "Open", " source text", "It remains readable."} {
-		if !strings.Contains(string(content), text) {
-			t.Fatalf("normal text was over-redacted: %s", content)
+		if strings.Contains(string(content), text) {
+			t.Fatalf("text delta leaked raw content %q: %s", text, content)
 		}
 	}
 }
@@ -390,7 +393,7 @@ func TestJSONLWriterFlushesTextDeltaImmediately(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(content), `"text":"第一段"`) {
+	if !strings.Contains(string(content), `"text":"<redacted>"`) {
 		t.Fatalf("text delta was not flushed immediately: %s", content)
 	}
 	if err := writer.Close(); err != nil {
