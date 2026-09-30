@@ -1,4 +1,4 @@
-// Package agent runs the bounded two-turn read_file agent loop.
+// Package agent runs the bounded read-only agent loop.
 package agent
 
 import (
@@ -11,7 +11,8 @@ import (
 )
 
 const (
-	MaxToolCalls      = 4
+	MaxModelRequests  = 4
+	MaxToolCalls      = 6
 	MaxTotalReadBytes = 512 << 10
 
 	nativeToolSystemInstruction = "Drift is read-only. Only use the supplied native read-only tools. run_command, shell, and exec are unavailable. Never emit XML, DSML, or pseudo-tool syntax."
@@ -20,49 +21,28 @@ const (
 var (
 	errUnexpectedFirstCompletion  = errors.New("agent: unexpected first completion")
 	errUnexpectedSecondCompletion = errors.New("agent: unexpected second completion")
-	errTooManyToolCalls           = errors.New("agent: 最多读取 4 个文件")
+	errRequestToolBudgetExceeded  = errors.New("agent: request/tool budget exceeded")
 	errUnsupportedTool            = errors.New("agent: unsupported tool")
 	errIncompatiblePseudoToolCall = errors.New("agent: 模型返回了不兼容的伪工具调用格式")
 )
 
-// Run 执行受限两轮 Agent Loop，并只把最终文本交给 emitText。
-// 首轮文本会被缓存，避免把模型的思考或工具过程写到 stdout。
-func Run(
-	ctx context.Context,
-	client llm.Client,
-	root string,
-	prompt string,
-	emitText func(string) error,
-) error {
+// Run 执行受限 Agent Loop，并只把最终文本交给 emitText。
+func Run(ctx context.Context, client llm.Client, root, prompt string, emitText func(string) error) error {
 	return RunEvents(ctx, client, root, prompt, func(event Event) error {
-		if event.Type != EventTextDelta {
-			return nil
+		if event.Type == EventTextDelta {
+			return emitText(event.Text)
 		}
-		return emitText(event.Text)
+		return nil
 	})
 }
 
 // RunEvents 执行 Agent Loop，并把稳定的 Runtime 事件交给 sink。
-// 默认使用内建只读工具注册表；需要扩展时调用 RunEventsWithRegistry。
-func RunEvents(
-	ctx context.Context,
-	client llm.Client,
-	root string,
-	prompt string,
-	sink EventSink,
-) error {
+func RunEvents(ctx context.Context, client llm.Client, root, prompt string, sink EventSink) error {
 	return RunEventsWithRegistry(ctx, client, root, prompt, tool.NewDefaultRegistry(), sink)
 }
 
-// RunEventsWithRegistry 使用调用方提供的工具注册表执行 Agent Loop。
-func RunEventsWithRegistry(
-	ctx context.Context,
-	client llm.Client,
-	root string,
-	prompt string,
-	registry tool.Registry,
-	sink EventSink,
-) error {
+// RunEventsWithRegistry 使用调用方提供的工具注册表执行受限多轮 Agent Loop。
+func RunEventsWithRegistry(ctx context.Context, client llm.Client, root, prompt string, registry tool.Registry, sink EventSink) error {
 	emit := func(event Event) error {
 		if sink == nil {
 			return nil
@@ -70,115 +50,116 @@ func RunEventsWithRegistry(
 		return sink(event)
 	}
 	fail := func(err error) error {
-		if err == nil {
-			return nil
-		}
 		if sinkErr := emit(Event{Type: EventError, Error: sanitizeError(root, err.Error())}); sinkErr != nil {
 			return sinkErr
 		}
 		return err
 	}
-
 	if err := emit(Event{Type: EventRunStarted, Text: prompt}); err != nil {
 		return err
 	}
 
 	messages := []llm.Message{{Role: "user", Content: prompt}}
-	var firstText strings.Builder
-	// 首轮同时发送只读 system 指令、用户问题和注册表中的工具 schema。
-	completion, err := client.Stream(ctx, llm.Request{
-		Messages: []llm.Message{
-			{Role: "system", Content: nativeToolSystemInstruction},
-			{Role: "user", Content: prompt},
-		},
-		Tools: registry.Definitions(),
-	}, func(event llm.StreamEvent) error {
-		firstText.WriteString(event.Text)
-		return nil
-	})
-	if err != nil {
-		return fail(err)
-	}
+	definitions := registry.Definitions()
+	toolCalls, resultBytes := 0, 0
+	forceFinal := false
+	for requestIndex := 0; requestIndex < MaxModelRequests; requestIndex++ {
+		requestMessages := messages
+		if requestIndex == 0 {
+			requestMessages = append([]llm.Message{{Role: "system", Content: nativeToolSystemInstruction}}, messages...)
+		}
+		request := llm.Request{Messages: requestMessages}
+		if !forceFinal {
+			request.Tools = definitions
+		}
+		var chunks []string
+		completion, err := client.Stream(ctx, request, func(event llm.StreamEvent) error {
+			if event.Text != "" {
+				chunks = append(chunks, event.Text)
+			}
+			return nil
+		})
+		if err != nil {
+			return fail(err)
+		}
 
-	if len(completion.Assistant.ToolCalls) == 0 {
-		if completion.FinishReason == "stop" {
-			// 已知 DSML/XML 伪工具不是原生 tool_calls，不能当作普通答案输出。
-			if strings.Contains(firstText.String(), "<｜｜DSML｜｜") || strings.Contains(firstText.String(), "<|DSML|>") {
+		calls := completion.Assistant.ToolCalls
+		if len(calls) == 0 {
+			if completion.FinishReason != "stop" {
+				if requestIndex == 0 {
+					return fail(errUnexpectedFirstCompletion)
+				}
+				return fail(errUnexpectedSecondCompletion)
+			}
+			text := strings.Join(chunks, "")
+			if requestIndex == 0 && (strings.Contains(text, "<｜｜DSML｜｜") || strings.Contains(text, "<|DSML|>")) {
 				return fail(errIncompatiblePseudoToolCall)
 			}
-			if err := emit(Event{Type: EventTextDelta, Text: firstText.String()}); err != nil {
+			for _, chunk := range chunks {
+				if err := emit(Event{Type: EventTextDelta, Text: chunk}); err != nil {
+					return err
+				}
+			}
+			return emit(Event{Type: EventRunFinished})
+		}
+		if forceFinal {
+			return fail(errRequestToolBudgetExceeded)
+		}
+
+		messages = append(messages, completion.Assistant)
+		for _, call := range calls {
+			if _, ok := registry.Lookup(call.Name); !ok {
+				return fail(errUnsupportedTool)
+			}
+		}
+		limitReached := false
+		for _, call := range calls {
+			if err := emit(Event{Type: EventToolCall, ToolCallID: call.ID, ToolName: call.Name, Arguments: call.Arguments}); err != nil {
 				return err
 			}
-			if err := emit(Event{Type: EventRunFinished}); err != nil {
+			var content string
+			if toolCalls >= MaxToolCalls {
+				content = call.Name + " failed: request/tool budget exceeded"
+				limitReached = true
+			} else {
+				toolCalls++
+				registeredTool, _ := registry.Lookup(call.Name)
+				result, toolErr := registeredTool.Execute(ctx, root, call.Arguments)
+				if toolErr != nil && ctx.Err() != nil {
+					return fail(ctx.Err())
+				}
+				switch {
+				case toolErr != nil:
+					content = toolFailure(call.Name)
+				case resultBytes+len(result) > MaxTotalReadBytes:
+					content = call.Name + " failed: total read limit exceeded"
+					limitReached = true
+				default:
+					content = result
+					resultBytes += len(result)
+				}
+			}
+			messages = append(messages, llm.Message{Role: "tool", Content: content, ToolCallID: call.ID})
+			if err := emit(Event{Type: EventToolResult, ToolCallID: call.ID, ToolName: call.Name, Result: content}); err != nil {
 				return err
 			}
-			return nil
 		}
-		return fail(errUnexpectedFirstCompletion)
-	}
-	calls := completion.Assistant.ToolCalls
-	// 先验证整批调用，再开始读取，确保一次任务不会突破调用上限。
-	if len(calls) > MaxToolCalls {
-		return fail(errTooManyToolCalls)
-	}
-	for _, call := range calls {
-		if _, ok := registry.Lookup(call.Name); !ok {
-			return fail(errUnsupportedTool)
+		if toolCalls >= MaxToolCalls || resultBytes >= MaxTotalReadBytes {
+			limitReached = true
 		}
+		if requestIndex+1 == MaxModelRequests {
+			return fail(errRequestToolBudgetExceeded)
+		}
+		forceFinal = limitReached
 	}
+	return fail(errRequestToolBudgetExceeded)
+}
 
-	messages = append(messages, completion.Assistant)
-	readBytes := 0
-	for _, call := range calls {
-		if err := emit(Event{
-			Type:       EventToolCall,
-			ToolCallID: call.ID,
-			ToolName:   call.Name,
-			Arguments:  call.Arguments,
-		}); err != nil {
-			return err
-		}
-		registeredTool, ok := registry.Lookup(call.Name)
-		if !ok {
-			return fail(errUnsupportedTool)
-		}
-		// 工具错误会被替换成脱敏结果；模型只能知道读取失败，不能看到本地路径细节。
-		content, readErr := registeredTool.Execute(ctx, root, call.Arguments)
-		if readErr != nil {
-			content = "read_file failed: unable to read requested file"
-		} else if readBytes+len(content) > MaxTotalReadBytes {
-			content = "read_file failed: total read limit exceeded"
-		} else {
-			readBytes += len(content)
-		}
-		messages = append(messages, llm.Message{Role: "tool", Content: content, ToolCallID: call.ID})
-		if err := emit(Event{
-			Type:       EventToolResult,
-			ToolCallID: call.ID,
-			ToolName:   call.Name,
-			Result:     content,
-		}); err != nil {
-			return err
-		}
+func toolFailure(name string) string {
+	if name == "read_file" {
+		return "read_file failed: unable to read requested file"
 	}
-
-	// 第二轮复用原始 user/assistant/tool 上下文，但故意不再提供 Tools。
-	completion, err = client.Stream(ctx, llm.Request{Messages: messages}, func(event llm.StreamEvent) error {
-		if event.Text == "" {
-			return nil
-		}
-		return emit(Event{Type: EventTextDelta, Text: event.Text})
-	})
-	if err != nil {
-		return fail(err)
-	}
-	if completion.FinishReason != "stop" || len(completion.Assistant.ToolCalls) != 0 {
-		return fail(errUnexpectedSecondCompletion)
-	}
-	if err := emit(Event{Type: EventRunFinished}); err != nil {
-		return err
-	}
-	return nil
+	return name + " failed: unable to execute requested tool"
 }
 
 func sanitizeError(root, message string) string {

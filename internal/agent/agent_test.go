@@ -83,8 +83,8 @@ func TestRunDirectStopBuffersFirstTurnText(t *testing.T) {
 	}) {
 		t.Fatalf("first request messages = %#v", request.Messages)
 	}
-	if len(request.Tools) != 1 {
-		t.Fatalf("first request tools = %d, want 1", len(request.Tools))
+	if len(request.Tools) != 3 {
+		t.Fatalf("first request tools = %d, want 3", len(request.Tools))
 	}
 }
 
@@ -166,6 +166,104 @@ func TestRunUsesNativeToolSystemInstruction(t *testing.T) {
 	}
 }
 
+func TestRunMultiTurnExplorationPreservesContextAndTools(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("needle in readme\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	calls := []llm.ToolCall{
+		{ID: "call-list", Type: "function", Name: "list_files", Arguments: `{}`},
+		{ID: "call-search", Type: "function", Name: "search_text", Arguments: `{"query":"needle"}`},
+		{ID: "call-read", Type: "function", Name: "read_file", Arguments: `{"path":"README.md"}`},
+	}
+	client := &scriptedClient{steps: []scriptedStep{
+		{events: []llm.StreamEvent{{Text: "listing"}}, completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "listing", ToolCalls: calls[:1]}, FinishReason: "tool_calls"}},
+		{events: []llm.StreamEvent{{Text: "searching"}}, completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "searching", ToolCalls: calls[1:2]}, FinishReason: "tool_calls"}},
+		{events: []llm.StreamEvent{{Text: "reading"}}, completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "reading", ToolCalls: calls[2:]}, FinishReason: "tool_calls"}},
+		{events: []llm.StreamEvent{{Text: "final "}, {Text: "answer"}}, completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "final answer"}, FinishReason: "stop"}},
+	}}
+	var output []string
+	if err := Run(context.Background(), client, root, "inspect", func(text string) error {
+		output = append(output, text)
+		return nil
+	}); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if !reflect.DeepEqual(output, []string{"final ", "answer"}) {
+		t.Fatalf("output = %#v, want final answer chunks only", output)
+	}
+	if len(client.requests) != 4 {
+		t.Fatalf("requests = %d, want 4", len(client.requests))
+	}
+	for i, request := range client.requests {
+		if len(request.Tools) != 3 {
+			t.Fatalf("request %d tools = %d, want 3", i+1, len(request.Tools))
+		}
+	}
+	wantMessages := []llm.Message{
+		{Role: "user", Content: "inspect"},
+		{Role: "assistant", Content: "listing", ToolCalls: calls[:1]},
+		{Role: "tool", Content: "README.md", ToolCallID: "call-list"},
+		{Role: "assistant", Content: "searching", ToolCalls: calls[1:2]},
+		{Role: "tool", Content: "README.md:1: needle in readme", ToolCallID: "call-search"},
+		{Role: "assistant", Content: "reading", ToolCalls: calls[2:]},
+		{Role: "tool", Content: "needle in readme\n", ToolCallID: "call-read"},
+	}
+	if !reflect.DeepEqual(client.requests[3].Messages, wantMessages) {
+		t.Fatalf("fourth request messages = %#v, want %#v", client.requests[3].Messages, wantMessages)
+	}
+}
+
+func TestRunRequestBudgetStopsAfterFourthToolCompletion(t *testing.T) {
+	call := llm.ToolCall{ID: "call-list", Type: "function", Name: "list_files", Arguments: `{}`}
+	steps := make([]scriptedStep, MaxModelRequests)
+	for i := range steps {
+		steps[i] = scriptedStep{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{call}}, FinishReason: "tool_calls"}}
+	}
+	client := &scriptedClient{steps: steps}
+	err := Run(context.Background(), client, t.TempDir(), "keep exploring", func(string) error { return nil })
+	if err == nil || !strings.Contains(err.Error(), "request/tool budget exceeded") {
+		t.Fatalf("Run() error = %v, want request budget error", err)
+	}
+	if len(client.requests) != MaxModelRequests {
+		t.Fatalf("requests = %d, want %d", len(client.requests), MaxModelRequests)
+	}
+}
+
+func TestRunToolBudgetUsesToolFreeFinalRequest(t *testing.T) {
+	calls := make([]llm.ToolCall, MaxToolCalls+1)
+	for i := range calls {
+		calls[i] = llm.ToolCall{ID: string(rune('a' + i)), Type: "function", Name: "list_files", Arguments: `{}`}
+	}
+	client := &scriptedClient{steps: []scriptedStep{
+		{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: calls}, FinishReason: "tool_calls"}},
+		{events: []llm.StreamEvent{{Text: "limit explained"}}, completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "limit explained"}, FinishReason: "stop"}},
+	}}
+	var events []Event
+	if err := RunEvents(context.Background(), client, t.TempDir(), "inspect", func(event Event) error {
+		events = append(events, event)
+		return nil
+	}); err != nil {
+		t.Fatalf("RunEvents() error = %v", err)
+	}
+	if len(client.requests) != 2 || len(client.requests[1].Tools) != 0 {
+		t.Fatalf("requests = %#v, want second tool-free final request", client.requests)
+	}
+	lastMessage := client.requests[1].Messages[len(client.requests[1].Messages)-1]
+	if lastMessage.Role != "tool" || lastMessage.ToolCallID != calls[MaxToolCalls].ID || !strings.Contains(lastMessage.Content, "budget exceeded") {
+		t.Fatalf("limit tool result = %#v", lastMessage)
+	}
+	toolCalls := 0
+	for _, event := range events {
+		if event.Type == EventToolCall {
+			toolCalls++
+		}
+	}
+	if toolCalls != len(calls) {
+		t.Fatalf("tool_call events = %d, want %d", toolCalls, len(calls))
+	}
+}
+
 func TestRunReadRoundTrip(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("hello from readme\n"), 0o644); err != nil {
@@ -201,8 +299,8 @@ func TestRunReadRoundTrip(t *testing.T) {
 		t.Fatalf("requests = %d, want 2", len(client.requests))
 	}
 	second := client.requests[1]
-	if len(second.Tools) != 0 {
-		t.Fatalf("second request tools = %#v, want empty", second.Tools)
+	if len(second.Tools) != 3 {
+		t.Fatalf("second request tools = %d, want 3", len(second.Tools))
 	}
 	wantMessages := []llm.Message{
 		{Role: "user", Content: "read the readme"},
@@ -253,8 +351,8 @@ func TestRunMultipleReadRoundTrip(t *testing.T) {
 		t.Fatalf("requests = %d, want 2", len(client.requests))
 	}
 	second := client.requests[1]
-	if len(second.Tools) != 0 {
-		t.Fatalf("second request tools = %#v, want none", second.Tools)
+	if len(second.Tools) != 3 {
+		t.Fatalf("second request tools = %d, want 3", len(second.Tools))
 	}
 	wantMessages := []llm.Message{
 		{Role: "user", Content: "inspect the project"},
@@ -265,23 +363,6 @@ func TestRunMultipleReadRoundTrip(t *testing.T) {
 	}
 	if !reflect.DeepEqual(second.Messages, wantMessages) {
 		t.Fatalf("second request messages = %#v, want %#v", second.Messages, wantMessages)
-	}
-}
-
-func TestRunRejectsTooManyToolCalls(t *testing.T) {
-	calls := make([]llm.ToolCall, 5)
-	for i := range calls {
-		calls[i] = llm.ToolCall{ID: string(rune('a' + i)), Type: "function", Name: "read_file", Arguments: `{"path":"README.md"}`}
-	}
-	client := &scriptedClient{steps: []scriptedStep{{
-		completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: calls}, FinishReason: "tool_calls"},
-	}}}
-	err := Run(context.Background(), client, t.TempDir(), "read files", func(string) error { return nil })
-	if err == nil || !strings.Contains(err.Error(), "最多读取 4 个文件") {
-		t.Fatalf("Run() error = %v, want maximum files error", err)
-	}
-	if len(client.requests) != 1 {
-		t.Fatalf("requests = %d, want 1", len(client.requests))
 	}
 }
 
@@ -450,50 +531,10 @@ func TestRunRejectsUnsupportedToolCallStates(t *testing.T) {
 	}
 }
 
-func TestRunRejectsSecondTurnToolCalls(t *testing.T) {
-	call := llm.ToolCall{ID: "call-1", Type: "function", Name: "read_file", Arguments: `{"path":"README.md"}`}
-	client := &scriptedClient{steps: []scriptedStep{
-		{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{call}}, FinishReason: "tool_calls"}},
-		{events: []llm.StreamEvent{{Text: "partial final"}}, completion: llm.Completion{Assistant: llm.Message{Role: "assistant"}, FinishReason: "tool_calls"}},
-	}}
-	var output []string
-	err := Run(context.Background(), client, t.TempDir(), "test", func(text string) error {
-		output = append(output, text)
-		return nil
-	})
-	if err == nil || !strings.Contains(err.Error(), "unexpected second completion") {
-		t.Fatalf("Run() error = %v, want unexpected second completion", err)
-	}
-	if !reflect.DeepEqual(output, []string{"partial final"}) {
-		t.Fatalf("output = %q, want streamed second-turn text", output)
-	}
-}
-
-func TestRunRejectsSecondStopWithToolCall(t *testing.T) {
-	call := llm.ToolCall{ID: "call-1", Type: "function", Name: "read_file", Arguments: `{"path":"README.md"}`}
-	client := &scriptedClient{steps: []scriptedStep{
-		{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{call}}, FinishReason: "tool_calls"}},
-		{events: []llm.StreamEvent{{Text: "partial final"}}, completion: llm.Completion{
-			Assistant:    llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{call}},
-			FinishReason: "stop",
-		}},
-	}}
-	var output []string
-	err := Run(context.Background(), client, t.TempDir(), "test", func(text string) error {
-		output = append(output, text)
-		return nil
-	})
-	if err == nil || !strings.Contains(err.Error(), "unexpected second completion") {
-		t.Fatalf("Run() error = %v, want unexpected second completion", err)
-	}
-	if !reflect.DeepEqual(output, []string{"partial final"}) {
-		t.Fatalf("output = %q, want streamed second-turn text preserved", output)
-	}
-}
-
 func TestRunReturnsOutputCallbackFailure(t *testing.T) {
 	want := errors.New("output unavailable")
 	client := &scriptedClient{steps: []scriptedStep{{
+		events:     []llm.StreamEvent{{Text: "answer"}},
 		completion: llm.Completion{Assistant: llm.Message{Role: "assistant"}, FinishReason: "stop"},
 	}}}
 	if err := Run(context.Background(), client, t.TempDir(), "test", func(string) error { return want }); !errors.Is(err, want) {
@@ -510,6 +551,25 @@ func TestRunReturnsCancellation(t *testing.T) {
 	}
 	if len(client.requests) != 1 {
 		t.Fatalf("requests = %d, want 1", len(client.requests))
+	}
+}
+
+func TestRunStopsWhenToolExecutionCancelsContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	registry, err := tool.NewRegistry(cancelingTool{cancel: cancel})
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := llm.ToolCall{ID: "cancel", Type: "function", Name: "cancel_tool", Arguments: `{}`}
+	client := &scriptedClient{steps: []scriptedStep{{
+		completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{call}}, FinishReason: "tool_calls"},
+	}}}
+	err = RunEventsWithRegistry(ctx, client, t.TempDir(), "cancel", registry, nil)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("RunEventsWithRegistry() error = %v, want context canceled", err)
+	}
+	if len(client.requests) != 1 {
+		t.Fatalf("requests = %d, want no request after cancellation", len(client.requests))
 	}
 }
 
@@ -595,8 +655,8 @@ func TestRunCompatibilityWrapperEmitsOnlyFinalText(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
-	if !reflect.DeepEqual(output, []string{"final answer"}) {
-		t.Fatalf("output = %#v, want buffered final text only", output)
+	if !reflect.DeepEqual(output, []string{"final", " answer"}) {
+		t.Fatalf("output = %#v, want final text chunks only", output)
 	}
 }
 
@@ -637,6 +697,21 @@ func TestRunWithRegistryUsesRegisteredTool(t *testing.T) {
 
 type registryTestTool struct {
 	called bool
+}
+
+type cancelingTool struct {
+	cancel context.CancelFunc
+}
+
+func (t cancelingTool) Name() string { return "cancel_tool" }
+
+func (t cancelingTool) Definition() llm.ToolDefinition {
+	return llm.ToolDefinition{Type: "function", Function: []byte(`{"name":"cancel_tool"}`)}
+}
+
+func (t cancelingTool) Execute(ctx context.Context, _, _ string) (string, error) {
+	t.cancel()
+	return "", ctx.Err()
 }
 
 func (t *registryTestTool) Name() string {
