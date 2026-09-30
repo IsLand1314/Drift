@@ -39,6 +39,25 @@ func TestList(t *testing.T) {
 		}
 	})
 	t.Run("dotenv and symlink absent", func(t *testing.T) {
+		dotenvDir := filepath.Join(root, ".env.private")
+		if err := os.MkdirAll(dotenvDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dotenvDir, "secret.txt"), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Mkdir(filepath.Join(dotenvDir, "sub"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dotenvDir, "sub", "secret.txt"), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := List(root, `{"path":".env.private"}`); err == nil {
+			t.Fatal("List(.env.private) error = nil")
+		}
+		if _, err := List(root, `{"path":".env.private/sub"}`); err == nil {
+			t.Fatal("List(.env.private/sub) error = nil")
+		}
 		if err := os.Symlink("a.txt", filepath.Join(root, "link.txt")); err != nil {
 			if errors.Is(err, os.ErrPermission) || errors.Is(err, os.ErrInvalid) || runtime.GOOS == "windows" {
 				t.Skip(err)
@@ -75,7 +94,7 @@ func TestList(t *testing.T) {
 			t.Fatalf("line count/marker: %d %q", len(lines), lines[len(lines)-1])
 		}
 	})
-	for _, raw := range []string{`{"path":`, `{"extra":true}`, `[]`} {
+	for _, raw := range []string{`{"path":`, `{"extra":true}`, `[]`, `null`, `{"path":null}`} {
 		t.Run("reject JSON "+raw, func(t *testing.T) {
 			if _, err := List(root, raw); err == nil {
 				t.Fatalf("List(%q) error = nil", raw)

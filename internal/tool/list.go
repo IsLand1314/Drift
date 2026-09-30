@@ -48,18 +48,9 @@ func ListDefinition() llm.ToolDefinition {
 }
 
 func List(root, rawArguments string) (string, error) {
-	var args listArguments
-	decoder := json.NewDecoder(strings.NewReader(rawArguments))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&args); err != nil {
-		return "", fmt.Errorf("decode list_files arguments: %w", err)
-	}
-	var extra any
-	if err := decoder.Decode(&extra); err != io.EOF {
-		if err == nil {
-			return "", fmt.Errorf("decode list_files arguments: multiple JSON values")
-		}
-		return "", fmt.Errorf("decode list_files arguments: %w", err)
+	args, err := decodeListArguments(rawArguments)
+	if err != nil {
+		return "", err
 	}
 	if err := validateRelativePath(args.Path, true); err != nil {
 		return "", fmt.Errorf("list_files path is invalid: %w", err)
@@ -89,4 +80,37 @@ func List(root, rawArguments string) (string, error) {
 		result += "list_files: results truncated at 200 entries"
 	}
 	return result, nil
+}
+
+func decodeListArguments(rawArguments string) (listArguments, error) {
+	var fields map[string]json.RawMessage
+	decoder := json.NewDecoder(strings.NewReader(rawArguments))
+	if err := decoder.Decode(&fields); err != nil || fields == nil {
+		if err == nil {
+			err = fmt.Errorf("arguments must be a JSON object")
+		}
+		return listArguments{}, fmt.Errorf("decode list_files arguments: %w", err)
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return listArguments{}, fmt.Errorf("decode list_files arguments: multiple JSON values")
+		}
+		return listArguments{}, fmt.Errorf("decode list_files arguments: %w", err)
+	}
+	for name := range fields {
+		if name != "path" {
+			return listArguments{}, fmt.Errorf("decode list_files arguments: unknown field %q", name)
+		}
+	}
+	var args listArguments
+	if rawPath, ok := fields["path"]; ok {
+		if string(rawPath) == "null" {
+			return listArguments{}, fmt.Errorf("decode list_files arguments: path must be a string")
+		}
+		if err := json.Unmarshal(rawPath, &args.Path); err != nil {
+			return listArguments{}, fmt.Errorf("decode list_files arguments: path must be a string: %w", err)
+		}
+	}
+	return args, nil
 }

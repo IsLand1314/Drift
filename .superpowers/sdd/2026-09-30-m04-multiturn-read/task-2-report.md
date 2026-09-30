@@ -19,3 +19,11 @@ go test ./internal/tool -count=1
 Both passed.
 
 Concerns: none.
+
+## Fix round 1
+
+- Explicitly reject JSON `null`, non-object arguments, and non-string `path` values.
+- Reject dotenv-protected names in every path segment, including nested paths such as `.env.private/sub`.
+- Regression tests added; existing `Read` behavior remains covered by the full tool suite.
+
+Tests: `go test ./internal/tool -run TestList -count=1` and `go test ./internal/tool -count=1` both passed.

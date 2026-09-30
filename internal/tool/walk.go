@@ -25,8 +25,10 @@ func validateRelativePath(path string, allowEmpty bool) error {
 			return fmt.Errorf("path must not contain ..")
 		}
 	}
-	if isDotEnvCredentialFile(pathpkg.Base(path)) {
-		return fmt.Errorf("path is restricted")
+	for _, segment := range strings.Split(path, "/") {
+		if isDotEnvCredentialFile(segment) {
+			return fmt.Errorf("path is restricted")
+		}
 	}
 	return nil
 }
