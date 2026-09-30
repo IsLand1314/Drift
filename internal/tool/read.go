@@ -3,6 +3,7 @@ package tool
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -152,6 +153,9 @@ func Read(root, rawArguments string) (string, error) {
 	if len(content) > MaxReadBytes {
 		return "", fmt.Errorf("read_file target exceeds %d bytes; use offset and limit to read a page", MaxReadBytes)
 	}
+	if bytes.IndexByte(content, 0) >= 0 {
+		return "", fmt.Errorf("read_file target is binary")
+	}
 	return string(content), nil
 }
 
@@ -160,6 +164,9 @@ func readPage(file *os.File, offset, limit int) (string, error) {
 	scanner.Buffer(make([]byte, 4096), MaxReadBytes+1)
 	lineNumber, selected := 0, make([]string, 0, limit)
 	for scanner.Scan() {
+		if strings.IndexByte(scanner.Text(), 0) >= 0 {
+			return "", fmt.Errorf("read_file target is binary")
+		}
 		if lineNumber >= offset {
 			selected = append(selected, scanner.Text())
 			if len(selected) == limit {
@@ -174,7 +181,7 @@ func readPage(file *os.File, offset, limit int) (string, error) {
 	if len(selected) == 0 {
 		return "", nil
 	}
-	result := strings.Join(selected, "\n")
+	result := "read_file: lines " + strconv.Itoa(offset+1) + "-" + strconv.Itoa(offset+len(selected)) + "\n" + strings.Join(selected, "\n")
 	if len(selected) == limit && scanner.Scan() {
 		nextOffset := offset + len(selected)
 		result += "\nread_file: more lines available; next offset: " + strconv.Itoa(nextOffset)

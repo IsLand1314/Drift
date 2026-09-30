@@ -51,7 +51,11 @@ func RunEventsWithRegistry(ctx context.Context, client llm.Client, root, prompt,
 		return sink(event)
 	}
 	fail := func(err error) error {
-		if sinkErr := emit(Event{Type: EventError, Error: sanitizeError(root, err.Error())}); sinkErr != nil {
+		stage := llm.ErrorStageOf(err)
+		if stage == "" {
+			stage = "agent"
+		}
+		if sinkErr := emit(Event{Type: EventError, Error: sanitizeError(root, err.Error()), Stage: stage}); sinkErr != nil {
 			return sinkErr
 		}
 		return err

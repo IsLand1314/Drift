@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"mime"
+	"net"
 	"net/http"
 	"net/url"
 	"sort"
@@ -59,16 +60,20 @@ func (c *Client) Stream(ctx context.Context, input llm.Request, emit func(llm.St
 		if ctx.Err() != nil {
 			return llm.Completion{}, ctx.Err()
 		}
-		return llm.Completion{}, errors.New("模型连接失败或超时，请检查地址、网络和服务状态")
+		var networkErr net.Error
+		if errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &networkErr) && networkErr.Timeout()) {
+			return llm.Completion{}, &llm.ProviderError{Stage: llm.ErrorStageTimeout, Message: "模型请求超时，请检查网络和服务状态", Cause: err}
+		}
+		return llm.Completion{}, &llm.ProviderError{Stage: llm.ErrorStageTransport, Message: "模型连接失败，请检查地址、网络和服务状态", Cause: err}
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		// Provider bodies may contain credentials or prompts; never echo them.
-		return llm.Completion{}, fmt.Errorf("模型请求失败：HTTP %d (%s)", resp.StatusCode, http.StatusText(resp.StatusCode))
+		return llm.Completion{}, &llm.ProviderError{Stage: llm.ErrorStageHTTP, Message: fmt.Sprintf("模型请求失败：HTTP %d (%s)", resp.StatusCode, http.StatusText(resp.StatusCode))}
 	}
 	media, _, _ := mime.ParseMediaType(resp.Header.Get("Content-Type"))
 	if media != "text/event-stream" {
-		return llm.Completion{}, errors.New("模型未返回 SSE 流，请检查 API 地址及流式支持")
+		return llm.Completion{}, &llm.ProviderError{Stage: llm.ErrorStageNonSSE, Message: "模型未返回 SSE 流，请检查 API 地址及流式支持"}
 	}
 	completion, err := readStream(resp.Body, emit)
 	if ctx.Err() != nil {
@@ -131,7 +136,7 @@ func readStream(r io.Reader, emit func(llm.StreamEvent) error) (llm.Completion, 
 				value = strings.TrimPrefix(value, " ")
 				size += len(value)
 				if size > 1<<20 {
-					return llm.Completion{}, errors.New("模型流事件超过 1 MiB 限制")
+					return llm.Completion{}, &llm.ProviderError{Stage: llm.ErrorStageSSEEventTooLarge, Message: "模型 SSE 事件超过 1 MiB 限制"}
 				}
 				data = append(data, value)
 			}
@@ -175,10 +180,10 @@ func readStream(r io.Reader, emit func(llm.StreamEvent) error) (llm.Completion, 
 			} `json:"choices"`
 		}
 		if json.Unmarshal([]byte(payload), &chunk) != nil {
-			return llm.Completion{}, errors.New("模型流包含无效 JSON")
+			return llm.Completion{}, &llm.ProviderError{Stage: llm.ErrorStageSSEInvalidJSON, Message: "模型 SSE 流包含无效 JSON"}
 		}
 		if len(chunk.Error) > 0 && string(chunk.Error) != "null" {
-			return llm.Completion{}, errors.New("模型流返回服务端错误")
+			return llm.Completion{}, &llm.ProviderError{Stage: llm.ErrorStageSSEServerError, Message: "模型 SSE 流返回服务端错误"}
 		}
 		for _, choice := range chunk.Choices {
 			if choice.Index != 0 {
@@ -225,7 +230,10 @@ func readStream(r io.Reader, emit func(llm.StreamEvent) error) (llm.Completion, 
 		}
 	}
 	if scanner.Err() != nil {
-		return llm.Completion{}, errors.New("读取模型流失败或事件过大")
+		if strings.Contains(scanner.Err().Error(), "token too long") {
+			return llm.Completion{}, &llm.ProviderError{Stage: llm.ErrorStageSSELineTooLarge, Message: "模型 SSE 单行超过 1 MiB 限制", Cause: scanner.Err()}
+		}
+		return llm.Completion{}, &llm.ProviderError{Stage: llm.ErrorStageSSERead, Message: "读取模型 SSE 流失败", Cause: scanner.Err()}
 	}
-	return llm.Completion{}, errors.New("模型流提前断开，未收到 [DONE]")
+	return llm.Completion{}, &llm.ProviderError{Stage: llm.ErrorStageSSEDisconnected, Message: "模型 SSE 流提前断开，未收到 [DONE]"}
 }

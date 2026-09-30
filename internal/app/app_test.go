@@ -593,6 +593,62 @@ func TestRunInvalidWorkspaceDoesNotCallProvider(t *testing.T) {
 	}
 }
 
+func TestRunRecordsProviderErrorStage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: broken\n\n")
+	}))
+	defer server.Close()
+	root := t.TempDir()
+	old, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(old) })
+	getenv := func(key string) string {
+		return map[string]string{"OPENAI_API_KEY": "test-secret", "OPENAI_MODEL": "test", "OPENAI_BASE_URL": server.URL}[key]
+	}
+	var out, stderr bytes.Buffer
+	if code := Run(context.Background(), []string{"-p", "x"}, getenv, &out, &stderr); code != 1 {
+		t.Fatalf("code = %d, stderr = %q", code, stderr.String())
+	}
+	files, err := filepath.Glob(filepath.Join(root, ".drift", "sessions", "*.jsonl"))
+	if err != nil || len(files) != 1 {
+		t.Fatalf("session files = %#v, %v", files, err)
+	}
+	var entry struct {
+		Type  string `json:"type"`
+		Stage string `json:"stage"`
+	}
+	foundError := false
+	for _, line := range strings.Split(strings.TrimSpace(string(mustReadFile(t, files[0]))), "\n") {
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			t.Fatal(err)
+		}
+		if entry.Type == "error" {
+			foundError = true
+			if entry.Stage != "provider_sse_invalid_json" {
+				t.Fatalf("error stage = %q, want provider_sse_invalid_json", entry.Stage)
+			}
+		}
+	}
+	if !foundError {
+		t.Fatal("session has no error event")
+	}
+}
+
+func mustReadFile(t *testing.T, path string) []byte {
+	t.Helper()
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return content
+}
+
 func TestRunValidation(t *testing.T) {
 	for _, tc := range []struct {
 		name       string

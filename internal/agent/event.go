@@ -22,6 +22,7 @@ type Event struct {
 	Arguments  string
 	Result     string
 	Error      string
+	Stage      string
 }
 
 // EventSink 消费 Agent 事件；返回错误会立即中止本次运行。

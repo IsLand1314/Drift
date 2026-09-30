@@ -87,6 +87,29 @@ func TestStreamFailuresAndFraming(t *testing.T) {
 	}
 }
 
+func TestStreamReportsTimeoutAndOversizedLinePrecisely(t *testing.T) {
+	client := &Client{
+		endpoint: "https://example.test/chat/completions",
+		key:      "test-key",
+		http: &http.Client{Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+			return nil, context.DeadlineExceeded
+		})},
+	}
+	if _, err := client.Stream(context.Background(), llm.Request{}, func(llm.StreamEvent) error { return nil }); err == nil || !strings.Contains(err.Error(), "超时") {
+		t.Fatalf("Stream() error = %v, want timeout detail", err)
+	}
+	_, err := readStream(strings.NewReader("data: "+strings.Repeat("x", 1<<20)+"\n\n"), func(llm.StreamEvent) error { return nil })
+	if err == nil || !strings.Contains(err.Error(), "单行超过") {
+		t.Fatalf("readStream() error = %v, want oversized-line detail", err)
+	}
+}
+
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (fn roundTripperFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return fn(request)
+}
+
 func TestHTTPErrorAndCancellation(t *testing.T) {
 	for _, status := range []int{401, 429, 500, 302} {
 		t.Run(fmt.Sprint(status), func(t *testing.T) {

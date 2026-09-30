@@ -1,6 +1,23 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构演进建议见 `doc/architecture.md`。当前版本为 M0.6。下面的 M0.5、M0.4、M0.3、M0.2.2 和 M0.2.1 章节是已完成阶段的历史记录，不覆盖当前 M0.6 的运行边界。
+本文件是当前版本范围与验收标准的唯一事实来源；架构演进建议见 `doc/architecture.md`。当前版本为 M0.7。下面的 M0.6、M0.5、M0.4、M0.3、M0.2.2 和 M0.2.1 章节是已完成阶段的历史记录，不覆盖当前 M0.7 的运行边界。
+
+## M0.7：Provider 诊断与读取保护
+
+M0.7 保持 M0.6 的 workspace、工具、预算和只读边界，补齐真实联调中 Provider 失败的可定位信息，并拒绝将含 NUL 字节的二进制内容送进模型上下文。
+
+### 当前范围
+
+- Provider 失败使用安全的固定中文提示，同时在错误事件中记录稳定的 `stage`：连接、超时、HTTP 状态、非 SSE 响应、SSE 无效 JSON、服务端 SSE 错误、事件/单行过大、读取失败与未收到 `[DONE]` 分别可区分。
+- JSONL 的 `error` 事件新增可选 `stage` 字段；不记录 Provider 响应正文、请求体、API Key 或本地绝对路径。
+- `read_file` 全文读取或页内读取到 NUL 字节时拒绝该文件为二进制文件；分页成功结果增加实际行号范围，例如 `read_file: lines 21-40`。
+- 仍不引入重试、退避、Provider 专用配置、多 Provider 或自动恢复；这些需要真实的失败统计后再决定。
+
+### M0.7 验收
+
+- 本地 SSE 模拟服务验证无效 JSON 会以 `provider_sse_invalid_json` 写入会话错误事件；超时和超长 SSE 单行有可区分的终端错误文本。
+- `read_file` 拒绝含 NUL 字节的文件；分页结果包含行号范围与下一页 offset 提示。
+- `go test ./... -count=1`、`go vet ./...`、`go build ./cmd/drift` 和 `git diff --check` 通过。
 
 ## M0.6：分页读取与 Discovery 目录忽略
 

@@ -17,6 +17,7 @@ type Entry struct {
 	Arguments  string    `json:"arguments,omitempty"`
 	Result     string    `json:"result,omitempty"`
 	Error      string    `json:"error,omitempty"`
+	Stage      string    `json:"stage,omitempty"`
 }
 
 // Writer 追加 Agent 事件，并在关闭后拒绝继续写入。

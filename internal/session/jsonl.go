@@ -118,6 +118,7 @@ func entryFromEvent(event agent.Event, clean sanitizer) Entry {
 		Arguments:  sanitizeArguments(event.Arguments, clean),
 		Result:     clean.text(event.Result),
 		Error:      clean.text(event.Error),
+		Stage:      clean.text(event.Stage),
 	}
 }
 

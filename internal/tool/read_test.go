@@ -140,7 +140,7 @@ func TestReadSupportsLinePaging(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Read() error = %v", err)
 	}
-	if got != "two\nthree\nread_file: more lines available; next offset: 3" {
+	if got != "read_file: lines 2-3\ntwo\nthree\nread_file: more lines available; next offset: 3" {
 		t.Fatalf("Read() = %q, want paged result", got)
 	}
 
@@ -148,8 +148,18 @@ func TestReadSupportsLinePaging(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Read() final page error = %v", err)
 	}
-	if got != "four" {
+	if got != "read_file: lines 4-4\nfour" {
 		t.Fatalf("Read() final page = %q, want four", got)
+	}
+}
+
+func TestReadRejectsBinaryFile(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "image.bin"), []byte("text\x00binary"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Read(root, `{"path":"image.bin"}`); err == nil || !strings.Contains(err.Error(), "binary") {
+		t.Fatalf("Read() error = %v, want binary rejection", err)
 	}
 }
 

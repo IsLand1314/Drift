@@ -4,6 +4,7 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"errors"
 )
 
 type ToolDefinition struct {
@@ -51,6 +52,42 @@ type ToolCallDelta struct {
 type Completion struct {
 	Assistant    Message
 	FinishReason string
+}
+
+// ErrorStage identifies the provider boundary that stopped a request.
+type ErrorStage string
+
+const (
+	ErrorStageTimeout          ErrorStage = "provider_timeout"
+	ErrorStageTransport        ErrorStage = "provider_transport"
+	ErrorStageHTTP             ErrorStage = "provider_http"
+	ErrorStageNonSSE           ErrorStage = "provider_non_sse"
+	ErrorStageSSEInvalidJSON   ErrorStage = "provider_sse_invalid_json"
+	ErrorStageSSEServerError   ErrorStage = "provider_sse_server_error"
+	ErrorStageSSEEventTooLarge ErrorStage = "provider_sse_event_too_large"
+	ErrorStageSSELineTooLarge  ErrorStage = "provider_sse_line_too_large"
+	ErrorStageSSERead          ErrorStage = "provider_sse_read"
+	ErrorStageSSEDisconnected  ErrorStage = "provider_sse_disconnected"
+)
+
+// ProviderError keeps a safe user-facing message separate from its cause.
+type ProviderError struct {
+	Stage   ErrorStage
+	Message string
+	Cause   error
+}
+
+func (e *ProviderError) Error() string { return e.Message }
+
+func (e *ProviderError) Unwrap() error { return e.Cause }
+
+// ErrorStageOf returns an empty string for errors that did not come from a provider.
+func ErrorStageOf(err error) string {
+	var providerErr *ProviderError
+	if errors.As(err, &providerErr) {
+		return string(providerErr.Stage)
+	}
+	return ""
 }
 
 // Client 同步发出文本、推理和工具调用增量事件。
