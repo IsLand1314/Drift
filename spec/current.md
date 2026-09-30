@@ -16,10 +16,12 @@ M1.1 为 `drift chat` 增加进程内上下文硬上限和 `/clear`，避免长�
 
 ### M1.1 验收
 
-- `/clear` 不发 Provider 请求、不增加 `run_started`，清理后下一次请求不携带清理前的消息。
-- 超过 1 MiB 时 Provider 请求计数为 0，错误事件的 `stage` 为 `agent_context_limit`；输入 `/clear` 后可继续提问。
-- 单次 `-p`、M1.0 多轮工具循环、空响应错误、Session 脱敏和既有 Provider 阶段保持兼容。
-- `go test ./... -count=1`、`go vet ./...`、`go build ./cmd/drift` 和 `git diff --check` 通过。
+| ID | 验证方法 | 通过阈值 | 证据类型 | 证据路径 | 失败判定 |
+| --- | --- | --- | --- | --- | --- |
+| AC-M11-001 | 运行 `go test ./internal/app -run TestChat -count=1` | `/clear` 不发请求；清理后下一轮请求不携带旧消息；超限后可继续对话 | 测试日志 | `artifacts/verification/m1.1/go-test.txt` | 任一聚焦测试失败，或 chat 在超限后退出 |
+| AC-M11-002 | 运行 `go test ./internal/agent -run 'TestRunnerContext' -count=1` | 上下文估算包含消息与 schema；超过 1 MiB 时 Provider 请求计数为 0，stage 为 `agent_context_limit` | 测试日志 | `artifacts/verification/m1.1/go-test.txt` | 仍发起超限请求，或错误 stage 不匹配 |
+| AC-M11-003 | 运行 `go test ./... -count=1`、`go vet ./...`、`go build -o .codex-temp\\drift-m11.exe ./cmd/drift`、`git diff --check` | 四条命令退出码均为 0 | 命令日志 | `artifacts/verification/m1.1/` | 任一命令非 0 |
+| AC-M11-004 | 使用构建产物输入 `hello`、`/clear`、`hello`、`exit`；查看最新 `.drift/sessions/*.jsonl` | 退出码为 0；清理后第二轮成功；审计仅保留脱敏摘要、相对路径和字节数 | 人工运行日志与审计检查 | `artifacts/verification/m1.1/chat-clear.txt`<br>`artifacts/verification/m1.1/session-list.txt` | `/clear` 后不能继续，或审计出现提示词、回答正文、文件内容或绝对路径 |
 
 ## M1.0：交互式只读对话
 

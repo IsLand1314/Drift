@@ -1,0 +1,14 @@
+command: ["powershell", "-NoProfile", "-Command", "$inputText = \"hello`n/clear`nhello`nexit\"; $inputText | & \".\\.codex-temp\\drift-m11.exe\" chat -w ."]
+cwd: "F:\\code\\drift"
+output_encoding: utf-8
+exit_code: 0
+
+--- stdout ---
+> Hello! I have read-only access to the workspace files here, so I can search and read files to help you explore or understand a codebase.
+
+What would you like to look into?
+> > Hello! I'm ready to help. What would you like me to look into in the workspace?
+> 
+
+--- stderr ---
+

@@ -1,0 +1,10 @@
+[requirements]
+agents = false
+
+[headers]
+id = ["ID"]
+verification_method = ["验证方法"]
+pass_threshold = ["通过阈值"]
+evidence_type = ["证据类型"]
+evidence_path = ["证据路径"]
+failure_condition = ["失败判定"]

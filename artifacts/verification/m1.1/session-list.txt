@@ -1,0 +1,23 @@
+command: [".\\.codex-temp\\drift-m11.exe", "session", "list"]
+cwd: "F:\\code\\drift"
+output_encoding: utf-8
+exit_code: 0
+
+--- stdout ---
+run-1790772205910722800.jsonl events=62
+run-1790772184549655000.jsonl events=719
+run-1790772168544700400.jsonl events=6
+run-1790771995722700500.jsonl events=734
+run-1790771980170034900.jsonl events=603
+run-1790770640876602400.jsonl events=1634
+run-1790770557646487500.jsonl events=1709
+run-1790770258409475900.jsonl events=1756
+run-1790770111693023200.jsonl events=770
+run-1790768903618799200.jsonl events=741
+run-1790765366216063800.jsonl events=441
+run-1790764753080882700.jsonl events=2
+run-1790764592367398300.jsonl events=299
+run-1790763167453307400.jsonl events=254
+
+--- stderr ---
+
