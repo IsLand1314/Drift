@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/IsLand1314/Drift/internal/conversation"
 	"github.com/IsLand1314/Drift/internal/llm"
@@ -73,5 +74,77 @@ func TestConversationDeleteRequiresConfirmation(t *testing.T) {
 	}
 	if code := Run(context.Background(), []string{"conversation", "delete", snapshot.ID, "--yes"}, func(string) string { return "" }, &out, &stderr); code != 0 {
 		t.Fatalf("confirmed delete code=%d out=%q stderr=%q", code, out.String(), stderr.String())
+	}
+}
+
+func TestConversationRenameAndListLimit(t *testing.T) {
+	root := t.TempDir()
+	old, _ := os.Getwd()
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(old) })
+	store := conversation.NewStore(root)
+	first, err := store.Create("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.Create("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Rename(first.ID, "FoxCode 分析"); err != nil {
+		t.Fatal(err)
+	}
+	var out, stderr bytes.Buffer
+	if code := Run(context.Background(), []string{"conversation", "list", "--limit", "1"}, func(string) string { return "" }, &out, &stderr); code != 0 {
+		t.Fatalf("list code=%d out=%q stderr=%q", code, out.String(), stderr.String())
+	}
+	if !strings.Contains(out.String(), "FoxCode 分析") || strings.Contains(out.String(), second.ID) {
+		t.Fatalf("list output=%q", out.String())
+	}
+	out.Reset()
+	if code := Run(context.Background(), []string{"conversation", "rename", second.ID, "第二个会话"}, func(string) string { return "" }, &out, &stderr); code != 0 {
+		t.Fatalf("rename code=%d out=%q stderr=%q", code, out.String(), stderr.String())
+	}
+	loaded, err := store.Load(second.ID)
+	if err != nil || loaded.Title != "第二个会话" {
+		t.Fatalf("loaded=%+v err=%v", loaded, err)
+	}
+}
+
+func TestConversationPruneWithoutYesDoesNotDelete(t *testing.T) {
+	root := t.TempDir()
+	old, _ := os.Getwd()
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(old) })
+	store := conversation.NewStore(root)
+	snapshot, err := store.Create("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot.UpdatedAt = time.Now().UTC().Add(-time.Hour)
+	if err := store.Save(snapshot); err != nil {
+		t.Fatal(err)
+	}
+	threshold := time.Now().UTC().Format(time.RFC3339)
+	var out, stderr bytes.Buffer
+	if code := Run(context.Background(), []string{"conversation", "prune", "--before", threshold}, func(string) string { return "" }, &out, &stderr); code != 0 {
+		t.Fatalf("prune preview code=%d out=%q stderr=%q", code, out.String(), stderr.String())
+	}
+	if !strings.Contains(out.String(), snapshot.ID) {
+		t.Fatalf("preview=%q", out.String())
+	}
+	if _, err := store.Load(snapshot.ID); err != nil {
+		t.Fatalf("preview deleted snapshot: %v", err)
+	}
+	out.Reset()
+	if code := Run(context.Background(), []string{"conversation", "prune", "--before", threshold, "--yes"}, func(string) string { return "" }, &out, &stderr); code != 0 {
+		t.Fatalf("prune delete code=%d out=%q stderr=%q", code, out.String(), stderr.String())
+	}
+	if _, err := store.Load(snapshot.ID); err == nil {
+		t.Fatal("confirmed prune kept expired snapshot")
 	}
 }
