@@ -64,7 +64,7 @@
 
 ### 错误与审计
 
-- 超限错误使用稳定 `stage=agent_context_limit`，终端显示简短中文错误；
+- 超限错误使用稳定 `stage=agent_context_limit`，终端显示简短中文错误并提示 `/clear`；该错误只结束当前输入轮次，chat 进程继续等待下一行；
 - 错误发生在 Provider 请求前，因此不产生新的 Provider 请求；
 - Session 只记录错误事件和安全字节信息，不写入完整上下文、提示词、文件内容或回答；
 - M1.0 的 `agent_empty_response`、Provider 阶段错误和退出码保持不变。
@@ -86,7 +86,7 @@ chat 启动
   -> 输入普通问题
   -> Runner 追加 user 消息并检查上下文预算
   -> 未超限：执行现有只读 Agent Loop
-  -> 超限：写 agent_context_limit 审计事件并结束本轮
+  -> 超限：写 agent_context_limit 审计事件，结束当前轮次并继续等待（用户可输入 /clear）
   -> 输入 /clear：Runner.ResetContext，继续等待
   -> 输入 exit：关闭 Session，退出
 ```
@@ -115,7 +115,7 @@ go run ./cmd/drift chat -w .
 
 1. `/clear` 后第二个问题不能依赖第一轮的内存上下文；
 2. `/clear` 不产生 Provider 请求和额外 Session 文件；
-3. 长对话达到上限时显示明确错误，并在 `session show` 中看到 `agent_context_limit`；
+3. 长对话达到上限时显示明确错误，chat 仍保持运行，输入 `/clear` 后可继续，并在 `session show` 中看到 `agent_context_limit`；
 4. 不传 `/clear` 时，M1.0 的多轮行为保持不变；
 5. `go test ./... -count=1`、`go vet ./...`、`go build ./cmd/drift` 和 `git diff --check` 通过。
 
