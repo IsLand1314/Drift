@@ -37,6 +37,10 @@ func runChatLoop(ctx context.Context, runner *agent.Runner, audit session.Writer
 		}
 		if prompt == "/clear" {
 			runner.ResetContext()
+			if _, err := fmt.Fprintln(out, "已清空当前对话上下文"); err != nil {
+				fmt.Fprintln(stderr, "错误：", err)
+				return 1
+			}
 			continue
 		}
 		var lastText string

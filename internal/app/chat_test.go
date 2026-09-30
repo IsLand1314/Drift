@@ -178,6 +178,24 @@ func TestChatClearResetsRunnerContext(t *testing.T) {
 	}
 }
 
+func TestChatClearReportsReset(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+	}))
+	defer server.Close()
+	getenv := func(key string) string {
+		return map[string]string{"OPENAI_API_KEY": "test-secret", "OPENAI_MODEL": "test", "OPENAI_BASE_URL": server.URL}[key]
+	}
+	var out, stderr bytes.Buffer
+	if code := RunWithInput(context.Background(), []string{"chat", "-w", t.TempDir()}, getenv, strings.NewReader("/clear\nexit\n"), &out, &stderr); code != 0 {
+		t.Fatalf("code=%d out=%q stderr=%q", code, out.String(), stderr.String())
+	}
+	if !strings.Contains(out.String(), "已清空当前对话上下文") || requests != 0 {
+		t.Fatalf("out=%q requests=%d", out.String(), requests)
+	}
+}
+
 func TestChatContextLimitCanRecoverWithClear(t *testing.T) {
 	root := t.TempDir()
 	requests := 0
