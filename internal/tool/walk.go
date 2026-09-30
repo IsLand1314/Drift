@@ -15,6 +15,7 @@ var discoverySkipDirs = map[string]struct{}{
 	".foxcode":     {},
 	".codex":       {},
 	".claude":      {},
+	".drift":       {},
 	"node_modules": {},
 	".venv":        {},
 	"__pycache__":  {},

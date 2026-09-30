@@ -11,7 +11,7 @@ M0.6 解决大文件读取和大型项目发现结果过于嘈杂的问题，同
 - `read_file` 保持 `path` 必填，并增加可选的 `offset`（0-based 行偏移）和 `limit`（读取行数）参数。传入任一分页参数时，默认 `offset=0`、`limit=2000`；页结果仍受单次 128 KiB 上限保护。
 - 不传分页参数时，小文件继续全文读取；超过 128 KiB 的文件返回使用 `offset`/`limit` 分页的提示，不再把完整大文件放入模型上下文。
 - 分页结果在达到 `limit` 且后面仍有内容时追加下一页 offset 提示，模型可以继续读取后续范围。
-- `list_files` 与 `search_text` 递归发现时跳过 `.git`、`.foxcode`、`.codex`、`.claude`、`node_modules`、`.venv`、`__pycache__`、`.tox` 和 `.mypy_cache`。忽略只作用于 discovery，不影响用户明确调用 `read_file` 读取普通文件。
+- `list_files` 与 `search_text` 递归发现时跳过 `.git`、`.foxcode`、`.codex`、`.claude`、`.drift`、`node_modules`、`.venv`、`__pycache__`、`.tox` 和 `.mypy_cache`。忽略只作用于 discovery，不影响用户明确调用 `read_file` 读取普通文件。
 - workspace 相对路径、符号链接、dotenv、特殊文件、Agent 请求/工具/累计结果预算和 JSONL 脱敏规则保持 M0.5 行为。
 
 ### M0.6 验收
