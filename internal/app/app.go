@@ -13,6 +13,7 @@ import (
 
 	"github.com/IsLand1314/Drift/internal/agent"
 	"github.com/IsLand1314/Drift/internal/config"
+	"github.com/IsLand1314/Drift/internal/conversation"
 	"github.com/IsLand1314/Drift/internal/llm"
 	"github.com/IsLand1314/Drift/internal/llm/openai"
 	"github.com/IsLand1314/Drift/internal/session"
@@ -46,8 +47,15 @@ func RunWithInput(ctx context.Context, args []string, getenv func(string) string
 		return runConversationCommand(args[1:], out, stderr)
 	}
 	chat := len(args) > 0 && args[0] == "chat"
+	var persistenceOptions chatPersistenceOptions
 	if chat {
 		args = args[1:]
+		var parseErr error
+		args, persistenceOptions, parseErr = parseChatPersistenceArgs(args)
+		if parseErr != nil {
+			fmt.Fprintln(stderr, "错误：", parseErr)
+			return 2
+		}
 	}
 	flags := flag.NewFlagSet("drift", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -92,6 +100,10 @@ func RunWithInput(ctx context.Context, args []string, getenv func(string) string
 		fmt.Fprintln(stderr, "错误：workspace 目标无效")
 		return 2
 	}
+	if chat && persistenceOptions.resume && selection.Focus != "" {
+		fmt.Fprintln(stderr, "错误：--resume 不能与文件型 -w 同时使用")
+		return 2
+	}
 	key := strings.TrimSpace(lookup("OPENAI_API_KEY"))
 	if key == "" || strings.TrimSpace(*model) == "" {
 		fmt.Fprintln(stderr, "请设置 OPENAI_API_KEY，并通过 OPENAI_MODEL 或 -model 指定模型")
@@ -113,9 +125,48 @@ func RunWithInput(ctx context.Context, args []string, getenv func(string) string
 	if *trace {
 		traceSink = newTraceSink(stderr)
 	}
-	runner := agent.NewRunner(modelClient{Client: client, model: *model}, selection.Root, selection.Focus, tool.NewDefaultRegistry())
+	var persistence *chatPersistence
+	var runner *agent.Runner
 	if chat {
-		code := runChatLoop(ctx, runner, sessionWriter, traceSink, in, out, stderr)
+		store := conversation.NewStore(selection.Root)
+		if persistenceOptions.resume {
+			var snapshot conversation.Snapshot
+			if persistenceOptions.resumeID == "" {
+				snapshot, err = store.Latest()
+			} else {
+				snapshot, err = store.Load(persistenceOptions.resumeID)
+			}
+			if err != nil {
+				fmt.Fprintln(stderr, "错误：无法恢复完整会话：", err)
+				return 2
+			}
+			if snapshot.Focus != "" {
+				if _, statErr := os.Stat(filepath.Join(selection.Root, filepath.FromSlash(snapshot.Focus))); statErr != nil {
+					fmt.Fprintln(stderr, "错误：恢复会话的 focus 文件不存在")
+					return 2
+				}
+			}
+			runner = agent.NewRunnerWithMessages(modelClient{Client: client, model: *model}, selection.Root, snapshot.Focus, tool.NewDefaultRegistry(), snapshot.Messages)
+			persistence = &chatPersistence{store: store, snapshot: snapshot, persistent: true}
+			fmt.Fprintf(stderr, "会话 ID：%s\n注意：此会话会保存完整本地上下文，可能包含用户输入和读取结果；使用 --no-session 可关闭\n", snapshot.ID)
+		} else if !persistenceOptions.noSession {
+			snapshot, createErr := store.Create(selection.Focus)
+			if createErr != nil {
+				fmt.Fprintln(stderr, "错误：无法创建完整会话：", createErr)
+				return 1
+			}
+			runner = agent.NewRunner(modelClient{Client: client, model: *model}, selection.Root, selection.Focus, tool.NewDefaultRegistry())
+			persistence = &chatPersistence{store: store, snapshot: snapshot, persistent: true}
+			fmt.Fprintf(stderr, "会话 ID：%s\n注意：此会话会保存完整本地上下文，可能包含用户输入和读取结果；使用 --no-session 可关闭\n", snapshot.ID)
+		} else {
+			runner = agent.NewRunner(modelClient{Client: client, model: *model}, selection.Root, selection.Focus, tool.NewDefaultRegistry())
+			fmt.Fprintln(stderr, "已禁用完整会话保存（--no-session）；仍保留脱敏审计")
+		}
+	} else {
+		runner = agent.NewRunner(modelClient{Client: client, model: *model}, selection.Root, selection.Focus, tool.NewDefaultRegistry())
+	}
+	if chat {
+		code := runChatLoopWithPersistence(ctx, runner, sessionWriter, traceSink, persistence, in, out, stderr)
 		if closeErr := sessionWriter.Close(); closeErr != nil && code == 0 {
 			fmt.Fprintln(stderr, "错误：", closeErr)
 			return 1
