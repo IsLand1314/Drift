@@ -42,6 +42,9 @@ func RunWithInput(ctx context.Context, args []string, getenv func(string) string
 	if len(args) > 0 && args[0] == "session" {
 		return runSessionCommand(args[1:], out, stderr)
 	}
+	if len(args) > 0 && args[0] == "conversation" {
+		return runConversationCommand(args[1:], out, stderr)
+	}
 	chat := len(args) > 0 && args[0] == "chat"
 	if chat {
 		args = args[1:]
