@@ -113,6 +113,7 @@ func RunEventsWithRegistry(ctx context.Context, client llm.Client, root, prompt 
 			}
 		}
 		limitReached := false
+		limitInstruction := ""
 		for _, call := range calls {
 			if err := emit(Event{Type: EventToolCall, ToolCallID: call.ID, ToolName: call.Name, Arguments: call.Arguments}); err != nil {
 				return err
@@ -121,6 +122,7 @@ func RunEventsWithRegistry(ctx context.Context, client llm.Client, root, prompt 
 			if toolCalls >= MaxToolCalls {
 				content = call.Name + " failed: request/tool budget exceeded"
 				limitReached = true
+				limitInstruction = "Drift: request/tool budget exceeded; provide the final answer without further tool calls."
 			} else {
 				toolCalls++
 				registeredTool, _ := registry.Lookup(call.Name)
@@ -134,6 +136,7 @@ func RunEventsWithRegistry(ctx context.Context, client llm.Client, root, prompt 
 				case resultBytes+len(result) > MaxTotalReadBytes:
 					content = call.Name + " failed: total read limit exceeded"
 					limitReached = true
+					limitInstruction = "Drift: total read limit exceeded; provide the final answer without further tool calls."
 				default:
 					content = result
 					resultBytes += len(result)
@@ -144,11 +147,23 @@ func RunEventsWithRegistry(ctx context.Context, client llm.Client, root, prompt 
 				return err
 			}
 		}
-		if toolCalls >= MaxToolCalls || resultBytes >= MaxTotalReadBytes {
+		if toolCalls >= MaxToolCalls {
 			limitReached = true
+			if limitInstruction == "" {
+				limitInstruction = "Drift: request/tool budget exceeded; provide the final answer without further tool calls."
+			}
+		}
+		if resultBytes >= MaxTotalReadBytes {
+			limitReached = true
+			if limitInstruction == "" {
+				limitInstruction = "Drift: total read limit exceeded; provide the final answer without further tool calls."
+			}
 		}
 		if requestIndex+1 == MaxModelRequests {
 			return fail(errRequestToolBudgetExceeded)
+		}
+		if limitReached {
+			messages = append(messages, llm.Message{Role: "user", Content: limitInstruction})
 		}
 		forceFinal = limitReached
 	}

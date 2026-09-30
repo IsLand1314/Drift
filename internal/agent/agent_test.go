@@ -249,9 +249,13 @@ func TestRunToolBudgetUsesToolFreeFinalRequest(t *testing.T) {
 	if len(client.requests) != 2 || len(client.requests[1].Tools) != 0 {
 		t.Fatalf("requests = %#v, want second tool-free final request", client.requests)
 	}
-	lastMessage := client.requests[1].Messages[len(client.requests[1].Messages)-1]
-	if lastMessage.Role != "tool" || lastMessage.ToolCallID != calls[MaxToolCalls].ID || !strings.Contains(lastMessage.Content, "budget exceeded") {
-		t.Fatalf("limit tool result = %#v", lastMessage)
+	messages := client.requests[1].Messages
+	limitResult := messages[len(messages)-2]
+	if limitResult.Role != "tool" || limitResult.ToolCallID != calls[MaxToolCalls].ID || !strings.Contains(limitResult.Content, "budget exceeded") {
+		t.Fatalf("limit tool result = %#v", limitResult)
+	}
+	if instruction := messages[len(messages)-1]; instruction.Role != "user" || !strings.Contains(instruction.Content, "budget exceeded") {
+		t.Fatalf("final limit instruction = %#v", instruction)
 	}
 	toolCalls := 0
 	for _, event := range events {
@@ -261,6 +265,39 @@ func TestRunToolBudgetUsesToolFreeFinalRequest(t *testing.T) {
 	}
 	if toolCalls != len(calls) {
 		t.Fatalf("tool_call events = %d, want %d", toolCalls, len(calls))
+	}
+}
+
+func TestRunExactToolBudgetAddsLimitInstruction(t *testing.T) {
+	calls := make([]llm.ToolCall, MaxToolCalls)
+	for i := range calls {
+		calls[i] = llm.ToolCall{ID: string(rune('a' + i)), Type: "function", Name: "list_files", Arguments: `{}`}
+	}
+	client := &scriptedClient{steps: []scriptedStep{
+		{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: calls}, FinishReason: "tool_calls"}},
+		{completion: llm.Completion{Assistant: llm.Message{Role: "assistant"}, FinishReason: "stop"}},
+	}}
+	callEvents := map[string]int{}
+	if err := RunEvents(context.Background(), client, t.TempDir(), "inspect", func(event Event) error {
+		if event.Type == EventToolCall {
+			callEvents[event.ToolCallID]++
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("RunEvents() error = %v", err)
+	}
+	final := client.requests[1]
+	if len(final.Tools) != 0 {
+		t.Fatalf("final request tools = %d, want none", len(final.Tools))
+	}
+	last := final.Messages[len(final.Messages)-1]
+	if last.Role != "user" || !strings.Contains(last.Content, "request/tool budget exceeded") {
+		t.Fatalf("final limit instruction = %#v", last)
+	}
+	for _, call := range calls {
+		if callEvents[call.ID] != 1 {
+			t.Fatalf("tool_call events for %q = %d, want 1", call.ID, callEvents[call.ID])
+		}
 	}
 }
 
@@ -388,8 +425,11 @@ func TestRunEnforcesAggregateReadBudget(t *testing.T) {
 		t.Fatalf("requests = %d, want 2", len(client.requests))
 	}
 	second := client.requests[1]
-	if len(second.Messages) != 6 {
-		t.Fatalf("second request messages = %d, want 6", len(second.Messages))
+	if len(second.Tools) != 0 {
+		t.Fatalf("second request tools = %d, want none", len(second.Tools))
+	}
+	if len(second.Messages) != 7 {
+		t.Fatalf("second request messages = %d, want 7", len(second.Messages))
 	}
 	total := 0
 	for i, call := range calls {
@@ -404,6 +444,10 @@ func TestRunEnforcesAggregateReadBudget(t *testing.T) {
 	}
 	if total != 512<<10 {
 		t.Fatalf("total read bytes = %d, want %d", total, 512<<10)
+	}
+	limit := second.Messages[len(second.Messages)-1]
+	if limit.Role != "user" || !strings.Contains(limit.Content, "total read limit exceeded") {
+		t.Fatalf("final limit instruction = %#v", limit)
 	}
 }
 
