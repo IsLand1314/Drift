@@ -12,9 +12,10 @@ import (
 )
 
 const (
-	MaxModelRequests  = 4
-	MaxToolCalls      = 6
-	MaxTotalReadBytes = 512 << 10
+	MaxModelRequests     = 4
+	MaxToolCalls         = 6
+	MaxTotalReadBytes    = 512 << 10
+	MaxConversationBytes = 1 << 20
 
 	nativeToolSystemInstruction = "Drift is read-only. Only use the supplied native read-only tools. run_command, shell, and exec are unavailable. Never emit XML, DSML, or pseudo-tool syntax."
 )
@@ -28,6 +29,10 @@ var (
 	errEmptyFinalResponse         = errors.New("agent: empty response")
 )
 
+// ErrContextLimit 表示当前内存对话超过单次请求允许的字节预算。
+// chat 会把它作为可恢复的当前轮次错误，等待用户输入 /clear。
+var ErrContextLimit = errors.New("agent: context limit exceeded")
+
 // Runner 保存一个进程内的只读对话上下文；它不会从 Session JSONL 恢复历史消息。
 type Runner struct {
 	client   llm.Client
@@ -40,6 +45,29 @@ type Runner struct {
 // NewRunner 创建一个新的内存 Agent Runner。
 func NewRunner(client llm.Client, root, focus string, registry tool.Registry) *Runner {
 	return &Runner{client: client, root: root, focus: focus, registry: registry}
+}
+
+// ContextBytes 估算当前消息、首轮系统指令和工具 schema 的 UTF-8 字节数。
+// 这是保守的字节预算，不等同于 Provider 的 token 计数。
+func (r *Runner) ContextBytes() int {
+	size := len(systemInstruction(r.focus))
+	for _, message := range r.messages {
+		size += len(message.Role) + len(message.Content) + len(message.ToolCallID) + len(message.ReasoningContent)
+		for _, call := range message.ToolCalls {
+			size += len(call.ID) + len(call.Type) + len(call.Name) + len(call.Arguments)
+		}
+	}
+	if r.registry != nil {
+		for _, definition := range r.registry.Definitions() {
+			size += len(definition.Type) + len(definition.Function)
+		}
+	}
+	return size
+}
+
+// ResetContext 清空当前进程的对话消息，但保留 Provider、workspace、focus 和工具注册表。
+func (r *Runner) ResetContext() {
+	r.messages = nil
 }
 
 // Run 执行受限 Agent Loop，并只把最终文本交给 emitText。
@@ -78,6 +106,9 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) e
 		if errors.Is(err, errEmptyFinalResponse) {
 			stage = "agent_empty_response"
 		}
+		if errors.Is(err, ErrContextLimit) {
+			stage = "agent_context_limit"
+		}
 		if sinkErr := emit(Event{Type: EventError, Error: sanitizeError(r.root, err.Error()), Stage: stage, FinishReason: finishReason}); sinkErr != nil {
 			return sinkErr
 		}
@@ -103,6 +134,9 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) e
 		request := llm.Request{Messages: requestMessages}
 		if !forceFinal {
 			request.Tools = definitions
+		}
+		if r.ContextBytes() > MaxConversationBytes {
+			return fail(ErrContextLimit)
 		}
 		var chunks []string
 		completion, err := r.client.Stream(ctx, request, func(event llm.StreamEvent) error {

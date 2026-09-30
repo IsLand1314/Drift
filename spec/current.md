@@ -1,6 +1,25 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构演进建议见 `doc/architecture.md`。当前版本为 M1.0。下面的 M0.9、M0.8、M0.7、M0.6、M0.5、M0.4、M0.3、M0.2.2 和 M0.2.1 章节是已完成阶段的历史记录，不覆盖当前 M1.0 的运行边界。
+本文件是当前版本范围与验收标准的唯一事实来源；架构演进建议见 `doc/architecture.md`。当前版本为 M1.1。下面的 M1.0、M0.9、M0.8、M0.7、M0.6、M0.5、M0.4、M0.3、M0.2.2 和 M0.2.1 章节是已完成阶段的历史记录，不覆盖当前 M1.1 的运行边界。
+
+## M1.1：交互上下文管理
+
+M1.1 为 `drift chat` 增加进程内上下文硬上限和 `/clear`，避免长时间交互无限累积消息，同时不引入自动摘要或 Session 恢复。
+
+### 当前范围
+
+- Runner 按 UTF-8 字节估算 system 指令、消息、tool call、tool result、reasoning content 和工具 schema；初始上限为 1 MiB，不等同于 token 数。
+- 每次 Provider 请求前检查上下文预算。超过上限时不发 Provider 请求，写入 `stage=agent_context_limit` 的安全错误事件。
+- `drift chat` 支持 `/clear`，只清空当前 Runner 的 user、assistant、tool 消息，保留 workspace、focus、Provider 和工具注册表。
+- 上下文超限只结束当前输入轮次，chat 继续运行并提示输入 `/clear`；Provider、工具、输出和取消错误沿用 M1.0 退出行为。
+- 不自动截断旧消息、不调用模型生成摘要、不从 `.drift/sessions/*.jsonl` 恢复上下文。
+
+### M1.1 验收
+
+- `/clear` 不发 Provider 请求、不增加 `run_started`，清理后下一次请求不携带清理前的消息。
+- 超过 1 MiB 时 Provider 请求计数为 0，错误事件的 `stage` 为 `agent_context_limit`；输入 `/clear` 后可继续提问。
+- 单次 `-p`、M1.0 多轮工具循环、空响应错误、Session 脱敏和既有 Provider 阶段保持兼容。
+- `go test ./... -count=1`、`go vet ./...`、`go build ./cmd/drift` 和 `git diff --check` 通过。
 
 ## M1.0：交互式只读对话
 

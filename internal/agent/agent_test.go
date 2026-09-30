@@ -108,6 +108,64 @@ func TestRunnerPreservesConversationAcrossTurns(t *testing.T) {
 	}
 }
 
+func TestRunnerContextCanReset(t *testing.T) {
+	client := &scriptedClient{steps: []scriptedStep{{
+		events:     []llm.StreamEvent{{Text: "first"}},
+		completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "first"}, FinishReason: "stop"},
+	}}}
+	runner := NewRunner(client, t.TempDir(), "", tool.NewDefaultRegistry())
+	definitionsBefore := runner.registry.Definitions()
+	if err := runner.RunEvents(context.Background(), "question", nil); err != nil {
+		t.Fatal(err)
+	}
+	if runner.ContextBytes() == 0 {
+		t.Fatal("ContextBytes() = 0 after a turn")
+	}
+	runner.ResetContext()
+	if runner.ContextBytes() == 0 {
+		t.Fatal("system/tool overhead should remain after reset")
+	}
+	if !reflect.DeepEqual(runner.registry.Definitions(), definitionsBefore) {
+		t.Fatal("ResetContext changed tool definitions")
+	}
+}
+
+func TestRunnerContextBytesIncludesMessageParts(t *testing.T) {
+	runner := NewRunner(nil, t.TempDir(), "focus.md", tool.NewDefaultRegistry())
+	base := runner.ContextBytes()
+	runner.messages = append(runner.messages,
+		llm.Message{Role: "user", Content: "question"},
+		llm.Message{Role: "assistant", ReasoningContent: "reasoning", ToolCalls: []llm.ToolCall{{ID: "call-1", Type: "function", Name: "read_file", Arguments: `{"path":"README.md"}`}}},
+		llm.Message{Role: "tool", Content: "tool result", ToolCallID: "call-1"},
+	)
+	if got := runner.ContextBytes(); got <= base {
+		t.Fatalf("ContextBytes() = %d, want greater than base %d", got, base)
+	}
+}
+
+func TestRunnerContextLimitStopsBeforeProvider(t *testing.T) {
+	client := &scriptedClient{}
+	runner := NewRunner(client, t.TempDir(), "", tool.NewDefaultRegistry())
+	runner.messages = []llm.Message{{Role: "user", Content: strings.Repeat("x", MaxConversationBytes)}}
+	var events []Event
+	err := runner.RunEvents(context.Background(), "next", func(event Event) error {
+		events = append(events, event)
+		return nil
+	})
+	if !errors.Is(err, ErrContextLimit) {
+		t.Fatalf("RunEvents() error = %v, want ErrContextLimit", err)
+	}
+	if len(client.requests) != 0 {
+		t.Fatalf("provider requests = %d, want 0", len(client.requests))
+	}
+	if len(events) != 2 || events[1].Type != EventError || events[1].Stage != "agent_context_limit" {
+		t.Fatalf("events = %#v, want context limit error", events)
+	}
+	if strings.Contains(events[1].Error, "xxxx") {
+		t.Fatal("context limit error leaked message content")
+	}
+}
+
 func TestRunRejectsDSMLText(t *testing.T) {
 	var output []string
 	client := &scriptedClient{steps: []scriptedStep{{

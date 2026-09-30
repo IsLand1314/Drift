@@ -35,6 +35,10 @@ func runChatLoop(ctx context.Context, runner *agent.Runner, audit session.Writer
 		if prompt == "exit" || prompt == "/exit" || prompt == "quit" {
 			return 0
 		}
+		if prompt == "/clear" {
+			runner.ResetContext()
+			continue
+		}
 		var lastText string
 		err := runner.RunEvents(ctx, prompt, func(event agent.Event) error {
 			// 同一事件先写脱敏审计，再按需转发 trace 和 stdout。
@@ -55,6 +59,10 @@ func runChatLoop(ctx context.Context, runner *agent.Runner, audit session.Writer
 			if errors.Is(err, context.Canceled) {
 				fmt.Fprintln(stderr, "已取消")
 				return 130
+			}
+			if errors.Is(err, agent.ErrContextLimit) {
+				fmt.Fprintln(stderr, "错误：对话上下文已达到上限，请输入 /clear 后继续")
+				continue
 			}
 			fmt.Fprintln(stderr, "错误：", err)
 			return 1

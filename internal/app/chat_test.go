@@ -5,12 +5,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/IsLand1314/Drift/internal/agent"
 )
 
 func TestChatPreservesConversationAcrossTurns(t *testing.T) {
@@ -142,5 +145,58 @@ func TestChatReportsEmptyProviderResponse(t *testing.T) {
 	content, err := os.ReadFile(files[0])
 	if err != nil || !strings.Contains(string(content), `"stage":"agent_empty_response"`) {
 		t.Fatalf("audit=%s err=%v", content, err)
+	}
+}
+
+func TestChatClearResetsRunnerContext(t *testing.T) {
+	root := t.TempDir()
+	requests := 0
+	var secondRequest string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read request: %v", err)
+		}
+		if requests == 2 {
+			secondRequest = string(body)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":\"answer-%d\"}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n", requests)
+	}))
+	defer server.Close()
+	getenv := func(key string) string {
+		return map[string]string{"OPENAI_API_KEY": "test-secret", "OPENAI_MODEL": "test", "OPENAI_BASE_URL": server.URL}[key]
+	}
+	var out, stderr bytes.Buffer
+	in := strings.NewReader("first\n/clear\nsecond\nexit\n")
+	if code := RunWithInput(context.Background(), []string{"chat", "-w", root}, getenv, in, &out, &stderr); code != 0 {
+		t.Fatalf("code=%d out=%q stderr=%q", code, out.String(), stderr.String())
+	}
+	if requests != 2 || strings.Contains(secondRequest, "first") {
+		t.Fatalf("requests=%d second_request_contains_first=%v", requests, strings.Contains(secondRequest, "first"))
+	}
+}
+
+func TestChatContextLimitCanRecoverWithClear(t *testing.T) {
+	root := t.TempDir()
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"recovered\"}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	defer server.Close()
+	getenv := func(key string) string {
+		return map[string]string{"OPENAI_API_KEY": "test-secret", "OPENAI_MODEL": "test", "OPENAI_BASE_URL": server.URL}[key]
+	}
+	largePrompt := strings.Repeat("x", agent.MaxConversationBytes-100)
+	in := strings.NewReader(largePrompt + "\n/clear\nsecond\nexit\n")
+	var out, stderr bytes.Buffer
+	if code := RunWithInput(context.Background(), []string{"chat", "-w", root}, getenv, in, &out, &stderr); code != 0 {
+		t.Fatalf("code=%d out=%q stderr=%q", code, out.String(), stderr.String())
+	}
+	if requests != 1 || !strings.Contains(stderr.String(), "上下文已达到上限") || !strings.Contains(out.String(), "recovered") {
+		t.Fatalf("requests=%d out=%q stderr=%q", requests, out.String(), stderr.String())
 	}
 }
