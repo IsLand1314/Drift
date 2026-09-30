@@ -96,10 +96,10 @@ func (s *Store) Save(snapshot Snapshot) error {
 	if err := validateSnapshot(snapshot); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(s.root), 0o700); err != nil {
+	if err := ensureDirectory(filepath.Dir(s.root)); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
+	if err := ensureDirectory(s.root); err != nil {
 		return err
 	}
 	path, err := s.pathFor(snapshot.ID)
@@ -166,7 +166,7 @@ func (s *Store) Load(id string) (Snapshot, error) {
 		return Snapshot{}, ErrInvalidSnapshot
 	}
 	var extra any
-	if err := decoder.Decode(&extra); err == nil {
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
 		return Snapshot{}, ErrInvalidSnapshot
 	}
 	snapshot := fromPersisted(persisted)
@@ -257,7 +257,18 @@ func validateFocus(focus string) error {
 	if focus == "" {
 		return nil
 	}
-	if filepath.IsAbs(focus) || filepath.Clean(focus) != focus || focus == "." || strings.HasPrefix(focus, ".."+string(filepath.Separator)) || focus == ".." || strings.EqualFold(filepath.Base(focus), ".env") {
+	if filepath.IsAbs(focus) || filepath.Clean(focus) != focus || focus == "." || strings.HasPrefix(focus, ".."+string(filepath.Separator)) || focus == ".." || strings.HasPrefix(strings.ToLower(filepath.Base(focus)), ".env") {
+		return ErrInvalidSnapshot
+	}
+	return nil
+}
+
+func ensureDirectory(path string) error {
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return os.Mkdir(path, 0o700)
+	}
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
 		return ErrInvalidSnapshot
 	}
 	return nil
