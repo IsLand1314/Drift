@@ -68,6 +68,9 @@ func NewRunnerWithMessages(client llm.Client, root, focus string, registry tool.
 // Messages returns a copy of the current conversation messages.
 func (r *Runner) Messages() []llm.Message { return cloneMessages(r.messages) }
 
+// RestoreMessages replaces the current messages with a caller-owned snapshot.
+func (r *Runner) RestoreMessages(messages []llm.Message) { r.messages = cloneMessages(messages) }
+
 // ContextBytes 估算当前消息、首轮系统指令和工具 schema 的 UTF-8 字节数。
 // 这是保守的字节预算，不等同于 Provider 的 token 计数。
 func (r *Runner) ContextBytes() int {

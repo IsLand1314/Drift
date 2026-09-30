@@ -197,6 +197,99 @@ func TestChatPlainClearSuggestsSlashCommand(t *testing.T) {
 	}
 }
 
+func TestChatStatsDoesNotCallProvider(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { requests++ }))
+	defer server.Close()
+	getenv := func(key string) string {
+		return map[string]string{"OPENAI_API_KEY": "test-secret", "OPENAI_MODEL": "test", "OPENAI_BASE_URL": server.URL}[key]
+	}
+	var out, stderr bytes.Buffer
+	if code := RunWithInput(context.Background(), []string{"chat", "--no-session", "-w", t.TempDir()}, getenv, strings.NewReader("/stats\nexit\n"), &out, &stderr); code != 0 {
+		t.Fatalf("code=%d out=%q stderr=%q", code, out.String(), stderr.String())
+	}
+	if requests != 0 || !strings.Contains(out.String(), "上下文：") || !strings.Contains(out.String(), "剩余：") {
+		t.Fatalf("requests=%d out=%q", requests, out.String())
+	}
+}
+
+func TestChatCompactUsesNoToolsAndPersistsResult(t *testing.T) {
+	root := t.TempDir()
+	requests := 0
+	var compactHasTools bool
+	var thirdRequest string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		body, _ := io.ReadAll(r.Body)
+		var request struct {
+			Messages []struct {
+				Content string `json:"content"`
+			} `json:"messages"`
+			Tools []any `json:"tools"`
+		}
+		_ = json.Unmarshal(body, &request)
+		if requests == 2 {
+			compactHasTools = len(request.Tools) != 0
+		}
+		if requests == 3 {
+			thirdRequest = string(body)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		answer := "first"
+		if requests == 2 {
+			answer = "summary"
+		} else if requests == 3 {
+			answer = "second"
+		}
+		fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":%q}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n", answer)
+	}))
+	defer server.Close()
+	getenv := func(key string) string {
+		return map[string]string{"OPENAI_API_KEY": "test-secret", "OPENAI_MODEL": "test", "OPENAI_BASE_URL": server.URL}[key]
+	}
+	var out, stderr bytes.Buffer
+	if code := RunWithInput(context.Background(), []string{"chat", "-w", root}, getenv, strings.NewReader("first question\n/compact\nsecond question\nexit\n"), &out, &stderr); code != 0 {
+		t.Fatalf("code=%d out=%q stderr=%q", code, out.String(), stderr.String())
+	}
+	if requests != 3 || compactHasTools || !strings.Contains(out.String(), "上下文已压缩") || !strings.Contains(thirdRequest, "summary") {
+		t.Fatalf("requests=%d tools=%v out=%q third=%q", requests, compactHasTools, out.String(), thirdRequest)
+	}
+	items, err := conversation.NewStore(root).List()
+	if err != nil || len(items) != 1 || items[0].MessageCount < 2 {
+		t.Fatalf("persisted=%+v err=%v", items, err)
+	}
+}
+
+func TestChatCompactFailureKeepsContext(t *testing.T) {
+	root := t.TempDir()
+	requests := 0
+	var thirdRequest string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if requests == 2 {
+			w.WriteHeader(http.StatusGatewayTimeout)
+			return
+		}
+		if requests == 3 {
+			body, _ := io.ReadAll(r.Body)
+			thirdRequest = string(body)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"answer\"}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	defer server.Close()
+	getenv := func(key string) string {
+		return map[string]string{"OPENAI_API_KEY": "test-secret", "OPENAI_MODEL": "test", "OPENAI_BASE_URL": server.URL}[key]
+	}
+	var out, stderr bytes.Buffer
+	if code := RunWithInput(context.Background(), []string{"chat", "--no-session", "-w", root}, getenv, strings.NewReader("first question\n/compact\nthird question\nexit\n"), &out, &stderr); code != 0 {
+		t.Fatalf("code=%d out=%q stderr=%q", code, out.String(), stderr.String())
+	}
+	if requests != 3 || !strings.Contains(stderr.String(), "压缩失败") || !strings.Contains(thirdRequest, "first question") {
+		t.Fatalf("requests=%d stderr=%q third=%q", requests, stderr.String(), thirdRequest)
+	}
+}
+
 func TestChatExitAndEOFDoNotCallProvider(t *testing.T) {
 	for _, tc := range []struct {
 		name string

@@ -11,6 +11,7 @@ import (
 
 	"github.com/IsLand1314/Drift/internal/agent"
 	"github.com/IsLand1314/Drift/internal/conversation"
+	"github.com/IsLand1314/Drift/internal/llm"
 	"github.com/IsLand1314/Drift/internal/session"
 )
 
@@ -78,6 +79,58 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 			fmt.Fprintln(out, "如需清空上下文，请输入 /clear")
 			continue
 		}
+		if prompt == "/stats" {
+			contextBytes := runner.ContextBytes()
+			remaining := agent.MaxConversationBytes - contextBytes
+			if remaining < 0 {
+				remaining = 0
+			}
+			fmt.Fprintf(out, "上下文：%d / %d bytes\n消息：%d\n剩余：%d bytes\n", contextBytes, agent.MaxConversationBytes, len(runner.Messages()), remaining)
+			continue
+		}
+		if prompt == "/compact" {
+			oldMessages := runner.Messages()
+			oldSnapshot := conversation.Snapshot{}
+			if persistence != nil && persistence.persistent {
+				oldSnapshot = persistence.snapshot
+				oldSnapshot.Messages = append([]llm.Message(nil), oldMessages...)
+			}
+			beforeBytes := runner.ContextBytes()
+			startEvent := agent.Event{Type: agent.EventCompactionStarted, BeforeBytes: beforeBytes, MessageCount: len(oldMessages)}
+			if err := appendChatEvent(audit, traceSink, startEvent); err != nil {
+				fmt.Fprintln(stderr, "错误：", err)
+				return 1
+			}
+			result, err := runner.Compact(ctx)
+			if err != nil {
+				if errors.Is(err, agent.ErrCompactionInsufficient) {
+					fmt.Fprintln(out, "当前上下文消息不足，无需压缩")
+					continue
+				}
+				stage := llm.ErrorStageOf(err)
+				if stage == "" {
+					stage = "agent_compaction"
+				}
+				_ = appendChatEvent(audit, traceSink, agent.Event{Type: agent.EventCompactionError, Error: err.Error(), Stage: stage, BeforeBytes: beforeBytes, MessageCount: len(oldMessages)})
+				fmt.Fprintln(stderr, "错误：压缩失败，当前上下文保持不变")
+				continue
+			}
+			if persistence != nil && persistence.persistent {
+				if err := persistence.saveRunner(runner); err != nil {
+					runner.RestoreMessages(oldMessages)
+					persistence.snapshot = oldSnapshot
+					_ = appendChatEvent(audit, traceSink, agent.Event{Type: agent.EventCompactionError, Error: err.Error(), Stage: "conversation_save", BeforeBytes: beforeBytes, MessageCount: len(oldMessages)})
+					fmt.Fprintln(stderr, "错误：会话保存失败，压缩结果未应用")
+					continue
+				}
+			}
+			if err := appendChatEvent(audit, traceSink, agent.Event{Type: agent.EventCompactionFinished, BeforeBytes: result.BeforeBytes, AfterBytes: result.AfterBytes, MessageCount: len(oldMessages), KeptMessages: len(result.KeptMessages)}); err != nil {
+				fmt.Fprintln(stderr, "错误：", err)
+				return 1
+			}
+			fmt.Fprintf(out, "上下文已压缩：保留最近 %d 条消息\n", len(result.KeptMessages))
+			continue
+		}
 		if prompt == "/clear" {
 			if persistence != nil {
 				if err := persistence.clearRunner(runner); err != nil {
@@ -133,4 +186,14 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 			}
 		}
 	}
+}
+
+func appendChatEvent(audit session.Writer, traceSink agent.EventSink, event agent.Event) error {
+	if err := audit.Append(event); err != nil {
+		return err
+	}
+	if traceSink != nil {
+		_ = traceSink(event)
+	}
+	return nil
 }
