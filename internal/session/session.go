@@ -23,6 +23,10 @@ type Entry struct {
 	Error         string    `json:"error,omitempty"`
 	Stage         string    `json:"stage,omitempty"`
 	FinishReason  string    `json:"finish_reason,omitempty"`
+	BeforeBytes   int       `json:"before_bytes,omitempty"`
+	AfterBytes    int       `json:"after_bytes,omitempty"`
+	MessageCount  int       `json:"message_count,omitempty"`
+	KeptMessages  int       `json:"kept_messages,omitempty"`
 }
 
 // Writer 追加 Agent 事件，并在关闭后拒绝继续写入。

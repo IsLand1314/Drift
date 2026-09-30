@@ -407,3 +407,25 @@ func TestJSONLWriterFlushesTextDeltaImmediately(t *testing.T) {
 		t.Fatalf("Close() error = %v", err)
 	}
 }
+
+func TestJSONLWriterStoresCompactionCountersWithoutSummary(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "session.jsonl")
+	writer, err := NewJSONLWriter(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Append(agent.Event{Type: agent.EventCompactionFinished, Text: "secret summary", BeforeBytes: 200, AfterBytes: 80, MessageCount: 9, KeptMessages: 4}); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(content)
+	if strings.Contains(text, "secret summary") || !strings.Contains(text, `"before_bytes":200`) || !strings.Contains(text, `"after_bytes":80`) || !strings.Contains(text, `"kept_messages":4`) {
+		t.Fatalf("audit=%s", text)
+	}
+}

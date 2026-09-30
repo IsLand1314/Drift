@@ -137,6 +137,10 @@ func entryFromEvent(event agent.Event, clean sanitizer) Entry {
 		Error:         clean.text(event.Error),
 		Stage:         clean.text(event.Stage),
 		FinishReason:  sanitizeFinishReason(event.FinishReason),
+		BeforeBytes:   event.BeforeBytes,
+		AfterBytes:    event.AfterBytes,
+		MessageCount:  event.MessageCount,
+		KeptMessages:  event.KeptMessages,
 	}
 }
 

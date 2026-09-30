@@ -27,6 +27,16 @@ func newTraceSink(writer io.Writer) agent.EventSink {
 			line = "[drift] error stage=" + stage
 		case agent.EventRunFinished:
 			line = "[drift] run_finished"
+		case agent.EventCompactionStarted:
+			line = fmt.Sprintf("[drift] compaction_started bytes=%d messages=%d", event.BeforeBytes, event.MessageCount)
+		case agent.EventCompactionFinished:
+			line = fmt.Sprintf("[drift] compaction_finished before_bytes=%d after_bytes=%d kept_messages=%d", event.BeforeBytes, event.AfterBytes, event.KeptMessages)
+		case agent.EventCompactionError:
+			stage := event.Stage
+			if stage == "" {
+				stage = "agent_compaction"
+			}
+			line = "[drift] compaction_error stage=" + stage
 		}
 		if line != "" {
 			_, _ = fmt.Fprintln(writer, line)

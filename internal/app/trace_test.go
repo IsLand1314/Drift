@@ -17,6 +17,7 @@ func TestTraceSinkWritesSafeEventSummaries(t *testing.T) {
 		{Type: agent.EventToolResult, ToolName: "read_file", Result: "file contents"},
 		{Type: agent.EventError, Error: "模型连接失败", Stage: "provider_transport"},
 		{Type: agent.EventRunFinished},
+		{Type: agent.EventCompactionFinished, Text: "secret summary", BeforeBytes: 200, AfterBytes: 80, KeptMessages: 4},
 	} {
 		if err := sink(event); err != nil {
 			t.Fatal(err)
@@ -26,7 +27,10 @@ func TestTraceSinkWritesSafeEventSummaries(t *testing.T) {
 	if !strings.Contains(text, "tool_call read_file") || !strings.Contains(text, "tool_result read_file bytes=13") || !strings.Contains(text, "error stage=provider_transport") {
 		t.Fatalf("trace = %q", text)
 	}
-	if strings.Contains(text, "file contents") || strings.Contains(text, "secret") || strings.Contains(text, "README.md") {
+	if strings.Contains(text, "file contents") || strings.Contains(text, "secret") || strings.Contains(text, "README.md") || strings.Contains(text, "summary") {
 		t.Fatalf("trace leaked sensitive event data: %q", text)
+	}
+	if !strings.Contains(text, "compaction_finished before_bytes=200 after_bytes=80 kept_messages=4") {
+		t.Fatalf("trace missed compaction counters: %q", text)
 	}
 }
