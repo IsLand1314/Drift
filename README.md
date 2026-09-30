@@ -1,8 +1,8 @@
 # Drift
 
-使用 Go 构建的本地只读 Coding Agent Runtime。当前完成 M0.3：模型可以在当前工作目录内读取一个小型文件集，再基于内容给出解释；Runtime 已具备统一事件流、只读工具注册表和 JSONL 会话审计。
+使用 Go 构建的本地只读 Coding Agent Runtime。当前版本为 M0.4：模型可以在当前工作目录内列出文件、搜索文本、读取文件，并根据每轮结果继续探索后给出解释。Runtime 具备统一事件流、只读工具注册表和 JSONL 会话审计。
 
-M0.2 的单文件行为保持不变；M0.2.1 允许模型在首轮最多调用四次 `read_file`。每个文件最大 128 KiB、成功读取内容合计最大 512 KiB，且一次命令仍最多发起两次模型请求：首轮选择直接回答或读取文件，读取后第二轮生成最终回答。M0.3 将运行过程转换为统一 Runtime Event，并把脱敏事件追加到 `.drift/sessions/*.jsonl`；当前只支持审计，不支持会话恢复。宽泛问题可在模型把读取控制在这四个文件内时得到项目摘要；需要更多文件时会收到明确的受限上限错误。`read_file` 不读取 dotenv 凭据文件：`.env` 与所有 `.env.*` 文件均会被拒绝。没有写文件、删除文件、执行命令或运行程序的能力。
+默认提供三个工具：`list_files`、`search_text`、`read_file`。单次运行最多 4 次模型请求、6 次工具调用；成功工具结果累计最多 512 KiB，单文件最多 128 KiB。`list_files` 最多返回 200 个文件，`search_text` 最多扫描 200 个文件、返回 100 个匹配，输出最多 32 KiB。工具按顺序串行执行，达到限制后使用无工具 schema 的请求生成说明。没有写文件、删除文件、执行命令或运行程序的能力。
 
 ## 快速开始
 
@@ -23,9 +23,9 @@ go run ./cmd/drift -p "解释 README.md 的项目作用"
 
 配置优先级为：命令行 `-model`/`-base-url` > 进程环境变量 > 当前目录 `.env` > 内置默认值。API Key 没有命令行参数，只从环境变量或 `.env` 读取；缺少 Key 或模型时，请求不会发出。
 
-该示例会让模型按需读取当前目录的 `README.md`，然后只在 stdout 输出最终解释；同一次运行的审计事件会写入被 Git 忽略的 `.drift/sessions/`。模型也可在四文件、单文件 128 KiB、合计 512 KiB 的受限范围内读取更多上下文；一次命令最多发起两次模型请求。API 地址不含 `/chat/completions`；模型和地址也可通过 `-model`、`-base-url` 指定，`-h` 查看帮助。当前配置、只读边界和兼容性说明见 [M0.2.2 阶段说明](doc/m0.2.2-env-and-native-tools.md) 与 [M0.3 Runtime 阶段说明](doc/m0.3-runtime-core.md)；[历史快速开始](doc/getting-started.md) 仅供了解早期阶段行为。
+该示例会让模型按需探索并解释当前项目；stdout 只输出最终回答，同一次运行的审计事件会写入被 Git 忽略的 `.drift/sessions/`。模型可在上述边界内组合多个工具调用。API 地址不含 `/chat/completions`；模型和地址也可通过 `-model`、`-base-url` 指定，`-h` 查看帮助。当前范围和验收标准见 [spec/current.md](spec/current.md)，M0.4 的实现与调用流程见 [M0.4 阶段说明](doc/m0.4-multiturn-read-agent.md)；M0.2/M0.3 文档与[历史快速开始](doc/getting-started.md)仅用于了解早期阶段行为。
 
-Drift 目前只提供原生 OpenAI `tool_calls` 中的 `read_file`，没有 `run_command`、shell 或 exec 工具，因此不会执行命令。若模型输出 `<｜｜DSML｜｜ calls>`（或 ASCII 变体）等文本，这不是原生 `tool_calls` 事件，而是模型生成的不兼容伪工具格式。当前兼容性守卫只检查“首轮没有原生 `tool_calls`、`finish_reason` 为 `stop`”时缓存的首轮文本；该范围内会报告错误，不会把文本打印到 stdout，也不会执行它。它不会拒绝伴随原生工具调用的 DSML 文本，也不会检查第二轮文本。
+Drift 目前只接受原生 OpenAI `tool_calls` 中的三个只读工具，没有 `run_command`、shell 或 exec 工具，因此不会执行命令。若模型输出 `<｜｜DSML｜｜ calls>`（或 ASCII 变体）等文本，这不是原生 `tool_calls` 事件，而是模型生成的不兼容伪工具格式。当前兼容性守卫只检查“首轮没有原生 `tool_calls`、`finish_reason` 为 `stop`”时缓存的首轮文本；该范围内会报告错误，不会把文本打印到 stdout，也不会执行它。它不会拒绝伴随原生工具调用的 DSML 文本，也不会检查后续轮次文本。
 
 ## 开发
 
@@ -43,4 +43,5 @@ go build ./cmd/drift
 - [架构草案](doc/architecture.md)
 - [M0.2.2 配置、边界与兼容说明](doc/m0.2.2-env-and-native-tools.md)
 - [M0.3 Runtime 核心阶段说明](doc/m0.3-runtime-core.md)
+- [M0.4 多轮只读探索阶段说明](doc/m0.4-multiturn-read-agent.md)
 - [历史 M0 快速开始](doc/getting-started.md)

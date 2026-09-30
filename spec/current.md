@@ -1,6 +1,52 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构演进建议见 `doc/architecture.md`。
+本文件是当前版本范围与验收标准的唯一事实来源；架构演进建议见 `doc/architecture.md`。当前版本为 M0.4。下面的 M0.3、M0.2.2 和 M0.2.1 章节是已完成阶段的历史记录，不覆盖当前 M0.4 的运行边界。
+
+## M0.4：受限多轮只读探索 Agent
+
+M0.4 将原来的固定两轮 `read_file` 流程扩展为受限多轮 Agent Loop。模型可以根据上一轮工具结果继续选择下一步，但运行仍只允许读取和搜索，不允许产生文件系统副作用。
+
+### 当前范围
+
+- 默认 Registry 按固定顺序提供三个原生只读工具：`list_files`、`search_text`、`read_file`。Agent 通过 Registry 查找工具，不硬编码工具分派。
+- 单次运行最多发起 4 次模型请求、最多执行 6 次工具调用；达到工具调用或累计工具结果上限后，如果还有请求预算，会追加一次不带工具 schema 的最终说明请求。
+- 所有成功工具结果进入当前对话的累计大小最多 512 KiB；`read_file` 单文件最多 128 KiB。
+- `list_files` 从 workspace 根目录或给定的相对目录递归列出普通文件，最多返回 200 条并附带截断标记。
+- `search_text` 搜索普通文本文件，最多扫描 200 个文件、返回 100 个匹配，输出最多 32 KiB 并附带截断标记；二进制文件会跳过。
+- 工具路径必须是 workspace 内的相对路径；拒绝绝对路径、`..`、符号链接、目录、特殊文件以及路径中任意 `.env`/`.env.*` 段。不会写文件、删除文件、编辑文件、执行 shell 或运行程序。
+- 工具调用按模型返回顺序串行执行；首轮工具前导文本不输出，CLI stdout 只输出最终回答。Runtime 事件继续追加到 `.drift/sessions/<run-id>.jsonl`，每个事件独立成行并即时 Flush。
+
+### 调用与事件流程
+
+```text
+用户提示
+  -> app 创建 Provider、默认 Registry、Session Writer
+  -> agent 请求模型（首轮附带三个工具 schema）
+  -> 聚合并校验 tool_calls
+  -> 按顺序执行 list/search/read，追加 tool_result
+  -> 未结束时再次请求模型（最多 4 次）
+  -> stop 且没有 tool_calls：流式输出 text_delta，写入 run_finished
+```
+
+典型 JSONL 事件顺序如下；`text_delta` 的持久化内容仍为脱敏占位符：
+
+```json
+{"version":1,"type":"run_started","text":"探索当前项目"}
+{"version":1,"type":"tool_call","tool_call_id":"call-list","tool":"list_files","arguments":"{\"path\":\"\"}"}
+{"version":1,"type":"tool_result","tool_call_id":"call-list","tool":"list_files","result":"cmd/drift/main.go\\nREADME.md"}
+{"version":1,"type":"tool_call","tool_call_id":"call-read","tool":"read_file","arguments":"{\"path\":\"README.md\"}"}
+{"version":1,"type":"tool_result","tool_call_id":"call-read","tool":"read_file","result":"<redacted>"}
+{"version":1,"type":"text_delta","text":"<redacted>"}
+{"version":1,"type":"run_finished"}
+```
+
+### M0.4 验收
+
+- 直接回答只请求一次模型；`list_files -> search_text -> read_file -> 最终回答` 等多轮路径按顺序携带 assistant/tool 消息，stdout 只保留最终回答。
+- 测试覆盖 4 次模型请求、6 次工具调用、512 KiB 累计结果、128 KiB 单文件、200 条列表、200 个搜索文件、100 个搜索匹配和 32 KiB 搜索输出边界。
+- 未知工具、非法参数、路径遍历、符号链接、dotenv、目录、特殊文件、工具错误、取消和 Provider 协议错误均返回受控结果；不执行 shell 或伪工具文本。
+- JSONL 事件顺序、即时落盘和脱敏规则保持有效，不写入 API Key、Authorization、dotenv 内容或本地绝对路径。
+- `go test ./... -count=1`、`go vet ./...`、`go build ./cmd/drift` 和 `git diff --check` 通过。
 
 ## M0.3：Runtime 核心与 JSONL 会话审计
 
