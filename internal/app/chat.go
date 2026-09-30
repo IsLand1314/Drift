@@ -74,6 +74,10 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 		if prompt == "exit" || prompt == "/exit" || prompt == "quit" {
 			return 0
 		}
+		if prompt == "clear" {
+			fmt.Fprintln(out, "如需清空上下文，请输入 /clear")
+			continue
+		}
 		if prompt == "/clear" {
 			if persistence != nil {
 				if err := persistence.clearRunner(runner); err != nil {

@@ -179,6 +179,24 @@ func TestChatPersistentClearSavesEmptySnapshot(t *testing.T) {
 	}
 }
 
+func TestChatPlainClearSuggestsSlashCommand(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+	}))
+	defer server.Close()
+	getenv := func(key string) string {
+		return map[string]string{"OPENAI_API_KEY": "test-secret", "OPENAI_MODEL": "test", "OPENAI_BASE_URL": server.URL}[key]
+	}
+	var out, stderr bytes.Buffer
+	if code := RunWithInput(context.Background(), []string{"chat", "--no-session", "-w", t.TempDir()}, getenv, strings.NewReader("clear\nexit\n"), &out, &stderr); code != 0 {
+		t.Fatalf("code=%d out=%q stderr=%q", code, out.String(), stderr.String())
+	}
+	if requests != 0 || !strings.Contains(out.String(), "如需清空上下文，请输入 /clear") {
+		t.Fatalf("requests=%d out=%q", requests, out.String())
+	}
+}
+
 func TestChatExitAndEOFDoNotCallProvider(t *testing.T) {
 	for _, tc := range []struct {
 		name string

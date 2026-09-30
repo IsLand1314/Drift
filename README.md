@@ -45,7 +45,7 @@ go run ./cmd/drift conversation show conv-<id>
 go run ./cmd/drift conversation delete conv-<id> --yes
 ```
 
-长对话达到上下文上限时，输入 `/clear` 可清空当前上下文；持久会话会先保存空快照，保存成功后才清理。完整快照可能包含提示词、回答和工具结果，不是脱敏日志，不应上传或分享；`.drift/sessions/` 仍只保存脱敏审计，永远不作为恢复来源。
+长对话达到上下文上限时，输入 `/clear` 可清空当前上下文；持久会话会先保存空快照，保存成功后才清理。普通文本 `clear` 不会清理上下文，只会提示使用 `/clear`。完整快照可能包含提示词、回答和工具结果，不是脱敏日志，不应上传或分享；`.drift/sessions/` 仍只保存脱敏审计，永远不作为恢复来源。
 
 配置优先级为：命令行 `-model`/`-base-url` > 进程环境变量 > 当前目录 `.env` > 内置默认值。API Key 没有命令行参数，只从环境变量或 `.env` 读取；缺少 Key 或模型时，请求不会发出。
 
