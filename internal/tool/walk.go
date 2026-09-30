@@ -1,0 +1,75 @@
+package tool
+
+import (
+	"fmt"
+	"io/fs"
+	"os"
+	pathpkg "path"
+	"path/filepath"
+	"strings"
+)
+
+func validateRelativePath(path string, allowEmpty bool) error {
+	path = strings.ReplaceAll(path, `\`, "/")
+	if path == "" {
+		if allowEmpty {
+			return nil
+		}
+		return fmt.Errorf("path must not be empty")
+	}
+	if pathpkg.IsAbs(path) || filepath.IsAbs(path) || strings.HasPrefix(path, "/") {
+		return fmt.Errorf("path must be relative")
+	}
+	for _, segment := range strings.Split(path, "/") {
+		if segment == ".." {
+			return fmt.Errorf("path must not contain ..")
+		}
+	}
+	if isDotEnvCredentialFile(pathpkg.Base(path)) {
+		return fmt.Errorf("path is restricted")
+	}
+	return nil
+}
+
+func openWorkspace(root string) (*os.Root, error) {
+	return os.OpenRoot(root)
+}
+
+func walkRegularFiles(workspace *os.Root, relative string, fn func(path string, entry fs.DirEntry) error) error {
+	if err := validateRelativePath(relative, true); err != nil {
+		return err
+	}
+	start := strings.ReplaceAll(relative, `\`, "/")
+	if start == "" {
+		start = "."
+	}
+	start = pathpkg.Clean(start)
+	info, err := workspace.Lstat(start)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return fmt.Errorf("walk root is not a directory")
+	}
+	return fs.WalkDir(workspace.FS(), start, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() && entry.Type()&os.ModeSymlink != 0 {
+			return fs.SkipDir
+		}
+		if isDotEnvCredentialFile(pathpkg.Base(path)) {
+			if entry.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if entry.Type()&os.ModeSymlink != 0 || !entry.Type().IsRegular() {
+			return nil
+		}
+		if path == "." {
+			return nil
+		}
+		return fn(strings.TrimPrefix(path, "./"), entry)
+	})
+}

@@ -81,11 +81,8 @@ func Read(root, rawArguments string) (string, error) {
 	if strings.TrimSpace(args.Path) == "" {
 		return "", fmt.Errorf("read_file path is blank")
 	}
-	if filepath.IsAbs(args.Path) {
-		return "", fmt.Errorf("read_file path must be relative")
-	}
-	if containsParentSegment(args.Path) {
-		return "", fmt.Errorf("read_file path must not contain ..")
+	if err := validateRelativePath(args.Path, false); err != nil {
+		return "", fmt.Errorf("read_file path is invalid: %w", err)
 	}
 	if isDotEnvCredentialFile(filepath.Base(args.Path)) {
 		// .env 即使被 .gitignore 忽略，也可能包含 API Key，不能进入模型上下文。
@@ -126,16 +123,6 @@ func Read(root, rawArguments string) (string, error) {
 		return "", fmt.Errorf("read_file target exceeds %d bytes", MaxReadBytes)
 	}
 	return string(content), nil
-}
-
-func containsParentSegment(path string) bool {
-	path = strings.ReplaceAll(path, string(filepath.Separator), "/")
-	for _, segment := range strings.Split(path, "/") {
-		if segment == ".." {
-			return true
-		}
-	}
-	return false
 }
 
 func isDotEnvCredentialFile(name string) bool {
