@@ -25,7 +25,22 @@ var (
 	errRequestToolBudgetExceeded  = errors.New("agent: request/tool budget exceeded")
 	errUnsupportedTool            = errors.New("agent: unsupported tool")
 	errIncompatiblePseudoToolCall = errors.New("agent: 模型返回了不兼容的伪工具调用格式")
+	errEmptyFinalResponse         = errors.New("agent: empty response")
 )
+
+// Runner 保存一个进程内的只读对话上下文；它不会从 Session JSONL 恢复历史消息。
+type Runner struct {
+	client   llm.Client
+	root     string
+	focus    string
+	registry tool.Registry
+	messages []llm.Message
+}
+
+// NewRunner 创建一个新的内存 Agent Runner。
+func NewRunner(client llm.Client, root, focus string, registry tool.Registry) *Runner {
+	return &Runner{client: client, root: root, focus: focus, registry: registry}
+}
 
 // Run 执行受限 Agent Loop，并只把最终文本交给 emitText。
 func Run(ctx context.Context, client llm.Client, root, prompt string, emitText func(string) error) error {
@@ -44,6 +59,11 @@ func RunEvents(ctx context.Context, client llm.Client, root, prompt string, sink
 
 // RunEventsWithRegistry 使用调用方提供的工具注册表执行受限多轮 Agent Loop。
 func RunEventsWithRegistry(ctx context.Context, client llm.Client, root, prompt, focus string, registry tool.Registry, sink EventSink) error {
+	return NewRunner(client, root, focus, registry).RunEvents(ctx, prompt, sink)
+}
+
+// RunEvents 执行一轮输入，并把结果追加到当前 Runner 的内存上下文。
+func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) error {
 	emit := func(event Event) error {
 		if sink == nil {
 			return nil
@@ -55,7 +75,10 @@ func RunEventsWithRegistry(ctx context.Context, client llm.Client, root, prompt,
 		if stage == "" {
 			stage = "agent"
 		}
-		if sinkErr := emit(Event{Type: EventError, Error: sanitizeError(root, err.Error()), Stage: stage, FinishReason: finishReason}); sinkErr != nil {
+		if errors.Is(err, errEmptyFinalResponse) {
+			stage = "agent_empty_response"
+		}
+		if sinkErr := emit(Event{Type: EventError, Error: sanitizeError(r.root, err.Error()), Stage: stage, FinishReason: finishReason}); sinkErr != nil {
 			return sinkErr
 		}
 		return err
@@ -67,22 +90,22 @@ func RunEventsWithRegistry(ctx context.Context, client llm.Client, root, prompt,
 		return err
 	}
 
-	messages := []llm.Message{{Role: "user", Content: prompt}}
-	definitions := registry.Definitions()
+	r.messages = append(r.messages, llm.Message{Role: "user", Content: prompt})
+	definitions := r.registry.Definitions()
 	toolCalls, resultBytes := 0, 0
 	// 达到预算后，最后一轮撤掉 tools，强制模型基于已有结果给出回答。
 	forceFinal := false
 	for requestIndex := 0; requestIndex < MaxModelRequests; requestIndex++ {
-		requestMessages := messages
+		requestMessages := r.messages
 		if requestIndex == 0 {
-			requestMessages = append([]llm.Message{{Role: "system", Content: systemInstruction(focus)}}, messages...)
+			requestMessages = append([]llm.Message{{Role: "system", Content: systemInstruction(r.focus)}}, r.messages...)
 		}
 		request := llm.Request{Messages: requestMessages}
 		if !forceFinal {
 			request.Tools = definitions
 		}
 		var chunks []string
-		completion, err := client.Stream(ctx, request, func(event llm.StreamEvent) error {
+		completion, err := r.client.Stream(ctx, request, func(event llm.StreamEvent) error {
 			if event.Text != "" {
 				chunks = append(chunks, event.Text)
 			}
@@ -104,6 +127,13 @@ func RunEventsWithRegistry(ctx context.Context, client llm.Client, root, prompt,
 			if requestIndex == 0 && (strings.Contains(text, "<｜｜DSML｜｜") || strings.Contains(text, "<|DSML|>")) {
 				return fail(errIncompatiblePseudoToolCall)
 			}
+			if strings.TrimSpace(text) == "" {
+				return fail(errEmptyFinalResponse)
+			}
+			assistant := completion.Assistant
+			assistant.Role = "assistant"
+			assistant.Content = text
+			r.messages = append(r.messages, assistant)
 			for _, chunk := range chunks {
 				if err := emit(Event{Type: EventTextDelta, Text: chunk}); err != nil {
 					return err
@@ -117,9 +147,9 @@ func RunEventsWithRegistry(ctx context.Context, client llm.Client, root, prompt,
 
 		// assistant 的 tool_calls 与随后每条 tool 结果必须一起回传，
 		// 否则 Provider 无法把 tool_call_id 对应到本轮调用。
-		messages = append(messages, completion.Assistant)
+		r.messages = append(r.messages, completion.Assistant)
 		for _, call := range calls {
-			if _, ok := registry.Lookup(call.Name); !ok {
+			if _, ok := r.registry.Lookup(call.Name); !ok {
 				return fail(errUnsupportedTool)
 			}
 		}
@@ -136,8 +166,8 @@ func RunEventsWithRegistry(ctx context.Context, client llm.Client, root, prompt,
 				limitInstruction = "Drift: request/tool budget exceeded; provide the final answer without further tool calls."
 			} else {
 				toolCalls++
-				registeredTool, _ := registry.Lookup(call.Name)
-				result, toolErr := registeredTool.Execute(ctx, root, call.Arguments)
+				registeredTool, _ := r.registry.Lookup(call.Name)
+				result, toolErr := registeredTool.Execute(ctx, r.root, call.Arguments)
 				if toolErr != nil && ctx.Err() != nil {
 					return fail(ctx.Err())
 				}
@@ -153,7 +183,7 @@ func RunEventsWithRegistry(ctx context.Context, client llm.Client, root, prompt,
 					resultBytes += len(result)
 				}
 			}
-			messages = append(messages, llm.Message{Role: "tool", Content: content, ToolCallID: call.ID})
+			r.messages = append(r.messages, llm.Message{Role: "tool", Content: content, ToolCallID: call.ID})
 			if err := emit(Event{Type: EventToolResult, ToolCallID: call.ID, ToolName: call.Name, Result: content}); err != nil {
 				return err
 			}
@@ -174,7 +204,7 @@ func RunEventsWithRegistry(ctx context.Context, client llm.Client, root, prompt,
 			return fail(errRequestToolBudgetExceeded)
 		}
 		if limitReached {
-			messages = append(messages, llm.Message{Role: "user", Content: limitInstruction})
+			r.messages = append(r.messages, llm.Message{Role: "user", Content: limitInstruction})
 		}
 		forceFinal = limitReached
 	}

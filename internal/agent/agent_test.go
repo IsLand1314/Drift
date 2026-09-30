@@ -88,6 +88,26 @@ func TestRunDirectStopBuffersFirstTurnText(t *testing.T) {
 	}
 }
 
+func TestRunnerPreservesConversationAcrossTurns(t *testing.T) {
+	client := &scriptedClient{steps: []scriptedStep{
+		{events: []llm.StreamEvent{{Text: "first answer"}}, completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "first answer"}, FinishReason: "stop"}},
+		{events: []llm.StreamEvent{{Text: "second answer"}}, completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "second answer"}, FinishReason: "stop"}},
+	}}
+	runner := NewRunner(client, t.TempDir(), "", tool.NewDefaultRegistry())
+	for _, prompt := range []string{"first question", "second question"} {
+		if err := runner.RunEvents(context.Background(), prompt, nil); err != nil {
+			t.Fatalf("RunEvents(%q) error = %v", prompt, err)
+		}
+	}
+	if len(client.requests) != 2 {
+		t.Fatalf("requests = %d, want 2", len(client.requests))
+	}
+	second := client.requests[1].Messages
+	if len(second) != 4 || second[0].Role != "system" || second[1].Content != "first question" || second[2].Role != "assistant" || second[2].Content != "first answer" || second[3].Content != "second question" {
+		t.Fatalf("second request messages = %#v, want previous turn context", second)
+	}
+}
+
 func TestRunRejectsDSMLText(t *testing.T) {
 	var output []string
 	client := &scriptedClient{steps: []scriptedStep{{
@@ -140,8 +160,9 @@ func TestRunRejectsASCIIDSMLText(t *testing.T) {
 
 func TestRunUsesNativeToolSystemInstruction(t *testing.T) {
 	client := &scriptedClient{steps: []scriptedStep{{
+		events: []llm.StreamEvent{{Text: "done"}},
 		completion: llm.Completion{
-			Assistant:    llm.Message{Role: "assistant"},
+			Assistant:    llm.Message{Role: "assistant", Content: "done"},
 			FinishReason: "stop",
 		},
 	}}}
@@ -174,7 +195,7 @@ func TestRunFocusOnlyAppearsInFirstSystemMessage(t *testing.T) {
 	call := llm.ToolCall{ID: "focus-read", Type: "function", Name: "read_file", Arguments: `{"path":"README.md"}`}
 	client := &scriptedClient{steps: []scriptedStep{
 		{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{call}}, FinishReason: "tool_calls"}},
-		{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "done"}, FinishReason: "stop"}},
+		{events: []llm.StreamEvent{{Text: "done"}}, completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "done"}, FinishReason: "stop"}},
 	}}
 	if err := RunEventsWithRegistry(context.Background(), client, root, "explain it", "README.md", tool.NewDefaultRegistry(), nil); err != nil {
 		t.Fatalf("RunEventsWithRegistry() error = %v", err)
@@ -304,7 +325,7 @@ func TestRunExactToolBudgetAddsLimitInstruction(t *testing.T) {
 	}
 	client := &scriptedClient{steps: []scriptedStep{
 		{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: calls}, FinishReason: "tool_calls"}},
-		{completion: llm.Completion{Assistant: llm.Message{Role: "assistant"}, FinishReason: "stop"}},
+		{events: []llm.StreamEvent{{Text: "done"}}, completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "done"}, FinishReason: "stop"}},
 	}}
 	callEvents := map[string]int{}
 	if err := RunEvents(context.Background(), client, t.TempDir(), "inspect", func(event Event) error {
@@ -445,7 +466,7 @@ func TestRunEnforcesAggregateReadBudget(t *testing.T) {
 	}
 	client := &scriptedClient{steps: []scriptedStep{
 		{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: calls}, FinishReason: "tool_calls"}},
-		{completion: llm.Completion{Assistant: llm.Message{Role: "assistant"}, FinishReason: "stop"}},
+		{events: []llm.StreamEvent{{Text: "done"}}, completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "done"}, FinishReason: "stop"}},
 	}}
 	if err := Run(context.Background(), client, root, "read the files", func(string) error { return nil }); err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -523,7 +544,7 @@ func TestRunReadFailuresStillReachSecondTurn(t *testing.T) {
 			call := llm.ToolCall{ID: "call-1", Type: "function", Name: "read_file", Arguments: test.arguments}
 			client := &scriptedClient{steps: []scriptedStep{
 				{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{call}}, FinishReason: "tool_calls"}},
-				{completion: llm.Completion{Assistant: llm.Message{Role: "assistant"}, FinishReason: "stop"}},
+				{events: []llm.StreamEvent{{Text: "done"}}, completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "done"}, FinishReason: "stop"}},
 			}}
 
 			err := Run(context.Background(), client, t.TempDir(), "read a file", func(string) error { return nil })
@@ -550,7 +571,7 @@ func TestRunSanitizesDotEnvReadFailureForSecondTurn(t *testing.T) {
 	call := llm.ToolCall{ID: "call-env", Type: "function", Name: "read_file", Arguments: `{"path":".env"}`}
 	client := &scriptedClient{steps: []scriptedStep{
 		{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{call}}, FinishReason: "tool_calls"}},
-		{completion: llm.Completion{Assistant: llm.Message{Role: "assistant"}, FinishReason: "stop"}},
+		{events: []llm.StreamEvent{{Text: "done"}}, completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "done"}, FinishReason: "stop"}},
 	}}
 
 	if err := Run(context.Background(), client, root, "inspect configuration", func(string) error { return nil }); err != nil {
@@ -632,6 +653,23 @@ func TestRunReturnsOutputCallbackFailure(t *testing.T) {
 	}
 }
 
+func TestRunRejectsEmptyFinalResponse(t *testing.T) {
+	client := &scriptedClient{steps: []scriptedStep{{
+		completion: llm.Completion{Assistant: llm.Message{Role: "assistant"}, FinishReason: "stop"},
+	}}}
+	var events []Event
+	err := RunEvents(context.Background(), client, t.TempDir(), "test", func(event Event) error {
+		events = append(events, event)
+		return nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "empty response") {
+		t.Fatalf("RunEvents() error = %v, want empty response error", err)
+	}
+	if len(events) != 2 || events[1].Type != EventError || events[1].Stage != "agent_empty_response" {
+		t.Fatalf("events = %#v, want agent_empty_response error", events)
+	}
+}
+
 func TestRunReturnsCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -667,7 +705,7 @@ func TestRunPreservesReasoningContentForSecondRequest(t *testing.T) {
 	call := llm.ToolCall{ID: "call-1", Type: "function", Name: "read_file", Arguments: `{"path":"README.md"}`}
 	client := &scriptedClient{steps: []scriptedStep{
 		{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ReasoningContent: "I need the readme", ToolCalls: []llm.ToolCall{call}}, FinishReason: "tool_calls"}},
-		{completion: llm.Completion{Assistant: llm.Message{Role: "assistant"}, FinishReason: "stop"}},
+		{events: []llm.StreamEvent{{Text: "done"}}, completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "done"}, FinishReason: "stop"}},
 	}}
 	if err := Run(context.Background(), client, t.TempDir(), "test", func(string) error { return nil }); err != nil {
 		t.Fatalf("Run() error = %v", err)

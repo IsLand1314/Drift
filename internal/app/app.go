@@ -34,8 +34,17 @@ func (c modelClient) Stream(ctx context.Context, request llm.Request, emit func(
 // Run 是 CLI 的应用编排层：加载配置 → 校验参数 → 创建 Provider → 启动 Agent。
 // getenv、out 和 stderr 都通过参数注入，方便测试时使用模拟环境和 HTTP 服务。
 func Run(ctx context.Context, args []string, getenv func(string) string, out, stderr io.Writer) int {
+	return RunWithInput(ctx, args, getenv, os.Stdin, out, stderr)
+}
+
+// RunWithInput 与 Run 相同，但允许交互式命令注入 stdin，便于测试和嵌入。
+func RunWithInput(ctx context.Context, args []string, getenv func(string) string, in io.Reader, out, stderr io.Writer) int {
 	if len(args) > 0 && args[0] == "session" {
 		return runSessionCommand(args[1:], out, stderr)
+	}
+	chat := len(args) > 0 && args[0] == "chat"
+	if chat {
+		args = args[1:]
 	}
 	flags := flag.NewFlagSet("drift", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -62,8 +71,12 @@ func Run(ctx context.Context, args []string, getenv func(string) string, out, st
 		}
 		return 2
 	}
-	if flags.NArg() != 0 || strings.TrimSpace(*prompt) == "" {
-		fmt.Fprintln(stderr, "用法：drift -p \"你好\" [-w 路径] [--trace] [-model 模型名] [-base-url API根地址]")
+	if flags.NArg() != 0 || (!chat && strings.TrimSpace(*prompt) == "") || (chat && strings.TrimSpace(*prompt) != "") {
+		if chat {
+			fmt.Fprintln(stderr, "用法：drift chat [-w 路径] [--trace] [-model 模型名] [-base-url API根地址]")
+		} else {
+			fmt.Fprintln(stderr, "用法：drift -p \"你好\" [-w 路径] [--trace] [-model 模型名] [-base-url API根地址]")
+		}
 		return 2
 	}
 	launchDir, err := os.Getwd()
@@ -93,13 +106,22 @@ func Run(ctx context.Context, args []string, getenv func(string) string, out, st
 		fmt.Fprintln(stderr, "错误：", err)
 		return 1
 	}
-	var lastText string
 	var traceSink agent.EventSink
 	if *trace {
 		traceSink = newTraceSink(stderr)
 	}
+	runner := agent.NewRunner(modelClient{Client: client, model: *model}, selection.Root, selection.Focus, tool.NewDefaultRegistry())
+	if chat {
+		code := runChatLoop(ctx, runner, sessionWriter, traceSink, in, out, stderr)
+		if closeErr := sessionWriter.Close(); closeErr != nil && code == 0 {
+			fmt.Fprintln(stderr, "错误：", closeErr)
+			return 1
+		}
+		return code
+	}
+	var lastText string
 	// Event Sink 先追加脱敏审计记录，再把最终文本事件写到 stdout。
-	err = agent.RunEventsWithRegistry(ctx, modelClient{Client: client, model: *model}, selection.Root, *prompt, selection.Focus, tool.NewDefaultRegistry(), func(event agent.Event) error {
+	err = runner.RunEvents(ctx, *prompt, func(event agent.Event) error {
 		if err := sessionWriter.Append(event); err != nil {
 			return err
 		}

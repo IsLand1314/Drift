@@ -1,6 +1,27 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构演进建议见 `doc/architecture.md`。当前版本为 M0.9。下面的 M0.8、M0.7、M0.6、M0.5、M0.4、M0.3、M0.2.2 和 M0.2.1 章节是已完成阶段的历史记录，不覆盖当前 M0.9 的运行边界。
+本文件是当前版本范围与验收标准的唯一事实来源；架构演进建议见 `doc/architecture.md`。当前版本为 M1.0。下面的 M0.9、M0.8、M0.7、M0.6、M0.5、M0.4、M0.3、M0.2.2 和 M0.2.1 章节是已完成阶段的历史记录，不覆盖当前 M1.0 的运行边界。
+
+## M1.0：交互式只读对话
+
+M1.0 在同一进程内复用 Agent Runner，让用户可以连续输入问题并共享本轮已经获得的模型上下文；Session 仍然只是脱敏审计，不参与上下文恢复。
+
+### 当前范围
+
+- 新增 `drift chat` 入口；`-w`、`--trace`、`-model` 和 `-base-url` 与单次模式一致，`-p` 与 chat 互斥。
+- 同一 chat 进程只创建一次 Provider、workspace、工具注册表和 Session Writer；每行非空输入复用同一个 `agent.Runner`。
+- 后续问题携带此前的 user、assistant、tool 消息；首个问题仍带系统约束和三个只读工具 schema。
+- 空行忽略，`exit`、`/exit`、`quit` 和 EOF 正常退出；取消返回 130，Provider/工具/输出错误返回 1。
+- Provider 以 `stop` 结束但没有文本时返回 `agent_empty_response`，写入错误审计并结束本次 chat，不把空回答当成成功。
+- 每轮仍受 M0.4 的 4 次模型请求、6 次工具调用、512 KiB 累计结果和 128 KiB 单文件读取限制。
+- 对话上下文只保存在内存；进程结束后丢失，不从 `.drift/sessions/*.jsonl` 恢复，不把审计正文发送给模型。
+
+### M1.0 验收
+
+- 连续两个问题共享同一个 Runner 上下文，第二次请求包含第一次的 user/assistant 消息。
+- `exit`、`/exit`、`quit`、EOF 和空行不产生无意义的 Provider 请求；chat 只生成一个安全审计文件。
+- 单次模式行为保持兼容；stdout 仍只输出回答，trace 仍写 stderr，Session 不保存提示词、回答和文件内容。
+- `go test ./... -count=1`、`go vet ./...`、`go build ./cmd/drift` 和 `git diff --check` 通过。
 
 ## M0.9：安全 Session 审计与查看器
 
