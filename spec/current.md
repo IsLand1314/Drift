@@ -1,6 +1,32 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构演进建议见 `doc/architecture.md`。当前版本为 M1.1。下面的 M1.0、M0.9、M0.8、M0.7、M0.6、M0.5、M0.4、M0.3、M0.2.2 和 M0.2.1 章节是已完成阶段的历史记录，不覆盖当前 M1.1 的运行边界。
+本文件是当前版本范围与验收标准的唯一事实来源；架构演进建议见 `doc/architecture.md`。当前版本为 M1.2。下面的 M1.1、M1.0、M0.9、M0.8、M0.7、M0.6、M0.5、M0.4、M0.3、M0.2.2 和 M0.2.1 章节是已完成阶段的历史记录，不覆盖当前 M1.2 的运行边界。
+
+## M1.2：本地对话持久化
+
+M1.2 让 `drift chat` 默认保存本地完整上下文，并通过显式 `--resume` 恢复；`--no-session` 用于不保存完整正文的临时对话。完整会话与 M0.9 脱敏审计分离，审计 JSONL 永远不是恢复来源。
+
+### 当前范围
+
+- 完整快照保存到 workspace 内 `.drift/conversations/<id>.json`；创建目录/文件使用 `0700`/`0600` 目标权限，并通过临时文件替换保存。
+- `chat --resume` 恢复当前 workspace 最近快照，`chat --resume <id>` 恢复指定快照；文件型 `-w`、跨 workspace 和 `--no-session` 组合均拒绝。
+- 默认 chat 启动显示会话 ID和完整上下文提示；每轮成功后保存 Runner 消息，Provider 或工具失败的半轮不保存。
+- `/clear` 在持久模式先写空快照，成功后才清理 Runner；保存失败时不清理当前内存上下文。临时模式仍只保留脱敏审计。
+- `conversation list/show/delete <id> --yes` 只查看/删除元数据与指定快照，不请求 Provider；`show` 不回显正文。
+- 快照可能包含提示词、回答和工具结果，不承诺脱敏，不应上传或共享；不保存 API Key、Authorization、Provider URL、模型名或 workspace 绝对路径。
+- 本阶段不实现 fork、树状历史、自动摘要、正文搜索、导出、加密、云同步和跨 workspace 恢复。
+
+### M1.2 验收
+
+| ID | 验证方法 | 通过阈值 | 证据类型 | 证据路径 | 失败判定 |
+| --- | --- | --- | --- | --- | --- |
+| AC-M12-001 | `go test ./internal/conversation -count=1` | 快照保存/加载保留 tool message；非法 ID、坏 JSON、排序、精确删除通过 | 测试日志 | `artifacts/verification/m1.2/conversation-test.txt` | 任一存储边界失败 |
+| AC-M12-002 | `go test ./internal/app -run 'TestConversation|TestSession' -count=1` | list/show/delete 只输出元数据，不要求 API Key，Session 行为不回归 | 测试日志 | `artifacts/verification/m1.2/command-test.txt` | 输出正文或误加载 Provider |
+| AC-M12-003 | `go test ./internal/app -run 'TestChat(Resume|NoSession|PersistentClear|RejectsPersistence)' -count=1` | 恢复请求包含旧上下文；临时模式无完整快照；clear 保存空快照；冲突参数退出码 2 | 测试日志 | `artifacts/verification/m1.2/chat-persistence-test.txt` | 任一生命周期约束失败 |
+| AC-M12-004 | 人工运行 `chat`、`--resume`、`--no-session`、`/clear`、`conversation show` | 默认保存并可恢复；show 不泄露正文；no-session 只产生审计；clear 后旧消息消失 | 人工运行日志 | `artifacts/verification/m1.2/manual-acceptance.txt` | 恢复跨 workspace 或展示正文 |
+| AC-M12-005 | 检查 `.drift/conversations/` 与 `.drift/sessions/` 内容 | 完整快照可恢复；Session 仍只有脱敏摘要；不出现 API Key/Authorization/Provider URL/绝对 workspace | 文件检查 | `artifacts/verification/m1.2/storage-inspection.txt` | 敏感配置落盘或审计被恢复使用 |
+| AC-M12-006 | `go test ./... -count=1`、`go vet ./...`、`go build -o .codex-temp\\drift-m12.exe ./cmd/drift` | 三条命令退出码均为 0 | 命令日志 | `artifacts/verification/m1.2/` | 任一命令非 0 |
+| AC-M12-007 | `git diff --check` 与计划/文档链接检查 | 无空白错误，M1.2 文档、README、Process 和计划与实现一致 | 命令日志 | `artifacts/verification/m1.2/docs.txt` | 文档描述过期或链接失效 |
 
 ## M1.1：交互上下文管理
 

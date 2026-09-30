@@ -33,7 +33,7 @@
 - Add `func (r *Runner) Messages() []llm.Message`.
 - Both APIs must deep-copy `[]llm.Message` and every nested `ToolCalls` slice.
 
-- [ ] **Step 1: Write failing snapshot isolation tests**
+- [x] **Step 1: Write failing snapshot isolation tests**
 
 Add tests proving the constructor copies supplied messages and `Messages()` returns a copy:
 
@@ -50,13 +50,13 @@ func TestRunnerRestoresCopiedMessages(t *testing.T) {
 
 Add a second test that mutates the slice returned by `Messages()` and proves a later `Messages()` call retains the original content.
 
-- [ ] **Step 2: Run test to verify RED**
+- [x] **Step 2: Run test to verify RED**
 
 Run: `go test ./internal/agent -run 'TestRunner(RestoresCopiedMessages|MessagesReturnsCopy)' -count=1 -v`
 
 Expected: FAIL because `NewRunnerWithMessages` and `Messages` do not exist.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 In `agent.go`, add:
 
@@ -79,13 +79,13 @@ func NewRunnerWithMessages(client llm.Client, root, focus string, registry tool.
 func (r *Runner) Messages() []llm.Message { return cloneMessages(r.messages) }
 ```
 
-- [ ] **Step 4: Run Agent regression tests**
+- [x] **Step 4: Run Agent regression tests**
 
 Run: `go test ./internal/agent -count=1`
 
 Expected: PASS; M1.1 context accounting and `/clear` behavior remain unchanged.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add internal/agent/agent.go internal/agent/agent_test.go
@@ -104,7 +104,7 @@ git -c user.name=island -c user.email=island0920@163.com commit -m "基础：支
 - Add `func NewStore(workspace string) *Store` and methods `Create(focus string) (Snapshot, error)`, `Save(snapshot Snapshot) error`, `Load(id string) (Snapshot, error)`, `Latest() (Snapshot, error)`, `List() ([]Metadata, error)`, `Delete(id string) error`.
 - Export `ErrNotFound`, `ErrInvalidID`, and `ErrInvalidSnapshot`.
 
-- [ ] **Step 1: Write failing Store tests**
+- [x] **Step 1: Write failing Store tests**
 
 Create `store_test.go` and start with an end-to-end save/load test:
 
@@ -125,13 +125,13 @@ func TestStoreSaveAndLoadPreservesToolMessages(t *testing.T) {
 
 Add separate tests for invalid IDs (`../x`, `x/y`, blank), malformed JSON returning `ErrInvalidSnapshot`, latest ordering by `UpdatedAt`, metadata not containing message content, and exact-ID deletion.
 
-- [ ] **Step 2: Run test to verify RED**
+- [x] **Step 2: Run test to verify RED**
 
 Run: `go test ./internal/conversation -count=1 -v`
 
 Expected: FAIL because package `internal/conversation` does not exist.
 
-- [ ] **Step 3: Write minimal storage implementation**
+- [x] **Step 3: Write minimal storage implementation**
 
 Implement `Store` around `filepath.Join(workspace, ".drift", "conversations")` with these exact rules:
 
@@ -151,13 +151,13 @@ func (s *Store) pathFor(id string) (string, error) {
 - Reject symlinks, non-regular files, unknown versions, invalid IDs, absolute/`..` focus paths, and malformed message data.
 - `List` returns only metadata, sorted by `UpdatedAt` descending then ID descending; a missing conversations directory yields an empty list.
 
-- [ ] **Step 4: Run test to verify GREEN**
+- [x] **Step 4: Run test to verify GREEN**
 
 Run: `go test ./internal/conversation -count=1 -v`
 
 Expected: PASS; no test reads credentials or prints message bodies.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add internal/conversation/store.go internal/conversation/store_test.go
@@ -176,7 +176,7 @@ git -c user.name=island -c user.email=island0920@163.com commit -m "功能：新
 - Add top-level CLI dispatch: `drift conversation list|show <id>|delete <id> --yes`.
 - Commands use `conversation.NewStore(currentWorkingDirectory)` and do not load `.env` or create a Provider.
 
-- [ ] **Step 1: Write failing command tests**
+- [x] **Step 1: Write failing command tests**
 
 Use actual temporary conversation files and switch to the temporary workspace in each test:
 
@@ -190,13 +190,13 @@ func TestConversationShowDoesNotPrintMessageBodies(t *testing.T) {
 
 Also cover empty `list` (`暂无完整会话`), sorted metadata, missing show ID (exit 2), delete without `--yes` (exit 2 and not deleted), exact delete with `--yes`, and no API-key requirement.
 
-- [ ] **Step 2: Run test to verify RED**
+- [x] **Step 2: Run test to verify RED**
 
 Run: `go test ./internal/app -run TestConversation -count=1 -v`
 
 Expected: FAIL because `conversation` is not dispatched by `RunWithInput`.
 
-- [ ] **Step 3: Write minimal command implementation**
+- [x] **Step 3: Write minimal command implementation**
 
 In `app.go`, dispatch before `.env` loading:
 
@@ -208,13 +208,13 @@ if len(args) > 0 && args[0] == "conversation" {
 
 Implement exactly `list`, `show <id>`, and `delete <id> --yes`. `show` may print only `id`、`version`、`created_at`、`updated_at`、`focus`、`messages`、`context_bytes`; it must never print message content, tool arguments, results, or model answers.
 
-- [ ] **Step 4: Run App regression tests**
+- [x] **Step 4: Run App regression tests**
 
 Run: `go test ./internal/app -run 'TestConversation|TestSession' -count=1 -v`
 
 Expected: PASS; existing `session list/show` behavior is unchanged.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add internal/app/app.go internal/app/conversation_command.go internal/app/conversation_command_test.go
@@ -235,7 +235,7 @@ git -c user.name=island -c user.email=island0920@163.com commit -m "功能：提
 - Add `func (p *chatPersistence) clearRunner(runner *agent.Runner) error`.
 - Add unexported parsing for `--no-session`, `--resume`, `--resume <id>`, and `--resume=<id>` before the existing `flag.FlagSet` parses other chat flags.
 
-- [ ] **Step 1: Write failing end-to-end chat tests**
+- [x] **Step 1: Write failing end-to-end chat tests**
 
 Add local `httptest.Server` Provider tests. The main restoration test must use two independent `RunWithInput` calls:
 
@@ -250,13 +250,13 @@ func TestChatResumeSendsPriorContext(t *testing.T) {
 
 Add independent tests that prove default chat creates one full snapshot and prints a local-full-context warning; `--no-session` creates no snapshot but still creates one audit JSONL; persisted `first → /clear → exit` resumes without `first`; bare `--resume` selects latest; malformed or conflicting flags return 2 before Provider requests; and a save failure reports the exact persistence warning but keeps the process usable.
 
-- [ ] **Step 2: Run test to verify RED**
+- [x] **Step 2: Run test to verify RED**
 
 Run: `go test ./internal/app -run 'TestChat(Resume|NoSession|PersistentClear|Persistence)' -count=1 -v`
 
 Expected: FAIL because current chat neither creates nor restores full conversation snapshots.
 
-- [ ] **Step 3: Write minimal parser and startup implementation**
+- [x] **Step 3: Write minimal parser and startup implementation**
 
 Implement an unexported parser that removes only these forms before invoking the existing `flag.FlagSet`:
 
@@ -269,7 +269,7 @@ Implement an unexported parser that removes only these forms before invoking the
 
 Reject duplicate `--resume`, empty `--resume=`, and `--resume` combined with `--no-session`. After workspace resolution: normal chat creates a Store and empty snapshot before any Provider request; `--no-session` skips it; bare `--resume` calls `Store.Latest()`; ID resume calls `Store.Load(id)`; restored chats use `agent.NewRunnerWithMessages`; every create/load validation error returns 2 before Provider use; default startup prints the ID and `注意：此会话会保存完整本地上下文，可能包含用户输入和读取结果；使用 --no-session 可关闭`.
 
-- [ ] **Step 4: Persist completed turns and clear safely**
+- [x] **Step 4: Persist completed turns and clear safely**
 
 Modify `runChatLoop` to accept optional `*chatPersistence`. After only a successful `runner.RunEvents`, call `saveRunner`; on save failure print `错误：会话保存失败，本次上下文只保留在当前进程` and continue the current chat.
 
@@ -289,13 +289,13 @@ fmt.Fprintln(out, "已清空当前对话上下文")
 
 `clearRunner` must save an empty snapshot first and call `runner.ResetContext()` only after save succeeds. It must not append an Agent Event, call Provider, or change JSONL audit behavior.
 
-- [ ] **Step 5: Run test to verify GREEN**
+- [x] **Step 5: Run test to verify GREEN**
 
 Run: `go test ./internal/app -count=1 -v`
 
 Expected: PASS; M1.0 multi-turn, M1.1 `/clear`, EOF, cancellation, trace, and audit tests remain green.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add internal/app/app.go internal/app/chat.go internal/app/chat_test.go internal/app/app_test.go
@@ -315,7 +315,7 @@ git -c user.name=island -c user.email=island0920@163.com commit -m "功能：支
 - `spec/current.md` becomes the M1.2 current acceptance authority.
 - Documentation must state that conversation snapshots can contain sensitive content and that `session` and `conversation` are separate command groups.
 
-- [ ] **Step 1: Write documentation and acceptance table**
+- [x] **Step 1: Write documentation and acceptance table**
 
 Create `doc/m1.2-conversation-persistence.md` with these runnable examples:
 
@@ -329,13 +329,13 @@ go run ./cmd/drift conversation delete <id> --yes
 
 Update `spec/current.md` to M1.2 and add AC-M12-001 through AC-M12-007. Every row must include verification method, pass threshold, evidence type, evidence path, and failure condition. Update README and `doc/Process/代码理解.md` with the create → snapshot → resume flow. Do not describe complete snapshots as redacted or safe to share.
 
-- [ ] **Step 2: Run documentation checks**
+- [x] **Step 2: Run documentation checks**
 
 Run: `git diff --check`
 
 Expected: PASS; all local Markdown links and command grammar match the implementation.
 
-- [ ] **Step 3: Perform manual acceptance without exposing a key**
+- [x] **Step 3: Perform manual acceptance without exposing a key**
 
 Use `.env` or existing process environment and never print the key. Build the executable, start a persistent chat, ask one short question, exit, then copy its printed conversation ID:
 
@@ -348,13 +348,13 @@ go build -o .codex-temp\drift-m12.exe ./cmd/drift
 
 Verify `/clear` removes a temporary secret from the resumed conversation, `conversation show <id>` never prints that secret, `conversation delete <id> --yes` removes only that snapshot, and `.drift/sessions/` remains redacted.
 
-- [ ] **Step 4: Run full verification**
+- [x] **Step 4: Run full verification**
 
 Run: `go test ./... -count=1`; then `go vet ./...`; then `go build -o .codex-temp\drift-m12.exe ./cmd/drift`; then `git diff --check`.
 
 Expected: all four commands exit 0.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add README.md spec/current.md doc/m1.2-conversation-persistence.md doc/Process/代码理解.md docs/superpowers/plans/2026-09-30-m12-conversation-persistence.md
