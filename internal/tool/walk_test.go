@@ -126,3 +126,35 @@ func TestWalkRegularFiles(t *testing.T) {
 		}
 	})
 }
+
+func TestWalkRegularFilesSkipsDiscoveryDirectories(t *testing.T) {
+	root := t.TempDir()
+	for _, dir := range []string{".git", ".foxcode", ".codex", ".claude", "node_modules", ".venv", "__pycache__", ".tox", ".mypy_cache"} {
+		path := filepath.Join(root, dir)
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(path, "hidden.txt"), []byte(dir), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "visible.txt"), []byte("visible"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	workspace, err := openWorkspace(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer workspace.Close()
+	var got []string
+	if err := walkRegularFiles(workspace, "", func(path string, _ fs.DirEntry) error {
+		got = append(got, path)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != "visible.txt" {
+		t.Fatalf("walked paths = %#v, want visible.txt only", got)
+	}
+}

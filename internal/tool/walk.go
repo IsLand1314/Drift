@@ -10,6 +10,18 @@ import (
 	"strings"
 )
 
+var discoverySkipDirs = map[string]struct{}{
+	".git":         {},
+	".foxcode":     {},
+	".codex":       {},
+	".claude":      {},
+	"node_modules": {},
+	".venv":        {},
+	"__pycache__":  {},
+	".tox":         {},
+	".mypy_cache":  {},
+}
+
 func validateRelativePath(path string, allowEmpty bool) error {
 	path = strings.ReplaceAll(path, `\`, "/")
 	if path == "" {
@@ -74,6 +86,11 @@ func walkRegularFilesContext(ctx context.Context, workspace *os.Root, relative s
 		}
 		if entry.IsDir() && entry.Type()&os.ModeSymlink != 0 {
 			return fs.SkipDir
+		}
+		if entry.IsDir() {
+			if _, skip := discoverySkipDirs[strings.ToLower(entry.Name())]; skip {
+				return fs.SkipDir
+			}
 		}
 		if IsDotEnvCredentialFile(pathpkg.Base(path)) {
 			if entry.IsDir() {

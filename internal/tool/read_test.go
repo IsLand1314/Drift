@@ -129,6 +129,67 @@ func TestRead(t *testing.T) {
 	})
 }
 
+func TestReadSupportsLinePaging(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "large.txt")
+	if err := os.WriteFile(path, []byte("one\ntwo\nthree\nfour\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := Read(root, `{"path":"large.txt","offset":1,"limit":2}`)
+	if err != nil {
+		t.Fatalf("Read() error = %v", err)
+	}
+	if got != "two\nthree\nread_file: more lines available; next offset: 3" {
+		t.Fatalf("Read() = %q, want paged result", got)
+	}
+
+	got, err = Read(root, `{"path":"large.txt","offset":3,"limit":2}`)
+	if err != nil {
+		t.Fatalf("Read() final page error = %v", err)
+	}
+	if got != "four" {
+		t.Fatalf("Read() final page = %q, want four", got)
+	}
+}
+
+func TestReadLargeFileRequiresPaging(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "large.txt"), make([]byte, MaxReadBytes+1), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Read(root, `{"path":"large.txt"}`); err == nil || !strings.Contains(err.Error(), "offset") {
+		t.Fatalf("Read() error = %v, want paging guidance", err)
+	}
+}
+
+func TestReadPagingRejectsInvalidRanges(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "file.txt"), []byte("content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range []string{`{"path":"file.txt","offset":-1}`, `{"path":"file.txt","limit":0}`} {
+		if _, err := Read(root, args); err == nil {
+			t.Fatalf("Read(%s) error = nil, want invalid range error", args)
+		}
+	}
+}
+
+func TestReadExplicitDiscoveryDirectoryFile(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, ".git", "config.txt")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("explicit content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Read(root, `{"path":".git/config.txt"}`)
+	if err != nil || got != "explicit content" {
+		t.Fatalf("Read() = %q, %v; want explicit discovery file content", got, err)
+	}
+}
+
 func TestReadDefinition(t *testing.T) {
 	definition := ReadDefinition()
 	if definition.Type != "function" {
@@ -149,8 +210,20 @@ func TestReadDefinition(t *testing.T) {
 	if function.Name != "read_file" {
 		t.Fatalf("name = %q, want read_file", function.Name)
 	}
-	if function.Parameters.Type != "object" || len(function.Parameters.Properties) != 1 || function.Parameters.Properties["path"] == nil || len(function.Parameters.Required) != 1 || function.Parameters.Required[0] != "path" || function.Parameters.AdditionalProperties {
+	if function.Parameters.Type != "object" || len(function.Parameters.Properties) != 3 || function.Parameters.Properties["path"] == nil || len(function.Parameters.Required) != 1 || function.Parameters.Required[0] != "path" || function.Parameters.AdditionalProperties {
 		t.Fatalf("unexpected parameters schema: %s", strings.TrimSpace(string(definition.Function)))
+	}
+	for _, name := range []string{"offset", "limit"} {
+		raw, ok := function.Parameters.Properties[name]
+		if !ok {
+			t.Fatalf("read_file schema missing %s", name)
+		}
+		var property struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(raw, &property); err != nil || property.Type != "integer" {
+			t.Fatalf("read_file %s schema = %s, %v", name, raw, err)
+		}
 	}
 }
 

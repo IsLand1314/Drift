@@ -2,12 +2,14 @@
 package tool
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/IsLand1314/Drift/internal/llm"
@@ -34,7 +36,9 @@ func (readFileTool) Execute(ctx context.Context, root string, rawArguments strin
 }
 
 type readArguments struct {
-	Path string `json:"path"`
+	Path   string `json:"path"`
+	Offset *int   `json:"offset"`
+	Limit  *int   `json:"limit"`
 }
 
 // ReadDefinition 返回给模型的唯一工具 schema；它只描述“读取文件”，不包含写入或执行能力。
@@ -48,6 +52,16 @@ func ReadDefinition() llm.ToolDefinition {
 				"path": map[string]any{
 					"type":        "string",
 					"description": "A relative path to a file below the workspace root.",
+				},
+				"offset": map[string]any{
+					"type":        "integer",
+					"description": "Optional zero-based line offset for reading a page.",
+					"default":     0,
+				},
+				"limit": map[string]any{
+					"type":        "integer",
+					"description": "Optional maximum number of lines in a page.",
+					"default":     2000,
 				},
 			},
 			"required":             []string{"path"},
@@ -115,14 +129,60 @@ func Read(root, rawArguments string) (string, error) {
 	if !info.Mode().IsRegular() {
 		return "", fmt.Errorf("read_file target is not a regular file")
 	}
+	if args.Offset != nil || args.Limit != nil {
+		offset, limit := 0, 2000
+		if args.Offset != nil {
+			offset = *args.Offset
+		}
+		if args.Limit != nil {
+			limit = *args.Limit
+		}
+		if offset < 0 {
+			return "", fmt.Errorf("read_file offset must be greater than or equal to 0")
+		}
+		if limit <= 0 {
+			return "", fmt.Errorf("read_file limit must be greater than 0")
+		}
+		return readPage(file, offset, limit)
+	}
 	content, err := io.ReadAll(io.LimitReader(file, MaxReadBytes+1))
 	if err != nil {
 		return "", fmt.Errorf("read_file target: %w", err)
 	}
 	if len(content) > MaxReadBytes {
-		return "", fmt.Errorf("read_file target exceeds %d bytes", MaxReadBytes)
+		return "", fmt.Errorf("read_file target exceeds %d bytes; use offset and limit to read a page", MaxReadBytes)
 	}
 	return string(content), nil
+}
+
+func readPage(file *os.File, offset, limit int) (string, error) {
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 4096), MaxReadBytes+1)
+	lineNumber, selected := 0, make([]string, 0, limit)
+	for scanner.Scan() {
+		if lineNumber >= offset {
+			selected = append(selected, scanner.Text())
+			if len(selected) == limit {
+				break
+			}
+		}
+		lineNumber++
+	}
+	if err := scanner.Err(); err != nil {
+		return "", fmt.Errorf("read_file target: %w", err)
+	}
+	if len(selected) == 0 {
+		return "", nil
+	}
+	result := strings.Join(selected, "\n")
+	if len(selected) == limit && scanner.Scan() {
+		nextOffset := offset + len(selected)
+		result += "\nread_file: more lines available; next offset: " + strconv.Itoa(nextOffset)
+	}
+	if len(result) > MaxReadBytes {
+		return "", fmt.Errorf("read_file page exceeds %d bytes; reduce limit", MaxReadBytes)
+	}
+	return result, nil
 }
 
 // IsDotEnvCredentialFile reports whether a filename is a dotenv credential file.

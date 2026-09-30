@@ -1,6 +1,25 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构演进建议见 `doc/architecture.md`。当前版本为 M0.5。下面的 M0.4、M0.3、M0.2.2 和 M0.2.1 章节是已完成阶段的历史记录，不覆盖当前 M0.5 的运行边界。
+本文件是当前版本范围与验收标准的唯一事实来源；架构演进建议见 `doc/architecture.md`。当前版本为 M0.6。下面的 M0.5、M0.4、M0.3、M0.2.2 和 M0.2.1 章节是已完成阶段的历史记录，不覆盖当前 M0.6 的运行边界。
+
+## M0.6：分页读取与 Discovery 目录忽略
+
+M0.6 解决大文件读取和大型项目发现结果过于嘈杂的问题，同时保持 M0.5 的 workspace、Focus 和只读边界。
+
+### 当前范围
+
+- `read_file` 保持 `path` 必填，并增加可选的 `offset`（0-based 行偏移）和 `limit`（读取行数）参数。传入任一分页参数时，默认 `offset=0`、`limit=2000`；页结果仍受单次 128 KiB 上限保护。
+- 不传分页参数时，小文件继续全文读取；超过 128 KiB 的文件返回使用 `offset`/`limit` 分页的提示，不再把完整大文件放入模型上下文。
+- 分页结果在达到 `limit` 且后面仍有内容时追加下一页 offset 提示，模型可以继续读取后续范围。
+- `list_files` 与 `search_text` 递归发现时跳过 `.git`、`.foxcode`、`.codex`、`.claude`、`node_modules`、`.venv`、`__pycache__`、`.tox` 和 `.mypy_cache`。忽略只作用于 discovery，不影响用户明确调用 `read_file` 读取普通文件。
+- workspace 相对路径、符号链接、dotenv、特殊文件、Agent 请求/工具/累计结果预算和 JSONL 脱敏规则保持 M0.5 行为。
+
+### M0.6 验收
+
+- 分页读取覆盖 offset、limit、最后一页、非法参数和大文件提示；read_file schema 对模型公开分页参数。
+- list/search 不返回默认忽略目录下的文件，明确 read_file 仍按 workspace 安全规则工作。
+- 真实项目目录的发现结果规模明显收敛，`README.md` 等普通文件可以继续被模型读取和解释。
+- `go test ./... -count=1`、`go vet ./...`、`go build ./cmd/drift` 和 `git diff --check` 通过。
 
 ## M0.5：显式 Workspace 与 Focus 文件
 
