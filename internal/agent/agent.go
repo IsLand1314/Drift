@@ -47,6 +47,25 @@ func NewRunner(client llm.Client, root, focus string, registry tool.Registry) *R
 	return &Runner{client: client, root: root, focus: focus, registry: registry}
 }
 
+func cloneMessages(messages []llm.Message) []llm.Message {
+	cloned := make([]llm.Message, len(messages))
+	copy(cloned, messages)
+	for i := range cloned {
+		cloned[i].ToolCalls = append([]llm.ToolCall(nil), messages[i].ToolCalls...)
+	}
+	return cloned
+}
+
+// NewRunnerWithMessages creates a Runner from a caller-owned message snapshot.
+func NewRunnerWithMessages(client llm.Client, root, focus string, registry tool.Registry, messages []llm.Message) *Runner {
+	runner := NewRunner(client, root, focus, registry)
+	runner.messages = cloneMessages(messages)
+	return runner
+}
+
+// Messages returns a copy of the current conversation messages.
+func (r *Runner) Messages() []llm.Message { return cloneMessages(r.messages) }
+
 // ContextBytes 估算当前消息、首轮系统指令和工具 schema 的 UTF-8 字节数。
 // 这是保守的字节预算，不等同于 Provider 的 token 计数。
 func (r *Runner) ContextBytes() int {

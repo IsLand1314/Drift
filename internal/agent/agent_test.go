@@ -143,6 +143,24 @@ func TestRunnerContextBytesIncludesMessageParts(t *testing.T) {
 	}
 }
 
+func TestRunnerRestoresCopiedMessages(t *testing.T) {
+	original := []llm.Message{{Role: "assistant", ToolCalls: []llm.ToolCall{{ID: "call-1", Name: "read_file"}}}}
+	runner := NewRunnerWithMessages(nil, t.TempDir(), "", tool.NewDefaultRegistry(), original)
+	original[0].ToolCalls[0].Name = "mutated"
+	if got := runner.Messages()[0].ToolCalls[0].Name; got != "read_file" {
+		t.Fatalf("restored tool name = %q", got)
+	}
+}
+
+func TestRunnerMessagesReturnsCopy(t *testing.T) {
+	runner := NewRunnerWithMessages(nil, t.TempDir(), "", tool.NewDefaultRegistry(), []llm.Message{{Role: "user", Content: "hello"}})
+	messages := runner.Messages()
+	messages[0].Content = "mutated"
+	if got := runner.Messages()[0].Content; got != "hello" {
+		t.Fatalf("stored message content = %q", got)
+	}
+}
+
 func TestRunnerContextLimitStopsBeforeProvider(t *testing.T) {
 	client := &scriptedClient{}
 	runner := NewRunner(client, t.TempDir(), "", tool.NewDefaultRegistry())
