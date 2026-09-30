@@ -41,9 +41,9 @@ func NewRegistry(tools ...Tool) (Registry, error) {
 	return result, nil
 }
 
-// NewDefaultRegistry 返回当前阶段唯一的 read_file 工具。
+// NewDefaultRegistry 返回当前阶段按稳定顺序排列的只读工具。
 func NewDefaultRegistry() Registry {
-	result, err := NewRegistry(readFileTool{})
+	result, err := NewRegistry(listFilesTool{}, searchTextTool{}, readFileTool{})
 	if err != nil {
 		panic(err)
 	}

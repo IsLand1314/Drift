@@ -154,23 +154,26 @@ func TestReadDefinition(t *testing.T) {
 	}
 }
 
-func TestDefaultRegistryExposesReadFile(t *testing.T) {
+func TestDefaultRegistryExposesReadOnlyTools(t *testing.T) {
 	registry := NewDefaultRegistry()
 	definitions := registry.Definitions()
-	if len(definitions) != 1 {
-		t.Fatalf("Definitions() length = %d, want 1", len(definitions))
+	wantNames := []string{"list_files", "search_text", "read_file"}
+	if len(definitions) != len(wantNames) {
+		t.Fatalf("Definitions() length = %d, want %d", len(definitions), len(wantNames))
 	}
-	var function struct {
-		Name string `json:"name"`
-	}
-	if err := json.Unmarshal(definitions[0].Function, &function); err != nil {
-		t.Fatal(err)
-	}
-	if function.Name != "read_file" {
-		t.Fatalf("default tool name = %q, want read_file", function.Name)
-	}
-	if _, ok := registry.Lookup("read_file"); !ok {
-		t.Fatal("Lookup(read_file) = false, want true")
+	for index, wantName := range wantNames {
+		var function struct {
+			Name string `json:"name"`
+		}
+		if err := json.Unmarshal(definitions[index].Function, &function); err != nil {
+			t.Fatal(err)
+		}
+		if function.Name != wantName {
+			t.Fatalf("default tool name at index %d = %q, want %q", index, function.Name, wantName)
+		}
+		if _, ok := registry.Lookup(wantName); !ok {
+			t.Fatalf("Lookup(%q) = false, want true", wantName)
+		}
 	}
 }
 
