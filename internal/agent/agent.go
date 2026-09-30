@@ -4,6 +4,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 
 	"github.com/IsLand1314/Drift/internal/llm"
@@ -38,11 +39,11 @@ func Run(ctx context.Context, client llm.Client, root, prompt string, emitText f
 
 // RunEvents 执行 Agent Loop，并把稳定的 Runtime 事件交给 sink。
 func RunEvents(ctx context.Context, client llm.Client, root, prompt string, sink EventSink) error {
-	return RunEventsWithRegistry(ctx, client, root, prompt, tool.NewDefaultRegistry(), sink)
+	return RunEventsWithRegistry(ctx, client, root, prompt, "", tool.NewDefaultRegistry(), sink)
 }
 
 // RunEventsWithRegistry 使用调用方提供的工具注册表执行受限多轮 Agent Loop。
-func RunEventsWithRegistry(ctx context.Context, client llm.Client, root, prompt string, registry tool.Registry, sink EventSink) error {
+func RunEventsWithRegistry(ctx context.Context, client llm.Client, root, prompt, focus string, registry tool.Registry, sink EventSink) error {
 	emit := func(event Event) error {
 		if sink == nil {
 			return nil
@@ -66,7 +67,7 @@ func RunEventsWithRegistry(ctx context.Context, client llm.Client, root, prompt 
 	for requestIndex := 0; requestIndex < MaxModelRequests; requestIndex++ {
 		requestMessages := messages
 		if requestIndex == 0 {
-			requestMessages = append([]llm.Message{{Role: "system", Content: nativeToolSystemInstruction}}, messages...)
+			requestMessages = append([]llm.Message{{Role: "system", Content: systemInstruction(focus)}}, messages...)
 		}
 		request := llm.Request{Messages: requestMessages}
 		if !forceFinal {
@@ -168,6 +169,15 @@ func RunEventsWithRegistry(ctx context.Context, client llm.Client, root, prompt 
 		forceFinal = limitReached
 	}
 	return fail(errRequestToolBudgetExceeded)
+}
+
+func systemInstruction(focus string) string {
+	if focus == "" {
+		return nativeToolSystemInstruction
+	}
+	return nativeToolSystemInstruction +
+		"\n\nThe user-selected initial focus target is " + strconv.Quote(focus) +
+		". Prioritize answering about it; use read_file only when needed."
 }
 
 func toolFailure(name string) string {

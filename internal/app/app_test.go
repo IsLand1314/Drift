@@ -472,6 +472,127 @@ func TestRunDirectAnswer(t *testing.T) {
 	}
 }
 
+func TestRunWorkspaceDirectory(t *testing.T) {
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "README.md"), []byte("workspace readme\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		var request struct {
+			Messages []struct {
+				Role      string `json:"role"`
+				Content   string `json:"content"`
+				ToolCalls []struct {
+					ID       string `json:"id"`
+					Function struct {
+						Name      string `json:"name"`
+						Arguments string `json:"arguments"`
+					} `json:"function"`
+				} `json:"tool_calls"`
+				ToolCallID string `json:"tool_call_id"`
+			} `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode request: %v", err)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		switch requests {
+		case 1:
+			if len(request.Messages) != 2 || request.Messages[0].Role != "system" || strings.Contains(request.Messages[0].Content, "initial focus target") || request.Messages[1].Content != "analyze target" {
+				t.Errorf("first request messages = %#v", request.Messages)
+			}
+			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-read\",\"type\":\"function\",\"function\":{\"name\":\"read_file\",\"arguments\":\"{\\\"path\\\":\\\"README.md\\\"}\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n")
+		case 2:
+			if len(request.Messages) != 3 || request.Messages[2].Role != "tool" || request.Messages[2].Content != "workspace readme\n" {
+				t.Errorf("second request messages = %#v", request.Messages)
+			}
+			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"workspace answer\"}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+		default:
+			t.Errorf("unexpected request %d", requests)
+		}
+	}))
+	defer server.Close()
+	getenv := func(key string) string {
+		return map[string]string{"OPENAI_API_KEY": "test-secret", "OPENAI_MODEL": "test", "OPENAI_BASE_URL": server.URL}[key]
+	}
+	var out, stderr bytes.Buffer
+	if code := Run(context.Background(), []string{"-w", workspace, "-p", "analyze target"}, getenv, &out, &stderr); code != 0 {
+		t.Fatalf("code = %d, stderr = %q", code, stderr.String())
+	}
+	if out.String() != "workspace answer\n" || stderr.String() != "" || requests != 2 {
+		t.Fatalf("out=%q stderr=%q requests=%d", out.String(), stderr.String(), requests)
+	}
+	files, err := filepath.Glob(filepath.Join(workspace, ".drift", "sessions", "*.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 {
+		t.Fatalf("workspace sessions = %#v, want one file", files)
+	}
+}
+
+func TestRunWorkspaceFileFocusDoesNotAutoRead(t *testing.T) {
+	workspace := t.TempDir()
+	focus := filepath.Join(workspace, "README.md")
+	if err := os.WriteFile(focus, []byte("focus\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		var request struct {
+			Messages []struct {
+				Role    string `json:"role"`
+				Content string `json:"content"`
+			} `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode request: %v", err)
+			return
+		}
+		if len(request.Messages) != 2 || request.Messages[0].Role != "system" || !strings.Contains(request.Messages[0].Content, `"README.md"`) || request.Messages[1].Content != "explain file" {
+			t.Errorf("request messages = %#v", request.Messages)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"direct file answer\"}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	defer server.Close()
+	getenv := func(key string) string {
+		return map[string]string{"OPENAI_API_KEY": "test-secret", "OPENAI_MODEL": "test", "OPENAI_BASE_URL": server.URL}[key]
+	}
+	var out, stderr bytes.Buffer
+	if code := Run(context.Background(), []string{"-w", focus, "-p", "explain file"}, getenv, &out, &stderr); code != 0 {
+		t.Fatalf("code = %d, stderr = %q", code, stderr.String())
+	}
+	if out.String() != "direct file answer\n" || stderr.String() != "" || requests != 1 {
+		t.Fatalf("out=%q stderr=%q requests=%d", out.String(), stderr.String(), requests)
+	}
+	files, err := filepath.Glob(filepath.Join(workspace, ".drift", "sessions", "*.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 {
+		t.Fatalf("workspace sessions = %#v, want one file", files)
+	}
+}
+
+func TestRunInvalidWorkspaceDoesNotCallProvider(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests++ }))
+	defer server.Close()
+	getenv := func(key string) string {
+		return map[string]string{"OPENAI_API_KEY": "test-secret", "OPENAI_MODEL": "test", "OPENAI_BASE_URL": server.URL}[key]
+	}
+	var out, stderr bytes.Buffer
+	missing := filepath.Join(t.TempDir(), "missing")
+	if code := Run(context.Background(), []string{"-w", missing, "-p", "x"}, getenv, &out, &stderr); code != 2 || requests != 0 {
+		t.Fatalf("code/requests = %d/%d, want 2/0; stderr=%q", code, requests, stderr.String())
+	}
+}
+
 func TestRunValidation(t *testing.T) {
 	for _, tc := range []struct {
 		name       string

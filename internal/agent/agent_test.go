@@ -166,6 +166,35 @@ func TestRunUsesNativeToolSystemInstruction(t *testing.T) {
 	}
 }
 
+func TestRunFocusOnlyAppearsInFirstSystemMessage(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("focus content\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	call := llm.ToolCall{ID: "focus-read", Type: "function", Name: "read_file", Arguments: `{"path":"README.md"}`}
+	client := &scriptedClient{steps: []scriptedStep{
+		{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{call}}, FinishReason: "tool_calls"}},
+		{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "done"}, FinishReason: "stop"}},
+	}}
+	if err := RunEventsWithRegistry(context.Background(), client, root, "explain it", "README.md", tool.NewDefaultRegistry(), nil); err != nil {
+		t.Fatalf("RunEventsWithRegistry() error = %v", err)
+	}
+	if len(client.requests) != 2 {
+		t.Fatalf("requests = %d, want 2", len(client.requests))
+	}
+	first := client.requests[0]
+	if len(first.Messages) < 1 || first.Messages[0].Role != "system" || !strings.Contains(first.Messages[0].Content, `"README.md"`) {
+		t.Fatalf("first system message = %#v, want quoted focus", first.Messages)
+	}
+	second := client.requests[1]
+	if len(second.Messages) == 0 || second.Messages[0].Role == "system" {
+		t.Fatalf("second request unexpectedly contains system focus: %#v", second.Messages)
+	}
+	if second.Messages[1].Role != "assistant" || second.Messages[1].ToolCalls[0].Arguments != `{"path":"README.md"}` {
+		t.Fatalf("second request tool call = %#v", second.Messages[1])
+	}
+}
+
 func TestRunMultiTurnExplorationPreservesContextAndTools(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("needle in readme\n"), 0o644); err != nil {
@@ -608,7 +637,7 @@ func TestRunStopsWhenToolExecutionCancelsContext(t *testing.T) {
 	client := &scriptedClient{steps: []scriptedStep{{
 		completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{call}}, FinishReason: "tool_calls"},
 	}}}
-	err = RunEventsWithRegistry(ctx, client, t.TempDir(), "cancel", registry, nil)
+	err = RunEventsWithRegistry(ctx, client, t.TempDir(), "cancel", "", registry, nil)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("RunEventsWithRegistry() error = %v, want context canceled", err)
 	}
@@ -720,7 +749,7 @@ func TestRunWithRegistryUsesRegisteredTool(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRegistry() error = %v", err)
 	}
-	if err := RunEventsWithRegistry(context.Background(), client, t.TempDir(), "use fake", registry, func(Event) error {
+	if err := RunEventsWithRegistry(context.Background(), client, t.TempDir(), "use fake", "", registry, func(Event) error {
 		return nil
 	}); err != nil {
 		t.Fatalf("RunEventsWithRegistry() error = %v", err)

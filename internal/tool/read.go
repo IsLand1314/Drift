@@ -84,7 +84,7 @@ func Read(root, rawArguments string) (string, error) {
 	if err := validateRelativePath(args.Path, false); err != nil {
 		return "", fmt.Errorf("read_file path is invalid: %w", err)
 	}
-	if isDotEnvCredentialFile(filepath.Base(args.Path)) {
+	if IsDotEnvCredentialFile(filepath.Base(args.Path)) {
 		// .env 即使被 .gitignore 忽略，也可能包含 API Key，不能进入模型上下文。
 		return "", fmt.Errorf("read_file target is restricted")
 	}
@@ -125,7 +125,8 @@ func Read(root, rawArguments string) (string, error) {
 	return string(content), nil
 }
 
-func isDotEnvCredentialFile(name string) bool {
+// IsDotEnvCredentialFile reports whether a filename is a dotenv credential file.
+func IsDotEnvCredentialFile(name string) bool {
 	name = strings.ToLower(name)
 	return name == ".env" || strings.HasPrefix(name, ".env.")
 }

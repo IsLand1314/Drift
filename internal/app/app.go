@@ -49,6 +49,7 @@ func Run(ctx context.Context, args []string, getenv func(string) string, out, st
 		base = "https://api.openai.com/v1"
 	}
 	prompt := flags.String("p", "", "发送一次提示词并流式输出回复")
+	workspaceTarget := flags.String("w", "", "要分析的目录或文件（默认当前目录）")
 	model := flags.String("model", lookup("OPENAI_MODEL"), "模型名称（默认 OPENAI_MODEL）")
 	baseURL := flags.String("base-url", base, "API 根地址，包含 /v1，不含 /chat/completions")
 	if err := flags.Parse(args); err != nil {
@@ -58,7 +59,17 @@ func Run(ctx context.Context, args []string, getenv func(string) string, out, st
 		return 2
 	}
 	if flags.NArg() != 0 || strings.TrimSpace(*prompt) == "" {
-		fmt.Fprintln(stderr, "用法：drift -p \"你好\" [-model 模型名] [-base-url API根地址]")
+		fmt.Fprintln(stderr, "用法：drift -p \"你好\" [-w 路径] [-model 模型名] [-base-url API根地址]")
+		return 2
+	}
+	launchDir, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintln(stderr, "错误：无法获取启动目录")
+		return 1
+	}
+	selection, err := resolveWorkspace(launchDir, *workspaceTarget)
+	if err != nil {
+		fmt.Fprintln(stderr, "错误：workspace 目标无效")
 		return 2
 	}
 	key := strings.TrimSpace(lookup("OPENAI_API_KEY"))
@@ -72,20 +83,15 @@ func Run(ctx context.Context, args []string, getenv func(string) string, out, st
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	root, err := os.Getwd()
-	if err != nil {
-		fmt.Fprintln(stderr, "错误：", err)
-		return 1
-	}
-	sessionPath := filepath.Join(root, ".drift", "sessions", fmt.Sprintf("run-%d.jsonl", time.Now().UTC().UnixNano()))
-	sessionWriter, err := session.NewJSONLWriterWithSecrets(sessionPath, root, key)
+	sessionPath := filepath.Join(selection.Root, ".drift", "sessions", fmt.Sprintf("run-%d.jsonl", time.Now().UTC().UnixNano()))
+	sessionWriter, err := session.NewJSONLWriterWithSecrets(sessionPath, selection.Root, key)
 	if err != nil {
 		fmt.Fprintln(stderr, "错误：", err)
 		return 1
 	}
 	var lastText string
 	// Event Sink 先追加脱敏审计记录，再把最终文本事件写到 stdout。
-	err = agent.RunEventsWithRegistry(ctx, modelClient{Client: client, model: *model}, root, *prompt, tool.NewDefaultRegistry(), func(event agent.Event) error {
+	err = agent.RunEventsWithRegistry(ctx, modelClient{Client: client, model: *model}, selection.Root, *prompt, selection.Focus, tool.NewDefaultRegistry(), func(event agent.Event) error {
 		if err := sessionWriter.Append(event); err != nil {
 			return err
 		}

@@ -27,7 +27,7 @@ func validateRelativePath(path string, allowEmpty bool) error {
 		}
 	}
 	for _, segment := range strings.Split(path, "/") {
-		if isDotEnvCredentialFile(segment) {
+		if IsDotEnvCredentialFile(segment) {
 			return fmt.Errorf("path is restricted")
 		}
 	}
@@ -75,7 +75,7 @@ func walkRegularFilesContext(ctx context.Context, workspace *os.Root, relative s
 		if entry.IsDir() && entry.Type()&os.ModeSymlink != 0 {
 			return fs.SkipDir
 		}
-		if isDotEnvCredentialFile(pathpkg.Base(path)) {
+		if IsDotEnvCredentialFile(pathpkg.Base(path)) {
 			if entry.IsDir() {
 				return fs.SkipDir
 			}
