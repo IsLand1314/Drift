@@ -1,6 +1,6 @@
 # Drift
 
-使用 Go 构建的本地只读 Coding Agent Runtime。当前版本为 M1.2：除单次 `-p` 请求外，还支持 `drift chat` 多轮交互、默认本地完整会话保存、`--resume` 恢复和 `--no-session` 临时模式；`/clear` 会安全清空持久会话上下文。模型可以在选定 workspace 内列出文件、搜索文本、分页读取大文件，并根据每轮结果继续探索后给出解释；可选 `--trace` 会把安全运行摘要写到 stderr，`session list/show` 查看脱敏审计，`conversation list/show/delete` 管理完整会话元数据。
+使用 Go 构建的本地只读 Coding Agent Runtime。当前版本为 M1.3：除单次 `-p` 请求外，还支持 `drift chat` 多轮交互、默认本地完整会话保存、`--resume` 恢复和 `--no-session` 临时模式；`/clear` 会安全清空持久会话上下文。模型可以在选定 workspace 内列出文件、搜索文本、分页读取大文件，并根据每轮结果继续探索后给出解释；可选 `--trace` 会把安全运行摘要写到 stderr，`session list/show` 查看脱敏审计，`conversation` 命令支持会话列表、标题、恢复、精确删除和过期清理。
 
 默认提供三个工具：`list_files`、`search_text`、`read_file`。单次运行最多 4 次模型请求、6 次工具调用；成功工具结果累计最多 512 KiB，单文件最多 128 KiB。`list_files` 最多返回 200 个文件，`search_text` 最多扫描 200 个文件、返回 100 个匹配，输出最多 32 KiB。工具按顺序串行执行，达到限制后使用无工具 schema 的请求生成说明。没有写文件、删除文件、执行命令或运行程序的能力。
 
@@ -43,9 +43,13 @@ go run ./cmd/drift chat --no-session -w .
 go run ./cmd/drift conversation list
 go run ./cmd/drift conversation show conv-<id>
 go run ./cmd/drift conversation delete conv-<id> --yes
+go run ./cmd/drift conversation list --limit 10
+go run ./cmd/drift conversation rename conv-<id> "FoxCode 分析"
+go run ./cmd/drift conversation prune --before 2026-09-01T00:00:00Z
+go run ./cmd/drift conversation prune --before 2026-09-01T00:00:00Z --yes
 ```
 
-长对话达到上下文上限时，输入 `/clear` 可清空当前上下文；持久会话会先保存空快照，保存成功后才清理。普通文本 `clear` 不会清理上下文，只会提示使用 `/clear`。完整快照可能包含提示词、回答和工具结果，不是脱敏日志，不应上传或分享；`.drift/sessions/` 仍只保存脱敏审计，永远不作为恢复来源。
+长对话达到上下文上限时，输入 `/clear` 可清空当前上下文；持久会话会先保存空快照，保存成功后才清理。普通文本 `clear` 不会清理上下文，只会提示使用 `/clear`。完整快照可能包含提示词、回答和工具结果，不是脱敏日志，不应上传或分享；`.drift/sessions/` 仍只保存脱敏审计，永远不作为恢复来源。M1.3 的 `conversation prune` 不带 `--yes` 时只预览，不会删除文件。
 
 配置优先级为：命令行 `-model`/`-base-url` > 进程环境变量 > 当前目录 `.env` > 内置默认值。API Key 没有命令行参数，只从环境变量或 `.env` 读取；缺少 Key 或模型时，请求不会发出。
 
@@ -74,6 +78,7 @@ go build ./cmd/drift
 - [M0.9 Session 审计与查看器阶段说明](doc/m0.9-session-audit.md)
 - [M1.1 交互上下文管理阶段说明](doc/m1.1-context-control.md)
 - [M1.2 本地对话持久化阶段说明](doc/m1.2-conversation-persistence.md)
+- [M1.3 会话索引与生命周期管理阶段说明](doc/m1.3-conversation-management.md)
 - [M1.0 交互式只读对话阶段说明](doc/m1.0-interactive-chat.md)
 - [M0.7 Provider 诊断与读取保护阶段说明](doc/m0.7-provider-reliability.md)
 - [M0.2 Read Agent 说明](doc/m0.2-read-agent.md)

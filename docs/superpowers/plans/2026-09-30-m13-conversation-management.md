@@ -36,7 +36,7 @@
 - 新增 `func (s *Store) Prune(before time.Time) ([]Metadata, error)`。
 - 新增标题校验，非法标题返回 `ErrInvalidSnapshot`。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 覆盖标题保存/加载、控制字符、超过 120 字节、旧 JSON 缺少 `title`、`Before` 排序和 `Prune` 只删除过期快照。
 
@@ -51,19 +51,19 @@ func TestStoreRenameAndLoadTitle(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: 运行 RED**
+- [x] **Step 2: 运行 RED**
 
 运行：`go test ./internal/conversation -run 'TestStore(Rename|Before|Prune)' -count=1 -v`。预期因新 API 不存在而失败。
 
-- [ ] **Step 3: 实现最小存储改动**
+- [x] **Step 3: 实现最小存储改动**
 
 复用 M1.2 的 `Save`、`Load`、`List`、`Delete`。标题验证使用 UTF-8 字节长度和 `unicode.IsControl`；旧快照缺少 `title` 按空字符串读取。`Rename` 读取目标、更新 `Title`/`UpdatedAt` 后原子保存。`Prune` 删除前重新 `Load` 并比较时间。
 
-- [ ] **Step 4: 运行存储回归**
+- [x] **Step 4: 运行存储回归**
 
 运行：`go test ./internal/conversation -count=1 -v`。预期 M1.2 与 M1.3 存储测试全部通过。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```powershell
 git add internal/conversation/store.go internal/conversation/store_test.go
@@ -82,23 +82,23 @@ git -c user.name=island -c user.email=island0920@163.com commit -m "功能：支
 - 支持 `conversation rename <id> <title>`。
 - 支持 `conversation prune --before <RFC3339> [--yes]`。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 覆盖列表限制和标题展示、rename 成功/非法标题、prune 无 `--yes` 只预览、prune 带 `--yes` 删除旧快照、无 API Key 仍可运行。
 
-- [ ] **Step 2: 运行 RED**
+- [x] **Step 2: 运行 RED**
 
 运行：`go test ./internal/app -run 'TestConversation(Rename|Limit|Prune)' -count=1 -v`。预期当前命令不支持新增语法而失败。
 
-- [ ] **Step 3: 实现 CLI**
+- [x] **Step 3: 实现 CLI**
 
 保持命令在 `.env` 加载前分发；解析失败返回 2。`list --limit` 只截取已排序元数据；`rename` 输出完成提示；`prune` 无确认时只输出候选数量、ID、标题、更新时间，不删除；带 `--yes` 调用 `Store.Prune` 并输出实际删除数量。
 
-- [ ] **Step 4: 运行命令回归**
+- [x] **Step 4: 运行命令回归**
 
 运行：`go test ./internal/app -run 'TestConversation|TestSession' -count=1 -v`。预期 M1.2 的 show/delete 隐私边界和 Session 命令保持通过。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```powershell
 git add internal/app/conversation_command.go internal/app/conversation_command_test.go
@@ -114,7 +114,7 @@ git -c user.name=island -c user.email=island0920@163.com commit -m "功能：完
 - Modify: `doc/Process/代码理解.md`
 - Modify: `docs/superpowers/plans/2026-09-30-m13-conversation-management.md`
 
-- [ ] **Step 1: 写阶段文档和验收表**
+- [x] **Step 1: 写阶段文档和验收表**
 
 加入可复制命令：
 
@@ -127,15 +127,15 @@ go run ./cmd/drift conversation prune --before 2026-09-01T00:00:00Z --yes
 
 验收表覆盖标题、列表限制、预览不删除、确认清理、Session 不受影响、无 API Key 管理命令和全量回归。
 
-- [ ] **Step 2: 运行文档检查**
+- [x] **Step 2: 运行文档检查**
 
 运行：`git diff --check`。预期退出码 0，命令语法与实现一致，无失效 M1.3 文档链接。
 
-- [ ] **Step 3: 全量验证**
+- [x] **Step 3: 全量验证**
 
 运行：`go test ./... -count=1`、`go vet ./...`、`go build -o .codex-temp\\drift-m13.exe ./cmd/drift`、`git diff --check`。预期四条命令均退出 0。
 
-- [ ] **Step 4: 提交**
+- [x] **Step 4: 提交**
 
 ```powershell
 git add README.md spec/current.md doc/m1.3-conversation-management.md doc/Process/代码理解.md docs/superpowers/plans/2026-09-30-m13-conversation-management.md

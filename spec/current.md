@@ -1,6 +1,30 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构演进建议见 `doc/architecture.md`。当前版本为 M1.2。下面的 M1.1、M1.0、M0.9、M0.8、M0.7、M0.6、M0.5、M0.4、M0.3、M0.2.2 和 M0.2.1 章节是已完成阶段的历史记录，不覆盖当前 M1.2 的运行边界。
+本文件是当前版本范围与验收标准的唯一事实来源；架构演进建议见 `doc/architecture.md`。当前版本为 M1.3。下面的 M1.2、M1.1、M1.0、M0.9、M0.8、M0.7、M0.6、M0.5、M0.4、M0.3、M0.2.2 和 M0.2.1 章节是已完成阶段的历史记录，不覆盖当前 M1.3 的运行边界。
+
+## M1.3：会话索引与生命周期管理
+
+M1.3 在 M1.2 单快照恢复基础上增加会话标题、列表限制、删除预览和按时间清理；不改变恢复协议，也不把脱敏 Session 审计当作恢复来源。
+
+### 当前范围
+
+- 快照支持可选用户标题 `title`，最多 120 个 UTF-8 字节，禁止换行、NUL 和控制字符；不自动复制首条提示词。
+- `conversation list [--limit N]` 按 `updated_at` 倒序展示元数据，默认限制 50 条；不输出消息正文。
+- `conversation rename <id> <title>` 只更新指定快照的标题和更新时间，不请求 Provider。
+- `conversation prune --before <RFC3339>` 只预览候选；增加 `--yes` 后才删除更新时间早于阈值的精确快照。
+- `conversation prune` 不删除 `.drift/sessions/*.jsonl`，不跨 workspace，不递归删除目录。
+- 所有 `conversation` 命令在 `.env` 加载和 Provider 创建前分发，无 API Key 也可运行。
+- 不实现正文历史、fork、树状导航、`/undo`、自动摘要、正文搜索、导出、加密、云同步或后台自动清理。
+
+### M1.3 验收
+
+| ID | 验证方法 | 通过阈值 | 证据类型 | 证据路径 | 失败判定 |
+| --- | --- | --- | --- | --- | --- |
+| AC-M13-001 | `go test ./internal/conversation -run 'TestStore(Rename|Before|Prune)' -count=1` | 标题保存/加载、非法标题、旧快照兼容、时间筛选和过期清理通过 | 测试日志 | `artifacts/verification/m1.3/store-test.txt` | 任一 Store 边界失败 |
+| AC-M13-002 | `go test ./internal/app -run 'TestConversation(Rename|Limit|Prune)' -count=1` | rename、limit、预览不删除、`--yes` 精确清理通过 | 测试日志 | `artifacts/verification/m1.3/command-test.txt` | 命令错误删除或输出正文 |
+| AC-M13-003 | 无 API Key 执行 `conversation list/show/rename/prune` | 命令成功或按输入返回 2，Provider 请求计数为 0 | 人工运行日志 | `artifacts/verification/m1.3/no-key-commands.txt` | 加载 Provider 或要求 API Key |
+| AC-M13-004 | 创建新旧会话后手工运行 list、rename、prune 预览和确认 | 列表限制生效；标题可见；预览不删除；确认只删阈值前快照，Session 保留 | 人工运行日志与文件检查 | `artifacts/verification/m1.3/manual-acceptance.txt` | 误删新会话或 Session |
+| AC-M13-005 | `go test ./... -count=1`、`go vet ./...`、`go build -o .codex-temp\\drift-m13.exe ./cmd/drift`、`git diff --check` | 四条命令退出码均为 0 | 命令日志 | `artifacts/verification/m1.3/` | 任一命令非 0 |
 
 ## M1.2：本地对话持久化
 
