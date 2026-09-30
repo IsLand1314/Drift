@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/IsLand1314/Drift/internal/llm"
 )
@@ -28,6 +29,7 @@ var (
 type Snapshot struct {
 	Version      int
 	ID           string
+	Title        string
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 	Focus        string
@@ -38,6 +40,7 @@ type Snapshot struct {
 type Metadata struct {
 	Version      int
 	ID           string
+	Title        string
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 	Focus        string
@@ -54,6 +57,7 @@ func NewStore(workspace string) *Store {
 type persistedSnapshot struct {
 	Version      int                `json:"version"`
 	ID           string             `json:"id"`
+	Title        string             `json:"title,omitempty"`
 	CreatedAt    time.Time          `json:"created_at"`
 	UpdatedAt    time.Time          `json:"updated_at"`
 	Focus        string             `json:"focus,omitempty"`
@@ -143,6 +147,19 @@ func (s *Store) Save(snapshot Snapshot) error {
 	return nil
 }
 
+func (s *Store) Rename(id, title string) error {
+	if err := validateTitle(title); err != nil {
+		return err
+	}
+	snapshot, err := s.Load(id)
+	if err != nil {
+		return err
+	}
+	snapshot.Title = title
+	snapshot.UpdatedAt = time.Now().UTC()
+	return s.Save(snapshot)
+}
+
 func (s *Store) Load(id string) (Snapshot, error) {
 	path, err := s.pathFor(id)
 	if err != nil {
@@ -208,7 +225,7 @@ func (s *Store) List() ([]Metadata, error) {
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, Metadata{Version: snapshot.Version, ID: snapshot.ID, CreatedAt: snapshot.CreatedAt, UpdatedAt: snapshot.UpdatedAt, Focus: snapshot.Focus, MessageCount: len(snapshot.Messages), ContextBytes: snapshot.ContextBytes})
+		result = append(result, Metadata{Version: snapshot.Version, ID: snapshot.ID, Title: snapshot.Title, CreatedAt: snapshot.CreatedAt, UpdatedAt: snapshot.UpdatedAt, Focus: snapshot.Focus, MessageCount: len(snapshot.Messages), ContextBytes: snapshot.ContextBytes})
 	}
 	sort.Slice(result, func(i, j int) bool {
 		if result[i].UpdatedAt.Equal(result[j].UpdatedAt) {
@@ -217,6 +234,49 @@ func (s *Store) List() ([]Metadata, error) {
 		return result[i].UpdatedAt.After(result[j].UpdatedAt)
 	})
 	return result, nil
+}
+
+func (s *Store) Before(before time.Time) ([]Metadata, error) {
+	metadata, err := s.List()
+	if err != nil {
+		return nil, err
+	}
+	filtered := metadata[:0]
+	for _, item := range metadata {
+		if item.UpdatedAt.Before(before) {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered, nil
+}
+
+func (s *Store) Prune(before time.Time) ([]Metadata, error) {
+	candidates, err := s.Before(before)
+	if err != nil {
+		return nil, err
+	}
+	removed := make([]Metadata, 0, len(candidates))
+	for _, candidate := range candidates {
+		current, err := s.Load(candidate.ID)
+		if errors.Is(err, ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if !current.UpdatedAt.Before(before) {
+			continue
+		}
+		if err := s.Delete(candidate.ID); err != nil {
+			if errors.Is(err, ErrNotFound) {
+				continue
+			}
+			return nil, err
+		}
+		candidate.Title = current.Title
+		removed = append(removed, candidate)
+	}
+	return removed, nil
 }
 
 func (s *Store) Delete(id string) error {
@@ -275,7 +335,7 @@ func ensureDirectory(path string) error {
 }
 
 func validateSnapshot(snapshot Snapshot) error {
-	if snapshot.Version != 1 || !idPattern.MatchString(snapshot.ID) || snapshot.CreatedAt.IsZero() || snapshot.UpdatedAt.IsZero() || snapshot.ContextBytes < 0 || validateFocus(snapshot.Focus) != nil {
+	if snapshot.Version != 1 || !idPattern.MatchString(snapshot.ID) || snapshot.CreatedAt.IsZero() || snapshot.UpdatedAt.IsZero() || snapshot.ContextBytes < 0 || validateFocus(snapshot.Focus) != nil || validateTitle(snapshot.Title) != nil {
 		return ErrInvalidSnapshot
 	}
 	for _, message := range snapshot.Messages {
@@ -291,8 +351,20 @@ func validateSnapshot(snapshot Snapshot) error {
 	return nil
 }
 
+func validateTitle(title string) error {
+	if len([]byte(title)) > 120 {
+		return ErrInvalidSnapshot
+	}
+	for _, r := range title {
+		if r == '\r' || r == '\n' || r == 0 || unicode.IsControl(r) {
+			return ErrInvalidSnapshot
+		}
+	}
+	return nil
+}
+
 func toPersisted(snapshot Snapshot) persistedSnapshot {
-	result := persistedSnapshot{Version: snapshot.Version, ID: snapshot.ID, CreatedAt: snapshot.CreatedAt, UpdatedAt: snapshot.UpdatedAt, Focus: snapshot.Focus, ContextBytes: snapshot.ContextBytes, Messages: make([]persistedMessage, len(snapshot.Messages))}
+	result := persistedSnapshot{Version: snapshot.Version, ID: snapshot.ID, Title: snapshot.Title, CreatedAt: snapshot.CreatedAt, UpdatedAt: snapshot.UpdatedAt, Focus: snapshot.Focus, ContextBytes: snapshot.ContextBytes, Messages: make([]persistedMessage, len(snapshot.Messages))}
 	for i, message := range snapshot.Messages {
 		result.Messages[i] = persistedMessage{Role: message.Role, Content: message.Content, ToolCallID: message.ToolCallID, ReasoningContent: message.ReasoningContent, ToolCalls: make([]persistedToolCall, len(message.ToolCalls))}
 		for j, call := range message.ToolCalls {
@@ -303,7 +375,7 @@ func toPersisted(snapshot Snapshot) persistedSnapshot {
 }
 
 func fromPersisted(snapshot persistedSnapshot) Snapshot {
-	result := Snapshot{Version: snapshot.Version, ID: snapshot.ID, CreatedAt: snapshot.CreatedAt, UpdatedAt: snapshot.UpdatedAt, Focus: snapshot.Focus, ContextBytes: snapshot.ContextBytes, Messages: make([]llm.Message, len(snapshot.Messages))}
+	result := Snapshot{Version: snapshot.Version, ID: snapshot.ID, Title: snapshot.Title, CreatedAt: snapshot.CreatedAt, UpdatedAt: snapshot.UpdatedAt, Focus: snapshot.Focus, ContextBytes: snapshot.ContextBytes, Messages: make([]llm.Message, len(snapshot.Messages))}
 	for i, message := range snapshot.Messages {
 		result.Messages[i] = llm.Message{Role: message.Role, Content: message.Content, ToolCallID: message.ToolCallID, ReasoningContent: message.ReasoningContent, ToolCalls: make([]llm.ToolCall, len(message.ToolCalls))}
 		for j, call := range message.ToolCalls {

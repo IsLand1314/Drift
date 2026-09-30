@@ -112,3 +112,63 @@ func TestStoreDeleteRemovesExactSnapshot(t *testing.T) {
 		t.Fatalf("Load deleted error = %v, want ErrNotFound", err)
 	}
 }
+
+func TestStoreRenameAndLoadTitle(t *testing.T) {
+	store := NewStore(t.TempDir())
+	snapshot, err := store.Create("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Rename(snapshot.ID, "FoxCode 分析"); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.Load(snapshot.ID)
+	if err != nil || loaded.Title != "FoxCode 分析" {
+		t.Fatalf("loaded=%+v err=%v", loaded, err)
+	}
+}
+
+func TestStoreRejectsInvalidTitle(t *testing.T) {
+	store := NewStore(t.TempDir())
+	snapshot, err := store.Create("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, title := range []string{"line\nbreak", strings.Repeat("x", 121)} {
+		if err := store.Rename(snapshot.ID, title); !errors.Is(err, ErrInvalidSnapshot) {
+			t.Errorf("Rename(%q) error=%v, want ErrInvalidSnapshot", title, err)
+		}
+	}
+}
+
+func TestStoreBeforeAndPruneOnlyRemoveExpired(t *testing.T) {
+	store := NewStore(t.TempDir())
+	oldSnapshot, err := store.Create("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	newSnapshot, err := store.Create("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	threshold := time.Now().UTC()
+	oldSnapshot.UpdatedAt = threshold.Add(-time.Hour)
+	if err := store.Save(oldSnapshot); err != nil {
+		t.Fatal(err)
+	}
+	newSnapshot.UpdatedAt = threshold.Add(time.Hour)
+	if err := store.Save(newSnapshot); err != nil {
+		t.Fatal(err)
+	}
+	candidates, err := store.Before(threshold)
+	if err != nil || len(candidates) != 1 || candidates[0].ID != oldSnapshot.ID {
+		t.Fatalf("candidates=%+v err=%v", candidates, err)
+	}
+	removed, err := store.Prune(threshold)
+	if err != nil || len(removed) != 1 || removed[0].ID != oldSnapshot.ID {
+		t.Fatalf("removed=%+v err=%v", removed, err)
+	}
+	if _, err := store.Load(newSnapshot.ID); err != nil {
+		t.Fatalf("new snapshot removed: %v", err)
+	}
+}
