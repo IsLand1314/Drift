@@ -1,0 +1,36 @@
+package app
+
+import (
+	"fmt"
+	"io"
+
+	"github.com/IsLand1314/Drift/internal/agent"
+)
+
+// newTraceSink 将 Runtime Event 转成不含正文和参数的运行摘要。
+// Trace 是辅助诊断，写入失败不应改变 Agent 的主流程。
+func newTraceSink(writer io.Writer) agent.EventSink {
+	return func(event agent.Event) error {
+		var line string
+		switch event.Type {
+		case agent.EventRunStarted:
+			line = "[drift] run_started"
+		case agent.EventToolCall:
+			line = "[drift] tool_call " + event.ToolName
+		case agent.EventToolResult:
+			line = fmt.Sprintf("[drift] tool_result %s bytes=%d", event.ToolName, len(event.Result))
+		case agent.EventError:
+			stage := event.Stage
+			if stage == "" {
+				stage = "agent"
+			}
+			line = "[drift] error stage=" + stage
+		case agent.EventRunFinished:
+			line = "[drift] run_finished"
+		}
+		if line != "" {
+			_, _ = fmt.Fprintln(writer, line)
+		}
+		return nil
+	}
+}

@@ -24,6 +24,8 @@ var discoverySkipDirs = map[string]struct{}{
 }
 
 func validateRelativePath(path string, allowEmpty bool) error {
+	// 先统一分隔符，再同时检查 Unix 与 Windows 形式，避免 -w 在 Windows
+	// 运行时被模型传入的另一种路径格式绕过。
 	path = strings.ReplaceAll(path, `\`, "/")
 	if path == "" {
 		if allowEmpty {
@@ -89,6 +91,7 @@ func walkRegularFilesContext(ctx context.Context, workspace *os.Root, relative s
 			return fs.SkipDir
 		}
 		if entry.IsDir() {
+			// discovery 只看源码候选，跳过依赖、Git 元数据和其他运行时目录。
 			if _, skip := discoverySkipDirs[strings.ToLower(entry.Name())]; skip {
 				return fs.SkipDir
 			}

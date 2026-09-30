@@ -160,6 +160,7 @@ func Read(root, rawArguments string) (string, error) {
 }
 
 func readPage(file *os.File, offset, limit int) (string, error) {
+	// offset 对模型是从 0 开始的页偏移；返回文本改为人类习惯的 1 开始行号。
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 4096), MaxReadBytes+1)
 	lineNumber, selected := 0, make([]string, 0, limit)
@@ -183,6 +184,7 @@ func readPage(file *os.File, offset, limit int) (string, error) {
 	}
 	result := "read_file: lines " + strconv.Itoa(offset+1) + "-" + strconv.Itoa(offset+len(selected)) + "\n" + strings.Join(selected, "\n")
 	if len(selected) == limit && scanner.Scan() {
+		// 多读一行只为确认是否还有下一页，不把该行放入本次结果。
 		nextOffset := offset + len(selected)
 		result += "\nread_file: more lines available; next offset: " + strconv.Itoa(nextOffset)
 	}

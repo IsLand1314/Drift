@@ -67,6 +67,7 @@ func RunEventsWithRegistry(ctx context.Context, client llm.Client, root, prompt,
 	messages := []llm.Message{{Role: "user", Content: prompt}}
 	definitions := registry.Definitions()
 	toolCalls, resultBytes := 0, 0
+	// 达到预算后，最后一轮撤掉 tools，强制模型基于已有结果给出回答。
 	forceFinal := false
 	for requestIndex := 0; requestIndex < MaxModelRequests; requestIndex++ {
 		requestMessages := messages
@@ -111,6 +112,8 @@ func RunEventsWithRegistry(ctx context.Context, client llm.Client, root, prompt,
 			return fail(errRequestToolBudgetExceeded)
 		}
 
+		// assistant 的 tool_calls 与随后每条 tool 结果必须一起回传，
+		// 否则 Provider 无法把 tool_call_id 对应到本轮调用。
 		messages = append(messages, completion.Assistant)
 		for _, call := range calls {
 			if _, ok := registry.Lookup(call.Name); !ok {

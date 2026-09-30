@@ -1,6 +1,24 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构演进建议见 `doc/architecture.md`。当前版本为 M0.7。下面的 M0.6、M0.5、M0.4、M0.3、M0.2.2 和 M0.2.1 章节是已完成阶段的历史记录，不覆盖当前 M0.7 的运行边界。
+本文件是当前版本范围与验收标准的唯一事实来源；架构演进建议见 `doc/architecture.md`。当前版本为 M0.8。下面的 M0.7、M0.6、M0.5、M0.4、M0.3、M0.2.2 和 M0.2.1 章节是已完成阶段的历史记录，不覆盖当前 M0.8 的运行边界。
+
+## M0.8：Trace 运行可观测性
+
+M0.8 复用现有 Runtime Event，增加可选的 `--trace` 诊断输出，让用户可以观察 Agent 的关键执行阶段，同时保持 stdout 的最终回答契约和 M0.7 的只读边界不变。
+
+### 当前范围
+
+- 传入 `--trace` 时，运行摘要写入 stderr；不传时现有 stdout/stderr 行为保持不变。
+- Trace 输出 `run_started`、已注册工具名、工具结果字节数、错误 `stage` 和 `run_finished`；不输出提示词、文件内容、原始工具 arguments、API Key、Authorization、Provider 响应正文或绝对路径。
+- `text_delta` 不把回答正文复制到 trace；最终回答仍只写 stdout，会话仍写入脱敏 JSONL。
+- Trace 是 best effort 诊断输出，stderr 写入失败不改变 Agent 主流程。
+
+### M0.8 验收
+
+- `go run ./cmd/drift --trace -p "你好"` 时 stdout 只有最终回答，stderr 至少包含 `run_started` 和 `run_finished`。
+- 包含工具调用的运行会在 stderr 显示工具名与结果字节数；失败运行显示稳定的 `stage`。
+- trace 不出现回答正文、文件内容、API Key、原始 arguments 或本地绝对路径。
+- `go test ./... -count=1`、`go vet ./...`、`go build ./cmd/drift` 和 `git diff --check` 通过。
 
 ## M0.7：Provider 诊断与读取保护
 

@@ -50,6 +50,7 @@ func Run(ctx context.Context, args []string, getenv func(string) string, out, st
 	}
 	prompt := flags.String("p", "", "发送一次提示词并流式输出回复")
 	workspaceTarget := flags.String("w", "", "要分析的目录或文件（默认当前目录）")
+	trace := flags.Bool("trace", false, "将运行过程摘要输出到 stderr")
 	model := flags.String("model", lookup("OPENAI_MODEL"), "模型名称（默认 OPENAI_MODEL）")
 	baseURL := flags.String("base-url", base, "API 根地址，包含 /v1，不含 /chat/completions")
 	if err := flags.Parse(args); err != nil {
@@ -90,10 +91,17 @@ func Run(ctx context.Context, args []string, getenv func(string) string, out, st
 		return 1
 	}
 	var lastText string
+	var traceSink agent.EventSink
+	if *trace {
+		traceSink = newTraceSink(stderr)
+	}
 	// Event Sink 先追加脱敏审计记录，再把最终文本事件写到 stdout。
 	err = agent.RunEventsWithRegistry(ctx, modelClient{Client: client, model: *model}, selection.Root, *prompt, selection.Focus, tool.NewDefaultRegistry(), func(event agent.Event) error {
 		if err := sessionWriter.Append(event); err != nil {
 			return err
+		}
+		if traceSink != nil {
+			_ = traceSink(event)
 		}
 		if event.Type != agent.EventTextDelta {
 			return nil

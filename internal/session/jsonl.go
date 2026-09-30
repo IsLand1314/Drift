@@ -92,6 +92,8 @@ func (w *JSONLWriter) Close() error {
 }
 
 func (w *JSONLWriter) appendEntryLocked(entry Entry) error {
+	// json.Encoder 输出 UTF-8 JSONL；不写 BOM，便于标准 JSON/JSONL 读取器逐行解析。
+	// Windows PowerShell 查看时应显式使用 Get-Content -Encoding utf8。
 	encoder := json.NewEncoder(w.writer)
 	encoder.SetEscapeHTML(false)
 	if err := encoder.Encode(entry); err != nil {

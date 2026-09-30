@@ -41,6 +41,40 @@ func TestRunLoadsDotEnv(t *testing.T) {
 	}
 }
 
+func TestRunTraceKeepsAnswerOnStdout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"answer\"}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	defer server.Close()
+	root := t.TempDir()
+	old, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(old) })
+	getenv := func(key string) string {
+		return map[string]string{"OPENAI_API_KEY": "test-secret", "OPENAI_MODEL": "test", "OPENAI_BASE_URL": server.URL}[key]
+	}
+	var out, stderr bytes.Buffer
+	if code := Run(context.Background(), []string{"--trace", "-p", "hello"}, getenv, &out, &stderr); code != 0 {
+		t.Fatalf("code = %d, stderr = %q", code, stderr.String())
+	}
+	if out.String() != "answer\n" {
+		t.Fatalf("stdout = %q, want final answer only", out.String())
+	}
+	trace := stderr.String()
+	if !strings.Contains(trace, "run_started") || !strings.Contains(trace, "run_finished") {
+		t.Fatalf("trace = %q, want lifecycle events", trace)
+	}
+	if strings.Contains(trace, "answer") || strings.Contains(trace, "test-secret") {
+		t.Fatalf("trace leaked answer or secret: %q", trace)
+	}
+}
+
 func TestRunFlagConfigOverridesProcessAndDotEnv(t *testing.T) {
 	type observation struct {
 		model string

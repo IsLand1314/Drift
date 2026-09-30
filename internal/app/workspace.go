@@ -15,9 +15,8 @@ type workspaceSelection struct {
 	Focus string
 }
 
-// resolveWorkspace turns the user-facing -w value into a canonical workspace
-// root and an optional file focus. The returned paths never expose a symlink
-// alias to the rest of the runtime.
+// resolveWorkspace 把用户传入的 -w 转为 workspace 根目录和可选的文件 focus。
+// 整个 Runtime 后续只拿 Root 做路径边界；拒绝符号链接可避免别名绕过该边界。
 func resolveWorkspace(launchDir, rawTarget string) (workspaceSelection, error) {
 	target := launchDir
 	if rawTarget != "" {
@@ -46,8 +45,10 @@ func resolveWorkspace(launchDir, rawTarget string) (workspaceSelection, error) {
 
 	switch {
 	case info.IsDir():
+		// -w 目录：模型可以在该目录下自行探索，不预设关注文件。
 		return workspaceSelection{Root: resolved}, nil
 	case info.Mode().IsRegular():
+		// -w 文件：父目录才是工具可访问的 workspace；文件名只作为首轮提示。
 		focus := filepath.ToSlash(filepath.Base(resolved))
 		if tool.IsDotEnvCredentialFile(focus) {
 			return workspaceSelection{}, errInvalidWorkspaceTarget
