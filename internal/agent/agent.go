@@ -27,6 +27,8 @@ var (
 	errUnsupportedTool            = errors.New("agent: unsupported tool")
 	errIncompatiblePseudoToolCall = errors.New("agent: 模型返回了不兼容的伪工具调用格式")
 	errEmptyFinalResponse         = errors.New("agent: empty response")
+	ErrCompactionInsufficient     = errors.New("agent: not enough messages to compact")
+	errCompactionEmpty            = errors.New("agent: empty compaction summary")
 )
 
 // ErrContextLimit 表示当前内存对话超过单次请求允许的字节预算。
@@ -87,6 +89,59 @@ func (r *Runner) ContextBytes() int {
 // ResetContext 清空当前进程的对话消息，但保留 Provider、workspace、focus 和工具注册表。
 func (r *Runner) ResetContext() {
 	r.messages = nil
+}
+
+type CompactResult struct {
+	Summary      llm.Message
+	KeptMessages []llm.Message
+	BeforeBytes  int
+	AfterBytes   int
+}
+
+const compactKeepMessages = 4
+
+const compactionInstruction = "Summarize this read-only coding conversation for continuation. Keep verified facts, relevant relative file paths, conclusions, decisions, and unfinished tasks. Do not emit tool calls, XML, DSML, credentials, or claims about actions that did not happen. Return only the concise summary text."
+
+// Compact summarizes old messages and atomically replaces the Runner context on success.
+func (r *Runner) Compact(ctx context.Context) (CompactResult, error) {
+	if len(r.messages) < 2 {
+		return CompactResult{}, ErrCompactionInsufficient
+	}
+	oldMessages := cloneMessages(r.messages)
+	beforeBytes := r.ContextBytes()
+	requestMessages := append([]llm.Message{{Role: "system", Content: compactionInstruction}}, oldMessages...)
+	var chunks []string
+	completion, err := r.client.Stream(ctx, llm.Request{Messages: requestMessages}, func(event llm.StreamEvent) error {
+		if event.Text != "" {
+			chunks = append(chunks, event.Text)
+		}
+		return nil
+	})
+	if err != nil {
+		return CompactResult{}, err
+	}
+	text := strings.Join(chunks, "")
+	if strings.TrimSpace(text) == "" {
+		text = completion.Assistant.Content
+	}
+	if strings.TrimSpace(text) == "" {
+		return CompactResult{}, errCompactionEmpty
+	}
+	if strings.Contains(text, "<｜｜DSML｜｜") || strings.Contains(text, "<|DSML|>") {
+		return CompactResult{}, errIncompatiblePseudoToolCall
+	}
+	start := len(oldMessages) - compactKeepMessages
+	if start < 0 {
+		start = 0
+	}
+	for start > 0 && oldMessages[start].Role == "tool" {
+		start--
+	}
+	kept := cloneMessages(oldMessages[start:])
+	summary := llm.Message{Role: "assistant", Content: text}
+	updated := append([]llm.Message{summary}, kept...)
+	r.messages = updated
+	return CompactResult{Summary: summary, KeptMessages: kept, BeforeBytes: beforeBytes, AfterBytes: r.ContextBytes()}, nil
 }
 
 // Run 执行受限 Agent Loop，并只把最终文本交给 emitText。

@@ -4,12 +4,15 @@ package agent
 type EventType string
 
 const (
-	EventRunStarted  EventType = "run_started"
-	EventTextDelta   EventType = "text_delta"
-	EventToolCall    EventType = "tool_call"
-	EventToolResult  EventType = "tool_result"
-	EventError       EventType = "error"
-	EventRunFinished EventType = "run_finished"
+	EventRunStarted         EventType = "run_started"
+	EventTextDelta          EventType = "text_delta"
+	EventToolCall           EventType = "tool_call"
+	EventToolResult         EventType = "tool_result"
+	EventError              EventType = "error"
+	EventRunFinished        EventType = "run_finished"
+	EventCompactionStarted  EventType = "compaction_started"
+	EventCompactionFinished EventType = "compaction_finished"
+	EventCompactionError    EventType = "compaction_error"
 )
 
 // Event 是脱离 Provider SSE 分片后的 Runtime 事件。
@@ -24,6 +27,10 @@ type Event struct {
 	Error        string
 	Stage        string
 	FinishReason string
+	BeforeBytes  int
+	AfterBytes   int
+	MessageCount int
+	KeptMessages int
 }
 
 // EventSink 消费 Agent 事件；返回错误会立即中止本次运行。

@@ -161,6 +161,56 @@ func TestRunnerMessagesReturnsCopy(t *testing.T) {
 	}
 }
 
+func TestRunnerCompactUsesNoToolsAndKeepsRecentMessages(t *testing.T) {
+	client := &scriptedClient{steps: []scriptedStep{{
+		events:     []llm.StreamEvent{{Text: "summary"}},
+		completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "summary"}, FinishReason: "stop"},
+	}}}
+	runner := NewRunnerWithMessages(client, t.TempDir(), "", tool.NewDefaultRegistry(), []llm.Message{
+		{Role: "user", Content: "old question"},
+		{Role: "assistant", Content: "old answer"},
+		{Role: "user", Content: "middle question"},
+		{Role: "assistant", Content: "middle answer"},
+		{Role: "user", Content: "recent question"},
+		{Role: "assistant", Content: "recent answer"},
+	})
+	result, err := runner.Compact(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(client.requests) != 1 || len(client.requests[0].Tools) != 0 {
+		t.Fatalf("requests=%d tools=%d, want one request without tools", len(client.requests), len(client.requests[0].Tools))
+	}
+	if result.Summary.Content != "summary" || len(result.KeptMessages) != 4 {
+		t.Fatalf("result=%+v", result)
+	}
+	messages := runner.Messages()
+	if len(messages) != 5 || messages[0].Content != "summary" || messages[1].Content != "middle question" || messages[4].Content != "recent answer" {
+		t.Fatalf("messages=%#v", messages)
+	}
+}
+
+func TestRunnerCompactFailurePreservesMessages(t *testing.T) {
+	original := []llm.Message{{Role: "user", Content: "one"}, {Role: "assistant", Content: "two"}}
+	client := &scriptedClient{steps: []scriptedStep{{err: errors.New("provider failed")}}}
+	runner := NewRunnerWithMessages(client, t.TempDir(), "", tool.NewDefaultRegistry(), original)
+	_, err := runner.Compact(context.Background())
+	if err == nil || !reflect.DeepEqual(runner.Messages(), original) {
+		t.Fatalf("err=%v messages=%#v, want original messages", err, runner.Messages())
+	}
+}
+
+func TestRunnerCompactSkipsInsufficientMessages(t *testing.T) {
+	client := &scriptedClient{}
+	runner := NewRunnerWithMessages(client, t.TempDir(), "", tool.NewDefaultRegistry(), []llm.Message{{Role: "user", Content: "one"}})
+	if _, err := runner.Compact(context.Background()); !errors.Is(err, ErrCompactionInsufficient) {
+		t.Fatalf("Compact() error=%v, want ErrCompactionInsufficient", err)
+	}
+	if len(client.requests) != 0 {
+		t.Fatalf("provider requests=%d, want 0", len(client.requests))
+	}
+}
+
 func TestRunnerContextLimitStopsBeforeProvider(t *testing.T) {
 	client := &scriptedClient{}
 	runner := NewRunner(client, t.TempDir(), "", tool.NewDefaultRegistry())
