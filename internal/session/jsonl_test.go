@@ -48,7 +48,7 @@ func TestJSONLWriterAppendsVersionedEntries(t *testing.T) {
 	if len(entries) != 2 {
 		t.Fatalf("entries = %d, want 2", len(entries))
 	}
-	if entries[0].Version != 1 || entries[0].Type != string(agent.EventRunStarted) || entries[0].Text != "解释 README.md" {
+	if entries[0].Version != 1 || entries[0].Type != string(agent.EventRunStarted) || entries[0].Text != "<redacted>" || entries[0].TextBytes != len("解释 README.md") {
 		t.Fatalf("start entry = %#v", entries[0])
 	}
 	if entries[1].Type != string(agent.EventTextDelta) || entries[1].Text != "<redacted>" {
@@ -120,8 +120,8 @@ func TestJSONLWriterRedactsSecretsAndAbsolutePaths(t *testing.T) {
 	if strings.Contains(text, absolutePath) {
 		t.Fatalf("session leaked absolute path: %s", text)
 	}
-	if !strings.Contains(text, "<redacted>") || !strings.Contains(text, "<restricted>") {
-		t.Fatalf("session missing redaction markers: %s", text)
+	if !strings.Contains(text, "<redacted>") || !strings.Contains(text, "argument_bytes") {
+		t.Fatalf("session missing audit redaction metadata: %s", text)
 	}
 }
 

@@ -6,11 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	pathpkg "path"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/IsLand1314/Drift/internal/agent"
 )
@@ -19,6 +21,7 @@ var sensitivePattern = regexp.MustCompile("(?i)(authorization\\s*[:=]\\s*(?:[a-z
 var credentialPattern = regexp.MustCompile("(?i)([\\\"']?(?:openai[_-]?api[_-]?key|api[_-]?key|authorization|access[_-]?token|refresh[_-]?token|password|secret)[\\\"']?\\s*[:=]\\s*)(?:\"(?:\\\\.|[^\"\\\\])*\"|'[^']*'|[^,\\s}\\]]*)")
 var windowsPathPattern = regexp.MustCompile("(?i)(?:[a-z]:[\\\\/]|\\\\\\\\)[^\\s\"'`<>\\]}]+")
 var unixPathPattern = regexp.MustCompile("(^|[^A-Za-z0-9_])\\/[^\\s\"'`<>\\]}]+")
+var finishReasonPattern = regexp.MustCompile(`^[a-z0-9_-]{1,32}$`)
 
 type sanitizer struct {
 	root    string
@@ -106,22 +109,75 @@ func (w *JSONLWriter) appendEntryLocked(entry Entry) error {
 }
 
 func entryFromEvent(event agent.Event, clean sanitizer) Entry {
-	text := clean.text(event.Text)
-	if event.Type == agent.EventTextDelta {
+	text := ""
+	if event.Text != "" {
 		text = "<redacted>"
 	}
-	return Entry{
-		Version:    1,
-		Type:       string(event.Type),
-		Time:       time.Now().UTC(),
-		Text:       text,
-		ToolCallID: clean.text(event.ToolCallID),
-		Tool:       clean.text(event.ToolName),
-		Arguments:  sanitizeArguments(event.Arguments, clean),
-		Result:     clean.text(event.Result),
-		Error:      clean.text(event.Error),
-		Stage:      clean.text(event.Stage),
+	arguments := ""
+	if event.Arguments != "" {
+		arguments = "<redacted>"
 	}
+	result := ""
+	if event.Result != "" {
+		result = "<redacted>"
+	}
+	return Entry{
+		Version:       1,
+		Type:          string(event.Type),
+		Time:          time.Now().UTC(),
+		Text:          text,
+		TextBytes:     len(event.Text),
+		ToolCallID:    clean.text(event.ToolCallID),
+		Tool:          clean.text(event.ToolName),
+		Path:          auditToolPath(event.Type, event.ToolName, event.Arguments),
+		Arguments:     arguments,
+		ArgumentBytes: len(event.Arguments),
+		Result:        result,
+		ResultBytes:   len(event.Result),
+		Error:         clean.text(event.Error),
+		Stage:         clean.text(event.Stage),
+		FinishReason:  sanitizeFinishReason(event.FinishReason),
+	}
+}
+
+func sanitizeFinishReason(value string) string {
+	value = strings.TrimSpace(value)
+	if !finishReasonPattern.MatchString(value) {
+		return ""
+	}
+	return value
+}
+
+// auditToolPath extracts only the relative path from known read-only tool calls.
+// The complete arguments stay redacted; unsafe paths are omitted rather than normalized.
+func auditToolPath(eventType agent.EventType, toolName, rawArguments string) string {
+	if eventType != agent.EventToolCall || (toolName != "read_file" && toolName != "list_files" && toolName != "search_text") {
+		return ""
+	}
+	var args struct {
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal([]byte(rawArguments), &args); err != nil {
+		return ""
+	}
+	value := strings.TrimSpace(args.Path)
+	if value == "" || strings.IndexFunc(value, unicode.IsControl) >= 0 {
+		return ""
+	}
+	normalized := strings.ReplaceAll(value, `\`, "/")
+	if pathpkg.IsAbs(normalized) || filepath.IsAbs(value) || strings.HasPrefix(normalized, "/") || hasWindowsVolume(value) {
+		return ""
+	}
+	for _, part := range strings.Split(normalized, "/") {
+		if part == ".." || part == ".env" || strings.HasPrefix(part, ".env.") {
+			return ""
+		}
+	}
+	return pathpkg.Clean(normalized)
+}
+
+func hasWindowsVolume(value string) bool {
+	return len(value) >= 2 && ((value[0] >= 'a' && value[0] <= 'z') || (value[0] >= 'A' && value[0] <= 'Z')) && value[1] == ':'
 }
 
 func sanitizeArguments(raw string, clean sanitizer) string {

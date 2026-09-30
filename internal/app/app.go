@@ -34,6 +34,9 @@ func (c modelClient) Stream(ctx context.Context, request llm.Request, emit func(
 // Run 是 CLI 的应用编排层：加载配置 → 校验参数 → 创建 Provider → 启动 Agent。
 // getenv、out 和 stderr 都通过参数注入，方便测试时使用模拟环境和 HTTP 服务。
 func Run(ctx context.Context, args []string, getenv func(string) string, out, stderr io.Writer) int {
+	if len(args) > 0 && args[0] == "session" {
+		return runSessionCommand(args[1:], out, stderr)
+	}
 	flags := flag.NewFlagSet("drift", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	// .env 是可选的本地配置；LoadDotEnv 找不到文件时返回空配置，不影响启动。
@@ -60,7 +63,7 @@ func Run(ctx context.Context, args []string, getenv func(string) string, out, st
 		return 2
 	}
 	if flags.NArg() != 0 || strings.TrimSpace(*prompt) == "" {
-		fmt.Fprintln(stderr, "用法：drift -p \"你好\" [-w 路径] [-model 模型名] [-base-url API根地址]")
+		fmt.Fprintln(stderr, "用法：drift -p \"你好\" [-w 路径] [--trace] [-model 模型名] [-base-url API根地址]")
 		return 2
 	}
 	launchDir, err := os.Getwd()

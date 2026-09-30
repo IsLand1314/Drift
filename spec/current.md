@@ -1,6 +1,28 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构演进建议见 `doc/architecture.md`。当前版本为 M0.8。下面的 M0.7、M0.6、M0.5、M0.4、M0.3、M0.2.2 和 M0.2.1 章节是已完成阶段的历史记录，不覆盖当前 M0.8 的运行边界。
+本文件是当前版本范围与验收标准的唯一事实来源；架构演进建议见 `doc/architecture.md`。当前版本为 M0.9。下面的 M0.8、M0.7、M0.6、M0.5、M0.4、M0.3、M0.2.2 和 M0.2.1 章节是已完成阶段的历史记录，不覆盖当前 M0.9 的运行边界。
+
+## M0.9：安全 Session 审计与查看器
+
+M0.9 明确 `.drift/sessions/*.jsonl` 是本地审计记录，而不是可以直接发送给 LLM 的上下文；同时提供不需要 API Key 的只读查看命令。
+
+### 当前范围
+
+- 新写入 JSONL 不保存用户提示词、原始工具 arguments、工具结果内容或模型回答正文；只保存 `<redacted>` 占位符、字节数、工具名、事件类型、时间和错误 `stage`。
+- 已知只读工具调用可额外保存经过校验的相对 `path`；绝对路径、`..`、`.env`/`.env.*` 和控制字符路径会被省略，原始 arguments 仍不保存。
+- 运行完成或异常结束时可保存安全的 `finish_reason`；该字段只表示 `stop`、`length` 等稳定原因，不保存 Provider 响应正文。
+- `session list` 查看当前目录下的会话文件和事件数量；`session show <path>` 查看事件摘要、工具名、字节数和错误阶段。
+- 查看器不请求 Provider、不读取 `.env`、不修改会话文件，也不回显旧 JSONL 中可能存在的正文内容。
+- 读取兼容旧 JSONL；旧记录中的 `text`、`arguments` 和 `result` 只用于解析，不会被查看器输出。
+- 本阶段不实现 Session 恢复给 LLM；恢复上下文需要未来单独的显式授权设计。
+
+### M0.9 验收
+
+- 新运行的 JSONL 不包含测试提示词、工具参数和文件正文，且保存对应 `text_bytes`、`argument_bytes`、`result_bytes`。
+- 合法的只读工具调用会保存相对 `path`；绝对路径、`..` 和 dotenv 路径不会落盘。
+- `go run ./cmd/drift session list` 能列出会话；`go run ./cmd/drift session show <path>` 能输出安全摘要。
+- `session list/show` 在缺少 API Key 或 Provider 不可用时仍可运行；输出不出现旧记录正文、密钥或绝对路径。
+- `go test ./... -count=1`、`go vet ./...`、`go build ./cmd/drift` 和 `git diff --check` 通过。
 
 ## M0.8：Trace 运行可观测性
 

@@ -604,6 +604,23 @@ func TestRunRejectsUnsupportedToolCallStates(t *testing.T) {
 	}
 }
 
+func TestRunRecordsUnexpectedFinishReason(t *testing.T) {
+	client := &scriptedClient{steps: []scriptedStep{{
+		completion: llm.Completion{Assistant: llm.Message{Role: "assistant"}, FinishReason: "length"},
+	}}}
+	var events []Event
+	err := RunEvents(context.Background(), client, t.TempDir(), "test", func(event Event) error {
+		events = append(events, event)
+		return nil
+	})
+	if err == nil {
+		t.Fatal("RunEvents() error = nil, want unexpected completion error")
+	}
+	if len(events) != 2 || events[1].Type != EventError || events[1].FinishReason != "length" {
+		t.Fatalf("events = %#v, want error finish_reason=length", events)
+	}
+}
+
 func TestRunReturnsOutputCallbackFailure(t *testing.T) {
 	want := errors.New("output unavailable")
 	client := &scriptedClient{steps: []scriptedStep{{
@@ -713,6 +730,9 @@ func TestRunEventsEmitsOrderedRuntimeEvents(t *testing.T) {
 	}
 	if events[3].Text != "The " || events[4].Text != "README says hello." {
 		t.Fatalf("text events = %#v, want final text chunks", events[3:5])
+	}
+	if events[5].FinishReason != "stop" {
+		t.Fatalf("run_finished finish reason = %q, want stop", events[5].FinishReason)
 	}
 }
 

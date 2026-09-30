@@ -50,15 +50,18 @@ func RunEventsWithRegistry(ctx context.Context, client llm.Client, root, prompt,
 		}
 		return sink(event)
 	}
-	fail := func(err error) error {
+	failWithFinishReason := func(err error, finishReason string) error {
 		stage := llm.ErrorStageOf(err)
 		if stage == "" {
 			stage = "agent"
 		}
-		if sinkErr := emit(Event{Type: EventError, Error: sanitizeError(root, err.Error()), Stage: stage}); sinkErr != nil {
+		if sinkErr := emit(Event{Type: EventError, Error: sanitizeError(root, err.Error()), Stage: stage, FinishReason: finishReason}); sinkErr != nil {
 			return sinkErr
 		}
 		return err
+	}
+	fail := func(err error) error {
+		return failWithFinishReason(err, "")
 	}
 	if err := emit(Event{Type: EventRunStarted, Text: prompt}); err != nil {
 		return err
@@ -93,9 +96,9 @@ func RunEventsWithRegistry(ctx context.Context, client llm.Client, root, prompt,
 		if len(calls) == 0 {
 			if completion.FinishReason != "stop" {
 				if requestIndex == 0 {
-					return fail(errUnexpectedFirstCompletion)
+					return failWithFinishReason(errUnexpectedFirstCompletion, completion.FinishReason)
 				}
-				return fail(errUnexpectedSecondCompletion)
+				return failWithFinishReason(errUnexpectedSecondCompletion, completion.FinishReason)
 			}
 			text := strings.Join(chunks, "")
 			if requestIndex == 0 && (strings.Contains(text, "<｜｜DSML｜｜") || strings.Contains(text, "<|DSML|>")) {
@@ -106,7 +109,7 @@ func RunEventsWithRegistry(ctx context.Context, client llm.Client, root, prompt,
 					return err
 				}
 			}
-			return emit(Event{Type: EventRunFinished})
+			return emit(Event{Type: EventRunFinished, FinishReason: completion.FinishReason})
 		}
 		if forceFinal {
 			return fail(errRequestToolBudgetExceeded)
