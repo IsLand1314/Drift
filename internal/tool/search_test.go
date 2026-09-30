@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -72,6 +72,16 @@ func TestSearch(t *testing.T) {
 		if len(got) != len("longdir/long.txt:1: ")+240 || !strings.HasPrefix(got, "longdir/long.txt:1: ") {
 			t.Fatalf("long result length = %d, %q", len(got), got)
 		}
+		tooLong := filepath.Join(root, "longdir", "too-long.txt")
+		if err := os.WriteFile(tooLong, []byte(strings.Repeat("x", 65<<10)+"needle\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Search(root, `{"query":"needle","path":"longdir"}`); err == nil {
+			t.Fatal("Search() error = nil for scanner token-too-long")
+		}
+		if err := os.Remove(tooLong); err != nil {
+			t.Fatal(err)
+		}
 	})
 	t.Run("regular file root rejected", func(t *testing.T) {
 		if _, err := Search(root, `{"query":"x","path":"z.txt"}`); err == nil {
@@ -80,7 +90,7 @@ func TestSearch(t *testing.T) {
 	})
 	t.Run("symlink skipped", func(t *testing.T) {
 		if err := os.Symlink("z.txt", filepath.Join(root, "link.txt")); err != nil {
-			if errors.Is(err, os.ErrPermission) || errors.Is(err, os.ErrInvalid) || runtime.GOOS == "windows" {
+			if errors.Is(err, os.ErrPermission) || errors.Is(err, os.ErrInvalid) || os.IsPermission(err) || errors.Is(err, syscall.Errno(1314)) {
 				t.Skip(err)
 			}
 			t.Fatal(err)
@@ -122,6 +132,43 @@ func TestSearchLimitsAndDefinition(t *testing.T) {
 	if !strings.Contains(got, "truncated") {
 		t.Fatalf("limit result lacks marker: %q", got[len(got)-80:])
 	}
+	t.Run("file limit counts files without matches", func(t *testing.T) {
+		dir := t.TempDir()
+		for i := 0; i < MaxSearchFiles+1; i++ {
+			if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("f%03d", i)), []byte("other\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		got, err := Search(dir, `{"query":"needle"}`)
+		if err != nil || !strings.Contains(got, "truncated") {
+			t.Fatalf("result = %q, %v", got, err)
+		}
+	})
+	t.Run("match limit", func(t *testing.T) {
+		dir := t.TempDir()
+		for i := 0; i < MaxSearchMatches+1; i++ {
+			if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("f%03d", i)), []byte("needle\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		got, err := Search(dir, `{"query":"needle"}`)
+		if err != nil || !strings.Contains(got, "truncated") {
+			t.Fatalf("result = %q, %v", got, err)
+		}
+	})
+	t.Run("output limit preserves results", func(t *testing.T) {
+		dir := t.TempDir()
+		name := strings.Repeat("x", 200)
+		for i := 0; i < MaxSearchMatches; i++ {
+			if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("%s%03d", name, i)), []byte(strings.Repeat("needle", 50)+"\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		got, err := Search(dir, `{"query":"needle"}`)
+		if err != nil || !strings.Contains(got, "truncated") || len(got) > MaxSearchBytes {
+			t.Fatalf("len/result = %d/%q, %v", len(got), got, err)
+		}
+	})
 	definition := SearchDefinition()
 	var fn struct {
 		Name       string `json:"name"`

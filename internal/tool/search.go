@@ -20,6 +20,8 @@ const (
 	MaxSearchBytes   = 32 << 10
 )
 
+const searchTruncatedMarker = "search_text: results truncated at configured limit"
+
 type searchTextTool struct{}
 
 func (searchTextTool) Name() string                   { return "search_text" }
@@ -105,7 +107,7 @@ func searchWithContext(ctx context.Context, root, rawArguments string) (string, 
 	files, matches := 0, 0
 	truncated := false
 	stop := errorsSearchStop{}
-	err = walkRegularFiles(workspace, args.Path, func(filePath string, _ fs.DirEntry) error {
+	err = walkRegularFilesContext(ctx, workspace, args.Path, func(filePath string, _ fs.DirEntry) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -116,15 +118,18 @@ func searchWithContext(ctx context.Context, root, rawArguments string) (string, 
 		}
 		file, err := workspace.Open(filePath)
 		if err != nil {
-			return nil
+			return fmt.Errorf("open %s: %w", filePath, err)
 		}
 		defer file.Close()
 		prefix, err := io.ReadAll(io.LimitReader(file, 64<<10))
-		if err != nil || strings.IndexByte(string(prefix), 0) >= 0 {
+		if err != nil {
+			return fmt.Errorf("read %s: %w", filePath, err)
+		}
+		if strings.IndexByte(string(prefix), 0) >= 0 {
 			return nil
 		}
 		if _, err := file.Seek(0, io.SeekStart); err != nil {
-			return nil
+			return fmt.Errorf("seek %s: %w", filePath, err)
 		}
 		scanner := bufio.NewScanner(file)
 		scanner.Buffer(make([]byte, 64<<10), 64<<10)
@@ -147,11 +152,14 @@ func searchWithContext(ctx context.Context, root, rawArguments string) (string, 
 			if out.Len() > 0 {
 				record = "\n" + record
 			}
-			if out.Len()+len(record) > MaxSearchBytes {
+			if out.Len()+len(record)+1+len(searchTruncatedMarker) > MaxSearchBytes {
 				truncated = true
 				return stop
 			}
 			out.WriteString(record)
+		}
+		if err := scanner.Err(); err != nil {
+			return fmt.Errorf("scan %s: %w", filePath, err)
 		}
 		return nil
 	})
@@ -159,13 +167,9 @@ func searchWithContext(ctx context.Context, root, rawArguments string) (string, 
 		return "", fmt.Errorf("search_text: %w", err)
 	}
 	if truncated {
-		marker := "search_text: results truncated at configured limit"
+		marker := searchTruncatedMarker
 		if out.Len() > 0 {
 			marker = "\n" + marker
-		}
-		if out.Len()+len(marker) > MaxSearchBytes {
-			out.Reset()
-			marker = marker[:min(len(marker), MaxSearchBytes)]
 		}
 		out.WriteString(marker)
 	}

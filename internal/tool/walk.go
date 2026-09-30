@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"context"
 	"fmt"
 	"io/fs"
 	"os"
@@ -38,6 +39,10 @@ func openWorkspace(root string) (*os.Root, error) {
 }
 
 func walkRegularFiles(workspace *os.Root, relative string, fn func(path string, entry fs.DirEntry) error) error {
+	return walkRegularFilesContext(context.Background(), workspace, relative, fn)
+}
+
+func walkRegularFilesContext(ctx context.Context, workspace *os.Root, relative string, fn func(path string, entry fs.DirEntry) error) error {
 	if err := validateRelativePath(relative, true); err != nil {
 		return err
 	}
@@ -61,6 +66,9 @@ func walkRegularFiles(workspace *os.Root, relative string, fn func(path string, 
 		return fmt.Errorf("walk root is not a directory")
 	}
 	return fs.WalkDir(workspace.FS(), start, func(path string, entry fs.DirEntry, walkErr error) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if walkErr != nil {
 			return walkErr
 		}
