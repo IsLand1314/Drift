@@ -29,6 +29,9 @@ func TestValidateRelativePath(t *testing.T) {
 
 func TestWalkRegularFilesRejectsUnsafeDirectory(t *testing.T) {
 	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "file.txt"), []byte("not a directory"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	workspace, err := openWorkspace(root)
 	if err != nil {
 		t.Fatal(err)
@@ -54,6 +57,9 @@ func TestWalkRegularFiles(t *testing.T) {
 		}
 	}
 	if err := os.WriteFile(filepath.Join(root, "nested", "ignored-dir-file"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(root, "nested", "child"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Mkdir(filepath.Join(root, "empty-dir"), 0o755); err != nil {
@@ -103,7 +109,7 @@ func TestWalkRegularFiles(t *testing.T) {
 			}
 			t.Fatal(err)
 		}
-		if err := walkRegularFiles(workspace, "link-dir/nested", func(string, fs.DirEntry) error { return nil }); err == nil {
+		if err := walkRegularFiles(workspace, "link-dir/child", func(string, fs.DirEntry) error { return nil }); err == nil {
 			t.Fatal("walkRegularFiles(parent symlink) = nil, want error")
 		}
 		var symlinkPaths []string
