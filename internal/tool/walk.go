@@ -44,6 +44,13 @@ func walkRegularFiles(workspace *os.Root, relative string, fn func(path string, 
 		start = "."
 	}
 	start = pathpkg.Clean(start)
+	hasSymlink, err := hasSymlinkComponent(workspace, start)
+	if err != nil {
+		return err
+	}
+	if hasSymlink {
+		return fmt.Errorf("walk root contains a symlink")
+	}
 	info, err := workspace.Lstat(start)
 	if err != nil {
 		return err

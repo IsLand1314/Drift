@@ -62,16 +62,7 @@ func TestWalkRegularFiles(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "regular-dir"), []byte("not a directory"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink("a.txt", filepath.Join(root, "link.txt")); err != nil {
-		if errors.Is(err, os.ErrPermission) || errors.Is(err, os.ErrInvalid) || runtime.GOOS == "windows" {
-			t.Skipf("symlink unsupported: %v", err)
-		}
-		t.Fatal(err)
-	}
-	if err := os.Symlink("nested", filepath.Join(root, "link-dir")); err != nil {
-		if errors.Is(err, os.ErrPermission) || errors.Is(err, os.ErrInvalid) || runtime.GOOS == "windows" {
-			t.Skipf("symlink unsupported: %v", err)
-		}
+	if err := os.WriteFile(filepath.Join(root, "file.txt"), []byte("not a directory"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -89,7 +80,7 @@ func TestWalkRegularFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	sort.Strings(got)
-	want := []string{"a.txt", "nested/b.txt", "nested/ignored-dir-file", "regular-dir"}
+	want := []string{"a.txt", "file.txt", "nested/b.txt", "nested/ignored-dir-file", "regular-dir"}
 	if len(got) != len(want) {
 		t.Fatalf("walked paths = %#v, want %#v", got, want)
 	}
@@ -98,4 +89,34 @@ func TestWalkRegularFiles(t *testing.T) {
 			t.Fatalf("walked paths = %#v, want %#v", got, want)
 		}
 	}
+
+	t.Run("symlinks are skipped and cannot be traversal roots", func(t *testing.T) {
+		if err := os.Symlink("a.txt", filepath.Join(root, "link.txt")); err != nil {
+			if errors.Is(err, os.ErrPermission) || errors.Is(err, os.ErrInvalid) || runtime.GOOS == "windows" {
+				t.Skipf("symlink unsupported: %v", err)
+			}
+			t.Fatal(err)
+		}
+		if err := os.Symlink("nested", filepath.Join(root, "link-dir")); err != nil {
+			if errors.Is(err, os.ErrPermission) || errors.Is(err, os.ErrInvalid) || runtime.GOOS == "windows" {
+				t.Skipf("symlink unsupported: %v", err)
+			}
+			t.Fatal(err)
+		}
+		if err := walkRegularFiles(workspace, "link-dir/nested", func(string, fs.DirEntry) error { return nil }); err == nil {
+			t.Fatal("walkRegularFiles(parent symlink) = nil, want error")
+		}
+		var symlinkPaths []string
+		if err := walkRegularFiles(workspace, "", func(path string, _ fs.DirEntry) error {
+			symlinkPaths = append(symlinkPaths, path)
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+		for _, path := range symlinkPaths {
+			if path == "link.txt" || path == "link-dir" || path == "link-dir/b.txt" {
+				t.Fatalf("walked symlink path %q", path)
+			}
+		}
+	})
 }
