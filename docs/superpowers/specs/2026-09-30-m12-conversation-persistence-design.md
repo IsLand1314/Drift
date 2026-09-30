@@ -57,11 +57,13 @@ drift conversation delete <id> --yes
   "created_at": "2026-09-30T00:00:00Z",
   "updated_at": "2026-09-30T00:00:00Z",
   "focus": "README.md",
+  "context_bytes": 0,
   "messages": []
 }
 ```
 
 - `messages` 使用现有 `llm.Message`，因此保留 assistant tool call、tool result 和 reasoning content；恢复后的 Provider 请求与进程未退出时一致。
+- `context_bytes` 是最近一次成功保存时由 Runner 计算的上下文字节估算；list/show 只显示该数字，不读取消息正文。
 - 快照 schema 不额外保存 API Key、Authorization、Provider URL、模型名或 workspace 绝对路径；恢复使用当前启动时的 Provider 配置。由于它保存完整消息，用户主动输入的密钥或其他文件中的敏感内容仍可能随消息落盘。
 - ID 由 Drift 生成，只含小写字母、数字和短横线；所有 CLI 输入 ID 必须按同一规则校验，禁止路径穿越。
 - 文件位于 workspace 内，因此无需记录 workspace 绝对路径；`focus` 仅保存安全相对路径或为空。
