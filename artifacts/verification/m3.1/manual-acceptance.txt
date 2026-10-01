@@ -1,0 +1,20 @@
+M3.1 manual acceptance
+Date: 2026-10-01
+
+Scenario A: confirmed create
+  Input: create tmp/m31-cli.txt, then answer y to the write confirmation.
+  Result: command completed; the target file was created; one dated change
+  directory contained manifest.json, diff.patch, and work/m31-cli.txt.
+
+Scenario B: denied overwrite
+  Input: request an overwrite of tmp/m31-cli.txt, then answer n.
+  Result: command completed without changing the target file; no additional
+  change directory was created.
+
+Safety checks covered by automated tests:
+  - -p keeps the read-only registry and never exposes write_file.
+  - chat exposes write_file only through an explicit permission callback.
+  - absolute paths, parent traversal, protected directories, symlink escape,
+    missing parents, unknown JSON fields, binary targets, and oversized writes
+    are rejected.
+  - preview does not modify the target before approval.

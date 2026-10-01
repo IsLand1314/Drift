@@ -1,6 +1,27 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 `doc/architecture.md`。当前版本为 M2.5。下面的 M2.4、M2.3、M2.2、M2.1、M2.0、M1.10、M1.9、M1.8、M1.7、M1.6、M1.5、M1.4、M1.3、M1.2、M1.1、M1.0、M0.9、M0.8、M0.7、M0.6、M0.5、M0.4、M0.3、M0.2.2 和 M0.2.1 章节是已完成阶段的历史记录，不覆盖当前 M2.5 的运行边界。
+本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 `doc/architecture.md`。当前版本为 M3.1。下面的 M2.5、M2.4、M2.3、M2.2、M2.1、M2.0、M1.10、M1.9、M1.8、M1.7、M1.6、M1.5、M1.4、M1.3、M1.2、M1.1、M1.0、M0.9、M0.8、M0.7、M0.6、M0.5、M0.4、M0.3、M0.2.2 和 M0.2.1 章节是已完成阶段的历史记录，不覆盖当前 M3.1 的运行边界。
+
+## M3.1：安全文件写入
+
+M3.1 将 Drift 从只读 Runtime 扩展为受控写入 Runtime。`drift -p` 继续只读；只有 `drift chat` 注册 `write_file`，且创建/覆盖文件前必须获得用户确认。
+
+### 当前范围
+
+- `write_file` 接受 workspace 相对路径和完整 UTF-8 文本，支持创建新文件和覆盖已有普通文件。
+- 拒绝绝对路径、`..`、符号链接逃逸、受保护目录以及不存在的父目录；不自动创建目录。
+- 写入采用临时文件和原子替换；批准前不修改目标，拒绝/取消后目标保持不变。
+- 修改过程记录写入 `.drift/changes/YYYY/MM/DD/change-<timestamp>-<id>/`，包含 `manifest.json`、`diff.patch` 和 `work/`；不作为会话恢复或脱敏审计来源。
+- M3.1 不提供 `edit_file`、删除、命令执行、测试运行、OS 沙箱或 Git 回滚。
+
+### M3.1 验收
+
+| ID | 验证方法 | 通过阈值 | 证据路径 |
+| --- | --- | --- | --- |
+| AC-M31-001 | `go test ./internal/tool ./internal/changes -count=1` | 创建、覆盖、路径边界、临时记录通过 | `artifacts/verification/m3.1/full-check.txt` |
+| AC-M31-002 | `go test ./internal/agent ./internal/app -count=1` | `chat` 可确认写入，`-p` 不注册写入工具 | `artifacts/verification/m3.1/full-check.txt` |
+| AC-M31-003 | `go run ./cmd/drift chat -w .` | 拒绝不改文件，批准后创建/覆盖目标并生成 changes 记录 | `artifacts/verification/m3.1/manual-acceptance.txt` |
+| AC-M31-004 | 全量测试、vet、构建和 diff 检查 | 全部退出码为 0 | `artifacts/verification/m3.1/full-check.txt` |
 
 ## M2.5：消息完整性与会话时间线
 
