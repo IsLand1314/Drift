@@ -1,0 +1,16 @@
+M1.8 manual acceptance checklist
+
+Windows Terminal command:
+`\.codex-temp\drift-m18.exe chat -w . --no-session`
+
+Observed:
+- empty TTY input: dim separators, cyan `❯`, gray `Send a message...`
+- typed input: placeholder disappeared and cursor remained after the text
+- Enter: one prompt submitted, response and `完成 · <seconds>` rendered
+- next prompt: input box was redrawn
+- `/status`: existing aligned Session ID, Model, Context, Tokens, Tools, Workspace panel remained intact
+
+Redirected input check:
+`"/status`nexit`n" | .\.codex-temp\drift-m18.exe chat -w . > .codex-temp\m18-output.txt`
+
+Observed: output contained no ANSI escape byte (0x1b); scanner fallback remained active.

@@ -269,7 +269,7 @@ func TestChatCancelsCurrentTurnAndContinues(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("code=%d out=%q stderr=%q", code, out.String(), stderr.String())
 	}
-	if client.calls != 2 || !strings.Contains(out.String(), "已取消当前轮；会话仍可继续") || !strings.Contains(out.String(), "continued answer") {
+	if client.calls != 2 || !strings.Contains(out.String(), "✖ 当前轮已取消；会话仍可继续") || strings.Contains(out.String(), "context canceled") || !strings.Contains(out.String(), "continued answer") {
 		t.Fatalf("calls=%d out=%q stderr=%q", client.calls, out.String(), stderr.String())
 	}
 }

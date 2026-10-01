@@ -1,0 +1,12 @@
+M1.8 full verification (2026-10-01)
+
+go test ./... -count=1: PASS
+go vet ./...: PASS
+go build -o .codex-temp\drift-m18.exe ./cmd/drift: PASS
+git diff --check: PASS (only Git line-ending warnings for existing Windows checkout)
+
+TTY smoke check: PASS
+- empty input rendered dim separator and `❯ Send a message...`
+- typed text rendered with controlled cursor
+- Enter returned to the chat loop and rendered the next input box
+- `/status` rendered without a Provider request

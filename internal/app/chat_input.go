@@ -1,0 +1,156 @@
+package app
+
+import (
+	"bufio"
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+
+	"github.com/charmbracelet/bubbles/textarea"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+)
+
+var errChatInputCancelled = errors.New("chat input cancelled")
+
+type chatInput interface {
+	Read(context.Context) (string, error)
+}
+
+func newChatInput(in io.Reader, out io.Writer) chatInput {
+	if inputFile, ok := in.(*os.File); ok {
+		if outputFile, ok := out.(*os.File); ok && isTTY(inputFile) && isTTY(outputFile) {
+			return &ttyChatInput{in: inputFile, out: outputFile}
+		}
+	}
+	return newScannerChatInput(in)
+}
+
+func isTTY(file *os.File) bool {
+	info, err := file.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
+}
+
+type scannerChatInput struct {
+	scanner *bufio.Scanner
+}
+
+func newScannerChatInput(in io.Reader) *scannerChatInput {
+	scanner := bufio.NewScanner(in)
+	scanner.Buffer(make([]byte, 4096), 1<<20)
+	return &scannerChatInput{scanner: scanner}
+}
+
+func (s *scannerChatInput) Read(context.Context) (string, error) {
+	if !s.scanner.Scan() {
+		if err := s.scanner.Err(); err != nil {
+			return "", err
+		}
+		return "", io.EOF
+	}
+	return s.scanner.Text(), nil
+}
+
+type ttyChatInput struct {
+	in  io.Reader
+	out io.Writer
+}
+
+func (t *ttyChatInput) Read(ctx context.Context) (string, error) {
+	if separator := chatSeparator(t.out); separator != "" {
+		if _, err := fmt.Fprintln(t.out, separator); err != nil {
+			return "", err
+		}
+	}
+	model := newChatInputModel()
+	program := tea.NewProgram(
+		&model,
+		tea.WithContext(ctx),
+		tea.WithInput(t.in),
+		tea.WithOutput(t.out),
+		tea.WithoutSignalHandler(),
+		tea.WithoutSignals(),
+	)
+	result, runErr := program.Run()
+	if separator := chatSeparator(t.out); separator != "" {
+		if _, separatorErr := fmt.Fprintln(t.out, separator); runErr == nil {
+			runErr = separatorErr
+		}
+	}
+	var finalModel chatInputModel
+	switch model := result.(type) {
+	case chatInputModel:
+		finalModel = model
+	case *chatInputModel:
+		finalModel = *model
+	default:
+		if runErr != nil && ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+		if runErr != nil {
+			return "", runErr
+		}
+		return "", errors.New("chat input returned an invalid model")
+	}
+	if finalModel.cancelled {
+		return "", errChatInputCancelled
+	}
+	if runErr != nil && ctx.Err() != nil {
+		return "", ctx.Err()
+	}
+	if runErr != nil && !finalModel.submitted {
+		if errors.Is(runErr, tea.ErrProgramKilled) {
+			return "", errChatInputCancelled
+		}
+		return "", runErr
+	}
+	return finalModel.editor.Value(), nil
+}
+
+type chatInputModel struct {
+	editor    textarea.Model
+	submitted bool
+	cancelled bool
+}
+
+func newChatInputModel() chatInputModel {
+	editor := textarea.New()
+	editor.Placeholder = "Send a message..."
+	editor.Prompt = "❯ "
+	editor.CharLimit = 0
+	editor.SetHeight(1)
+	editor.ShowLineNumbers = false
+	editor.FocusedStyle.Base = lipgloss.NewStyle()
+	editor.FocusedStyle.CursorLine = lipgloss.NewStyle()
+	editor.FocusedStyle.Prompt = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
+	editor.FocusedStyle.Placeholder = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	editor.BlurredStyle = editor.FocusedStyle
+	editor.Focus()
+	return chatInputModel{editor: editor}
+}
+
+func (m chatInputModel) Init() tea.Cmd {
+	return m.editor.Cursor.BlinkCmd()
+}
+
+func (m chatInputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if key, ok := msg.(tea.KeyMsg); ok {
+		switch key.Type {
+		case tea.KeyEnter:
+			m.submitted = true
+			return m, tea.Quit
+		case tea.KeyCtrlC:
+			m.cancelled = true
+			return m, tea.Quit
+		}
+	}
+	var cmd tea.Cmd
+	m.editor, cmd = m.editor.Update(msg)
+	return m, cmd
+}
+
+func (m chatInputModel) View() string {
+	return m.editor.View()
+}

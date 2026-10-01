@@ -1,7 +1,6 @@
 package app
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -85,31 +84,37 @@ func (p *chatPersistence) clearRunner(runner *agent.Runner) error {
 }
 
 func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit session.Writer, traceSink agent.EventSink, persistence *chatPersistence, status chatStatus, interrupt *interruptCoordinator, in io.Reader, out, stderr io.Writer) int {
-	scanner := bufio.NewScanner(in)
-	scanner.Buffer(make([]byte, 4096), 1<<20)
+	input := newChatInput(in, out)
+	interactiveInput := false
+	if _, ok := input.(*ttyChatInput); ok {
+		interactiveInput = true
+	}
 	for {
-		// 每次只读取一行；退出命令不会进入 Agent，也不会产生 Provider 请求。
-		if separator := chatSeparator(out); separator != "" {
-			if _, err := fmt.Fprintln(out, separator); err != nil {
+		// TTY 输入组件自己负责分隔线、占位符和光标；纯文本路径保留原有提示。
+		if !interactiveInput {
+			if separator := chatSeparator(out); separator != "" {
+				if _, err := fmt.Fprintln(out, separator); err != nil {
+					fmt.Fprintln(stderr, "错误：", err)
+					return 1
+				}
+			}
+			if _, err := fmt.Fprint(out, chatPrompt(out)); err != nil {
 				fmt.Fprintln(stderr, "错误：", err)
 				return 1
 			}
 		}
-		if _, err := fmt.Fprint(out, chatPrompt(out)); err != nil {
+		prompt, err := input.Read(ctx)
+		if err != nil {
+			if errors.Is(err, errChatInputCancelled) || errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+				return 130
+			}
+			if errors.Is(err, io.EOF) {
+				return 0
+			}
 			fmt.Fprintln(stderr, "错误：", err)
 			return 1
 		}
-		if !scanner.Scan() {
-			if err := scanner.Err(); err != nil {
-				fmt.Fprintln(stderr, "错误：", err)
-				return 1
-			}
-			if ctx.Err() != nil {
-				return 130
-			}
-			return 0
-		}
-		prompt := strings.TrimSpace(strings.TrimSuffix(scanner.Text(), "\r"))
+		prompt = strings.TrimSpace(strings.TrimSuffix(prompt, "\r"))
 		if prompt == "" {
 			continue
 		}
@@ -215,7 +220,7 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 		if persistence != nil {
 			usageBefore = persistence.usage
 		}
-		err := runner.RunEvents(turnCtx, prompt, func(event agent.Event) error {
+		err = runner.RunEvents(turnCtx, prompt, func(event agent.Event) error {
 			// 同一事件先写脱敏审计，再按需转发 trace 和 stdout。
 			if err := audit.Append(event); err != nil {
 				return err
@@ -246,7 +251,7 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 			}
 			if errors.Is(err, context.Canceled) && turnCtx.Err() != nil && ctx.Err() == nil {
 				_ = appendChatEvent(audit, traceSink, agent.Event{Type: agent.EventError, Stage: "agent_cancelled"})
-				fmt.Fprintln(out, "已取消当前轮；会话仍可继续")
+				fmt.Fprintln(out, chatCancelMessage(out))
 				turnCancel()
 				continue
 			}
@@ -343,6 +348,13 @@ func chatAssistantPrefix(out io.Writer) string {
 		return "\x1b[35m●\x1b[0m "
 	}
 	return "● "
+}
+
+func chatCancelMessage(out io.Writer) string {
+	if chatUsesColor(out) {
+		return "\x1b[35m✖\x1b[0m \x1b[31m当前轮已取消；会话仍可继续\x1b[0m"
+	}
+	return "✖ 当前轮已取消；会话仍可继续"
 }
 
 func chatMuted(out io.Writer) string {

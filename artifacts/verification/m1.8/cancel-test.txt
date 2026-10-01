@@ -1,0 +1,9 @@
+M1.8 cancellation verification
+
+Automated `go test ./internal/app -run TestChatCancelsCurrentTurnAndContinues -count=1`: PASS
+- active turn emitted `agent_cancelled`
+- output contained `✖ 当前轮已取消；会话仍可继续`
+- output did not contain `context canceled`
+- following prompt completed in the same chat process
+
+Idle cancellation behavior remains covered by `TestChatInterruptWhileIdleExits130`: PASS.

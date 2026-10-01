@@ -1,6 +1,29 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 `doc/architecture.md`。当前版本为 M1.7。下面的 M1.6、M1.5、M1.4、M1.3、M1.2、M1.1、M1.0、M0.9、M0.8、M0.7、M0.6、M0.5、M0.4、M0.3、M0.2.2 和 M0.2.1 章节是已完成阶段的历史记录，不覆盖当前 M1.7 的运行边界。
+本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 `doc/architecture.md`。当前版本为 M1.8。下面的 M1.7、M1.6、M1.5、M1.4、M1.3、M1.2、M1.1、M1.0、M0.9、M0.8、M0.7、M0.6、M0.5、M0.4、M0.3、M0.2.2 和 M0.2.1 章节是已完成阶段的历史记录，不覆盖当前 M1.8 的运行边界。
+
+## M1.8：最小终端输入层
+
+M1.8 为真实 TTY 的 `drift chat` 增加单行输入组件，提供占位文本、受控光标和清晰的取消反馈；重定向和测试输入继续使用无 ANSI 的按行协议。
+
+### 当前范围
+
+- TTY 输入区显示暗色上下分隔线、青色 `❯` 和灰色 `Send a message...` 占位文本；输入后由组件显示单行文本和光标。
+- Enter 提交非空文本；空文本继续等待；`exit`、`/exit`、`quit` 语义保持不变。
+- 活动模型/工具轮按 Ctrl+C 时显示 `✖ 当前轮已取消；会话仍可继续`，不显示原始 `context canceled`；Agent 消息、Token 和完整快照继续回滚半轮。
+- 空闲输入按 Ctrl+C 仍以退出码 130 结束；非 TTY 使用现有 `bufio.Scanner` 路径，不输出 ANSI 控制符。
+- `/status` 保持当前语义颜色、字段对齐和六个字段，不增加 Memory、历史、多行编辑、Alt Screen、输入队列或完整 TUI。
+
+### M1.8 验收
+
+| ID | 验证方法 | 通过阈值 | 证据路径 |
+| --- | --- | --- | --- |
+| AC-M18-001 | Windows Terminal 启动 `drift chat -w .` | 空输入显示分隔线、`❯` 和 `Send a message...`，输入时显示光标 | `artifacts/verification/m1.8/manual-acceptance.txt` |
+| AC-M18-002 | 输入普通问题并按 Enter | 只发送一次消息，回答与完成耗时继续显示 | `artifacts/verification/m1.8/manual-acceptance.txt` |
+| AC-M18-003 | 模型流或工具执行中按 Ctrl+C | 显示安全取消提示，chat 回到新输入框，后续问题可继续 | `artifacts/verification/m1.8/cancel-test.txt` |
+| AC-M18-004 | 空闲输入时按 Ctrl+C | chat 退出码为 130 | `artifacts/verification/m1.8/cancel-test.txt` |
+| AC-M18-005 | 重定向输入并检查输出 | 继续使用纯文本提示，无 ANSI 控制字符 | `artifacts/verification/m1.8/manual-acceptance.txt` |
+| AC-M18-006 | 全量测试、vet、build、diff | 全部退出码为 0 | `artifacts/verification/m1.8/full-check.txt` |
 
 ## M1.7：单轮取消
 
