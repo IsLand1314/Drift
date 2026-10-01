@@ -25,9 +25,12 @@ func TestStreamIsIncremental(t *testing.T) {
 		}
 		var req struct {
 			llm.Request
-			Stream bool `json:"stream"`
+			Stream        bool `json:"stream"`
+			StreamOptions struct {
+				IncludeUsage bool `json:"include_usage"`
+			} `json:"stream_options"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || !req.Stream || req.Model != "test-model" || len(req.Messages) != 1 || req.Messages[0].Content != "你好" {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || !req.Stream || !req.StreamOptions.IncludeUsage || req.Model != "test-model" || len(req.Messages) != 1 || req.Messages[0].Content != "你好" {
 			t.Errorf("unexpected body: %+v, %v", req, err)
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -194,6 +197,21 @@ func TestStreamAggregatesToolCall(t *testing.T) {
 }
 
 func TestReadStreamProtocolRegressions(t *testing.T) {
+	t.Run("usage-only chunk", func(t *testing.T) {
+		body := "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: {\"choices\":[],\"usage\":{\"prompt_tokens\":17,\"completion_tokens\":9,\"total_tokens\":26}}\n\ndata: [DONE]\n\n"
+		completion, err := readStream(strings.NewReader(body), func(llm.StreamEvent) error { return nil })
+		if err != nil || completion.Usage == nil || completion.Usage.InputTokens != 17 || completion.Usage.OutputTokens != 9 || completion.Usage.TotalTokens != 26 {
+			t.Fatalf("unexpected usage: %+v, %v", completion.Usage, err)
+		}
+	})
+
+	t.Run("missing usage remains unavailable", func(t *testing.T) {
+		completion, err := readStream(strings.NewReader("data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"), func(llm.StreamEvent) error { return nil })
+		if err != nil || completion.Usage != nil {
+			t.Fatalf("unexpected completion: %+v, %v", completion, err)
+		}
+	})
+
 	t.Run("stop text", func(t *testing.T) {
 		completion, err := readStream(strings.NewReader("data: {\"choices\":[{\"delta\":{\"content\":\"hello\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"), func(llm.StreamEvent) error { return nil })
 		if err != nil || completion.Assistant.Content != "hello" || completion.FinishReason != "stop" {

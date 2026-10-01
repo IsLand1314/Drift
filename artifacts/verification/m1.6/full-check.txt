@@ -1,0 +1,35 @@
+command: ["powershell", "-NoProfile", "-Command", "go test ./... -count=1; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; go vet ./...; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; go build -o .codex-temp\\\\drift-m16.exe ./cmd/drift; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; git diff --check"]
+cwd: "F:\\code\\drift"
+output_encoding: utf-8
+exit_code: 0
+
+--- stdout ---
+?   	github.com/IsLand1314/Drift/cmd/drift	[no test files]
+ok  	github.com/IsLand1314/Drift/internal/agent	0.247s
+ok  	github.com/IsLand1314/Drift/internal/app	0.921s
+ok  	github.com/IsLand1314/Drift/internal/config	0.428s
+ok  	github.com/IsLand1314/Drift/internal/conversation	0.608s
+?   	github.com/IsLand1314/Drift/internal/llm	[no test files]
+ok  	github.com/IsLand1314/Drift/internal/llm/openai	0.494s
+ok  	github.com/IsLand1314/Drift/internal/session	0.509s
+ok  	github.com/IsLand1314/Drift/internal/tool	1.120s
+
+--- stderr ---
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'doc/m1.4-context-compaction.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'doc/m1.5-runtime-hygiene.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'internal/agent/agent.go', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'internal/agent/agent_test.go', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'internal/agent/event.go', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'internal/app/app.go', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'internal/app/chat.go', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'internal/app/chat_test.go', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'internal/conversation/store.go', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'internal/conversation/store_test.go', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'internal/llm/client.go', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'internal/llm/openai/client.go', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'internal/llm/openai/client_test.go', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'internal/session/jsonl.go', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'internal/session/jsonl_test.go', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'internal/session/session.go', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'spec/current.md', LF will be replaced by CRLF the next time Git touches it

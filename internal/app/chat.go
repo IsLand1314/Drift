@@ -30,6 +30,25 @@ type chatPersistence struct {
 	store      *conversation.Store
 	snapshot   conversation.Snapshot
 	persistent bool
+	usage      usageTotals
+}
+
+type usageTotals struct {
+	InputTokens, OutputTokens            int
+	ReportedRequests, UnreportedRequests int
+}
+
+func (u *usageTotals) add(event agent.Event) {
+	if event.Type != agent.EventModelUsage {
+		return
+	}
+	if event.UsageAvailable {
+		u.InputTokens += event.InputTokens
+		u.OutputTokens += event.OutputTokens
+		u.ReportedRequests++
+	} else {
+		u.UnreportedRequests++
+	}
 }
 
 func (p *chatPersistence) saveRunner(runner *agent.Runner) error {
@@ -38,6 +57,10 @@ func (p *chatPersistence) saveRunner(runner *agent.Runner) error {
 	}
 	p.snapshot.Messages = runner.Messages()
 	p.snapshot.ContextBytes = runner.ContextBytes()
+	p.snapshot.InputTokens = p.usage.InputTokens
+	p.snapshot.OutputTokens = p.usage.OutputTokens
+	p.snapshot.ReportedRequests = p.usage.ReportedRequests
+	p.snapshot.UnreportedRequests = p.usage.UnreportedRequests
 	p.snapshot.UpdatedAt = time.Now().UTC()
 	return p.store.Save(p.snapshot)
 }
@@ -50,6 +73,8 @@ func (p *chatPersistence) clearRunner(runner *agent.Runner) error {
 	cleared := p.snapshot
 	cleared.Messages = nil
 	cleared.ContextBytes = 0
+	cleared.InputTokens, cleared.OutputTokens = 0, 0
+	cleared.ReportedRequests, cleared.UnreportedRequests = 0, 0
 	cleared.UpdatedAt = time.Now().UTC()
 	if err := p.store.Save(cleared); err != nil {
 		return err
@@ -131,14 +156,30 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 				fmt.Fprintln(stderr, "错误：压缩失败，当前上下文保持不变")
 				continue
 			}
+			usageEvent := agent.Event{Type: agent.EventModelUsage, UsageAvailable: result.Usage != nil}
+			if result.Usage != nil {
+				usageEvent.InputTokens = result.Usage.InputTokens
+				usageEvent.OutputTokens = result.Usage.OutputTokens
+				usageEvent.TotalTokens = result.Usage.TotalTokens
+			}
+			oldUsage := usageTotals{}
+			if persistence != nil {
+				oldUsage = persistence.usage
+				persistence.usage.add(usageEvent)
+			}
 			if persistence != nil && persistence.persistent {
 				if err := persistence.saveRunner(runner); err != nil {
 					runner.RestoreMessages(oldMessages)
 					persistence.snapshot = oldSnapshot
+					persistence.usage = oldUsage
 					_ = appendChatEvent(audit, traceSink, agent.Event{Type: agent.EventCompactionError, Error: err.Error(), Stage: "conversation_save", BeforeBytes: beforeBytes, MessageCount: len(oldMessages)})
 					fmt.Fprintln(stderr, "错误：会话保存失败，压缩结果未应用")
 					continue
 				}
+			}
+			if err := appendChatEvent(audit, traceSink, usageEvent); err != nil {
+				fmt.Fprintln(stderr, "错误：", err)
+				return 1
 			}
 			if err := appendChatEvent(audit, traceSink, agent.Event{Type: agent.EventCompactionFinished, BeforeBytes: result.BeforeBytes, AfterBytes: result.AfterBytes, MessageCount: len(oldMessages), KeptMessages: len(result.KeptMessages)}); err != nil {
 				fmt.Fprintln(stderr, "错误：", err)
@@ -172,6 +213,9 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 			}
 			if traceSink != nil {
 				_ = traceSink(event)
+			}
+			if persistence != nil {
+				persistence.usage.add(event)
 			}
 			if event.Type != agent.EventTextDelta {
 				return nil
@@ -231,8 +275,30 @@ func writeChatStatus(out io.Writer, runner *agent.Runner, persistence *chatPersi
 	remainingPercent := int(float64(remaining)*100/float64(agent.MaxConversationBytes) + 0.5)
 	totalKB := float64(agent.MaxConversationBytes) / 1000
 	usedKB := float64(contextBytes) / 1000
-	fmt.Fprintf(out, "%sDrift Status%s\n%s────────────────────────%s\n", chatStatusAccent(out), chatReset(out), chatMuted(out), chatReset(out))
-	fmt.Fprintf(out, "Session ID: %s\nModel: %s\nContext: %d%% remaining\n         %.1f KB used / %.1f KB total\nTokens: unavailable\nTools: %d enabled\nWorkspace: %s\n", conversationID, status.Model, remainingPercent, usedKB, totalKB, status.ToolCount, status.Workspace)
+	fmt.Fprintf(out, "%sDrift Status%s\n%s────────────────────────%s\n\n", chatStatusAccent(out), chatReset(out), chatMuted(out), chatReset(out))
+	writeChatStatusRow(out, "Session ID", conversationID, "")
+	writeChatStatusRow(out, "Model", status.Model, "")
+	writeChatStatusRow(out, "Context", fmt.Sprintf("%d%% remaining", remainingPercent), "")
+	fmt.Fprintf(out, "%15s%.1f KB used / %.1f KB total\n", "", usedKB, totalKB)
+	usage := usageTotals{}
+	if persistence != nil {
+		usage = persistence.usage
+	}
+	tokenText, tokenStyle := "unavailable", chatStatusWarning(out)
+	if usage.ReportedRequests > 0 {
+		tokenText = fmt.Sprintf("%d in / %d out", usage.InputTokens, usage.OutputTokens)
+		if usage.UnreportedRequests > 0 {
+			tokenText += " (partial)"
+		}
+		tokenStyle = ""
+	}
+	writeChatStatusRow(out, "Tokens", tokenText, tokenStyle)
+	writeChatStatusRow(out, "Tools", fmt.Sprintf("%d enabled", status.ToolCount), "")
+	writeChatStatusRow(out, "Workspace", status.Workspace, chatStatusAccent(out))
+}
+
+func writeChatStatusRow(out io.Writer, label, value, valueStyle string) {
+	fmt.Fprintf(out, "  %s%-13s%s%s%s%s\n", chatStatusLabel(out), label+":", chatReset(out), valueStyle, value, chatReset(out))
 }
 
 func chatPrompt(out io.Writer) string {
@@ -266,6 +332,20 @@ func chatMuted(out io.Writer) string {
 func chatStatusAccent(out io.Writer) string {
 	if chatUsesColor(out) {
 		return "\x1b[36m"
+	}
+	return ""
+}
+
+func chatStatusLabel(out io.Writer) string {
+	if chatUsesColor(out) {
+		return "\x1b[2m"
+	}
+	return ""
+}
+
+func chatStatusWarning(out io.Writer) string {
+	if chatUsesColor(out) {
+		return "\x1b[33m"
 	}
 	return ""
 }

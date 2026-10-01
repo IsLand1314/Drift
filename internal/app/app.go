@@ -149,6 +149,7 @@ func RunWithInput(ctx context.Context, args []string, getenv func(string) string
 			}
 			runner = agent.NewRunnerWithMessages(modelClient{Client: client, model: *model}, selection.Root, snapshot.Focus, registry, snapshot.Messages)
 			persistence = &chatPersistence{store: store, snapshot: snapshot, persistent: true}
+			persistence.usage = usageTotals{InputTokens: snapshot.InputTokens, OutputTokens: snapshot.OutputTokens, ReportedRequests: snapshot.ReportedRequests, UnreportedRequests: snapshot.UnreportedRequests}
 			fmt.Fprintf(stderr, "Session ID: %s\n注意：此会话会保存完整本地上下文，可能包含用户输入和读取结果；使用 --no-session 可关闭\n", snapshot.ID)
 		} else if !persistenceOptions.noSession {
 			snapshot, createErr := store.Create(selection.Focus)
@@ -161,6 +162,7 @@ func RunWithInput(ctx context.Context, args []string, getenv func(string) string
 			fmt.Fprintf(stderr, "Session ID: %s\n注意：此会话会保存完整本地上下文，可能包含用户输入和读取结果；使用 --no-session 可关闭\n", snapshot.ID)
 		} else {
 			runner = agent.NewRunner(modelClient{Client: client, model: *model}, selection.Root, selection.Focus, registry)
+			persistence = &chatPersistence{persistent: false}
 			fmt.Fprintln(stderr, "已禁用完整会话保存（--no-session）；仍保留脱敏审计")
 		}
 	} else {

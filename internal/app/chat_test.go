@@ -15,6 +15,7 @@ import (
 
 	"github.com/IsLand1314/Drift/internal/agent"
 	"github.com/IsLand1314/Drift/internal/conversation"
+	"github.com/IsLand1314/Drift/internal/tool"
 )
 
 func TestChatPreservesConversationAcrossTurns(t *testing.T) {
@@ -208,8 +209,24 @@ func TestChatStatusDoesNotCallProvider(t *testing.T) {
 	if code := RunWithInput(context.Background(), []string{"chat", "--no-session", "-model", "test-model", "-w", t.TempDir()}, getenv, strings.NewReader("/status\nexit\n"), &out, &stderr); code != 0 {
 		t.Fatalf("code=%d out=%q stderr=%q", code, out.String(), stderr.String())
 	}
-	if requests != 0 || !strings.Contains(out.String(), "Drift Status") || !strings.Contains(out.String(), "Session ID: temporary (not saved)") || !strings.Contains(out.String(), "Model: test-model") || !strings.Contains(out.String(), "Tokens: unavailable") || !strings.Contains(out.String(), "Tools: 3 enabled") || !strings.Contains(out.String(), "Workspace:") || !strings.Contains(out.String(), "KB") {
+	if requests != 0 || !strings.Contains(out.String(), "Drift Status") || !strings.Contains(out.String(), "\n  Session ID:  temporary (not saved)\n") || !strings.Contains(out.String(), "\n  Model:       test-model\n") || !strings.Contains(out.String(), "\n  Context:     100% remaining\n               1.2 KB used / 1048.6 KB total\n") || !strings.Contains(out.String(), "\n  Tokens:      unavailable\n") || !strings.Contains(out.String(), "\n  Tools:       3 enabled\n") || !strings.Contains(out.String(), "\n  Workspace:   ") {
 		t.Fatalf("requests=%d out=%q", requests, out.String())
+	}
+}
+
+func TestChatStatusShowsReportedAndPartialUsage(t *testing.T) {
+	runner := agent.NewRunner(nil, t.TempDir(), "", tool.NewDefaultRegistry())
+	persistence := &chatPersistence{usage: usageTotals{InputTokens: 17, OutputTokens: 9, ReportedRequests: 1}}
+	var out bytes.Buffer
+	writeChatStatus(&out, runner, persistence, chatStatus{Model: "test-model", Workspace: t.TempDir(), ToolCount: 3})
+	if !strings.Contains(out.String(), "Tokens:      17 in / 9 out") {
+		t.Fatalf("status=%q", out.String())
+	}
+	persistence.usage.UnreportedRequests = 1
+	out.Reset()
+	writeChatStatus(&out, runner, persistence, chatStatus{Model: "test-model", Workspace: t.TempDir(), ToolCount: 3})
+	if !strings.Contains(out.String(), "17 in / 9 out (partial)") {
+		t.Fatalf("partial status=%q", out.String())
 	}
 }
 

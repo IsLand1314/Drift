@@ -44,7 +44,7 @@ func New(baseURL, key string) (*Client, error) {
 // Stream 把 llm.Request 序列化为 OpenAI Chat Completions SSE 请求，
 // 再由 readStream 聚合成一次完整的 llm.Completion。
 func (c *Client) Stream(ctx context.Context, input llm.Request, emit func(llm.StreamEvent) error) (llm.Completion, error) {
-	body, err := json.Marshal(request{Model: input.Model, Messages: openAIMessages(input.Messages), Tools: input.Tools, Stream: true})
+	body, err := json.Marshal(request{Model: input.Model, Messages: openAIMessages(input.Messages), Tools: input.Tools, Stream: true, StreamOptions: &streamOptions{IncludeUsage: true}})
 	if err != nil {
 		return llm.Completion{}, err
 	}
@@ -83,10 +83,15 @@ func (c *Client) Stream(ctx context.Context, input llm.Request, emit func(llm.St
 }
 
 type request struct {
-	Model    string               `json:"model"`
-	Messages []message            `json:"messages"`
-	Tools    []llm.ToolDefinition `json:"tools,omitempty"`
-	Stream   bool                 `json:"stream"`
+	Model         string               `json:"model"`
+	Messages      []message            `json:"messages"`
+	Tools         []llm.ToolDefinition `json:"tools,omitempty"`
+	Stream        bool                 `json:"stream"`
+	StreamOptions *streamOptions       `json:"stream_options,omitempty"`
+}
+
+type streamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
 }
 
 type message struct {
@@ -159,7 +164,12 @@ func readStream(r io.Reader, emit func(llm.StreamEvent) error) (llm.Completion, 
 			return completion, nil
 		}
 		var chunk struct {
-			Error   json.RawMessage `json:"error"`
+			Error json.RawMessage `json:"error"`
+			Usage *struct {
+				PromptTokens     int `json:"prompt_tokens"`
+				CompletionTokens int `json:"completion_tokens"`
+				TotalTokens      int `json:"total_tokens"`
+			} `json:"usage"`
 			Choices []struct {
 				Index int `json:"index"`
 				Delta struct {
@@ -184,6 +194,12 @@ func readStream(r io.Reader, emit func(llm.StreamEvent) error) (llm.Completion, 
 		}
 		if len(chunk.Error) > 0 && string(chunk.Error) != "null" {
 			return llm.Completion{}, &llm.ProviderError{Stage: llm.ErrorStageSSEServerError, Message: "模型 SSE 流返回服务端错误"}
+		}
+		if chunk.Usage != nil {
+			if chunk.Usage.PromptTokens < 0 || chunk.Usage.CompletionTokens < 0 || chunk.Usage.TotalTokens < 0 {
+				return llm.Completion{}, &llm.ProviderError{Stage: llm.ErrorStageSSEInvalidJSON, Message: "模型 SSE usage 数值无效"}
+			}
+			completion.Usage = &llm.Usage{InputTokens: chunk.Usage.PromptTokens, OutputTokens: chunk.Usage.CompletionTokens, TotalTokens: chunk.Usage.TotalTokens}
 		}
 		for _, choice := range chunk.Choices {
 			if choice.Index != 0 {

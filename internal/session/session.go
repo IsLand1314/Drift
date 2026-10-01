@@ -27,6 +27,9 @@ type Entry struct {
 	AfterBytes    int       `json:"after_bytes,omitempty"`
 	MessageCount  int       `json:"message_count,omitempty"`
 	KeptMessages  int       `json:"kept_messages,omitempty"`
+	InputTokens   int       `json:"input_tokens,omitempty"`
+	OutputTokens  int       `json:"output_tokens,omitempty"`
+	TotalTokens   int       `json:"total_tokens,omitempty"`
 }
 
 // Writer 追加 Agent 事件，并在关闭后拒绝继续写入。

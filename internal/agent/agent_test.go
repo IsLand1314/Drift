@@ -782,7 +782,7 @@ func TestRunRecordsUnexpectedFinishReason(t *testing.T) {
 	if err == nil {
 		t.Fatal("RunEvents() error = nil, want unexpected completion error")
 	}
-	if len(events) != 2 || events[1].Type != EventError || events[1].FinishReason != "length" {
+	if len(events) != 3 || events[2].Type != EventError || events[2].FinishReason != "length" {
 		t.Fatalf("events = %#v, want error finish_reason=length", events)
 	}
 }
@@ -810,7 +810,7 @@ func TestRunRejectsEmptyFinalResponse(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "empty response") {
 		t.Fatalf("RunEvents() error = %v, want empty response error", err)
 	}
-	if len(events) != 2 || events[1].Type != EventError || events[1].Stage != "agent_empty_response" {
+	if len(events) != 3 || events[2].Type != EventError || events[2].Stage != "agent_empty_response" {
 		t.Fatalf("events = %#v, want agent_empty_response error", events)
 	}
 }
@@ -869,11 +869,11 @@ func TestRunEventsEmitsOrderedRuntimeEvents(t *testing.T) {
 	client := &scriptedClient{steps: []scriptedStep{
 		{
 			events:     []llm.StreamEvent{{Text: "I will inspect it."}},
-			completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "I will inspect it.", ToolCalls: []llm.ToolCall{call}}, FinishReason: "tool_calls"},
+			completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "I will inspect it.", ToolCalls: []llm.ToolCall{call}}, FinishReason: "tool_calls", Usage: &llm.Usage{InputTokens: 10, OutputTokens: 4, TotalTokens: 14}},
 		},
 		{
 			events:     []llm.StreamEvent{{Text: "The "}, {Text: "README says hello."}},
-			completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "The README says hello."}, FinishReason: "stop"},
+			completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "The README says hello."}, FinishReason: "stop", Usage: &llm.Usage{InputTokens: 20, OutputTokens: 6, TotalTokens: 26}},
 		},
 	}}
 
@@ -886,16 +886,14 @@ func TestRunEventsEmitsOrderedRuntimeEvents(t *testing.T) {
 		t.Fatalf("RunEvents() error = %v", err)
 	}
 	if got := []EventType{
-		events[0].Type,
-		events[1].Type,
-		events[2].Type,
-		events[3].Type,
-		events[4].Type,
-		events[5].Type,
+		events[0].Type, events[1].Type, events[2].Type, events[3].Type,
+		events[4].Type, events[5].Type, events[6].Type, events[7].Type,
 	}; !reflect.DeepEqual(got, []EventType{
 		EventRunStarted,
+		EventModelUsage,
 		EventToolCall,
 		EventToolResult,
+		EventModelUsage,
 		EventTextDelta,
 		EventTextDelta,
 		EventRunFinished,
@@ -905,17 +903,23 @@ func TestRunEventsEmitsOrderedRuntimeEvents(t *testing.T) {
 	if events[0].Text != "read the readme" {
 		t.Fatalf("run_started text = %q, want prompt", events[0].Text)
 	}
-	if events[1].ToolCallID != call.ID || events[1].ToolName != call.Name || events[1].Arguments != call.Arguments {
-		t.Fatalf("tool_call event = %#v, want call metadata", events[1])
+	if events[1].InputTokens != 10 || events[1].OutputTokens != 4 || !events[1].UsageAvailable {
+		t.Fatalf("first usage event = %#v", events[1])
 	}
-	if events[2].ToolCallID != call.ID || events[2].Result != "hello from readme\n" || strings.Contains(events[2].Result, root) {
-		t.Fatalf("tool_result event = %#v, want sanitized file content", events[2])
+	if events[2].ToolCallID != call.ID || events[2].ToolName != call.Name || events[2].Arguments != call.Arguments {
+		t.Fatalf("tool_call event = %#v, want call metadata", events[2])
 	}
-	if events[3].Text != "The " || events[4].Text != "README says hello." {
-		t.Fatalf("text events = %#v, want final text chunks", events[3:5])
+	if events[3].ToolCallID != call.ID || events[3].Result != "hello from readme\n" || strings.Contains(events[3].Result, root) {
+		t.Fatalf("tool_result event = %#v, want sanitized file content", events[3])
 	}
-	if events[5].FinishReason != "stop" {
-		t.Fatalf("run_finished finish reason = %q, want stop", events[5].FinishReason)
+	if events[4].InputTokens != 20 || events[4].OutputTokens != 6 || !events[4].UsageAvailable {
+		t.Fatalf("second usage event = %#v", events[4])
+	}
+	if events[5].Text != "The " || events[6].Text != "README says hello." {
+		t.Fatalf("text events = %#v, want final text chunks", events[5:7])
+	}
+	if events[7].FinishReason != "stop" {
+		t.Fatalf("run_finished finish reason = %q, want stop", events[7].FinishReason)
 	}
 }
 

@@ -1,0 +1,15 @@
+command: ["go", "test", "./internal/app", "-run", "TestChatStatusShowsReportedAndPartialUsage|TestChatStatusDoesNotCallProvider", "-count=1", "-v"]
+cwd: "F:\\code\\drift"
+output_encoding: utf-8
+exit_code: 0
+
+--- stdout ---
+=== RUN   TestChatStatusDoesNotCallProvider
+--- PASS: TestChatStatusDoesNotCallProvider (0.01s)
+=== RUN   TestChatStatusShowsReportedAndPartialUsage
+--- PASS: TestChatStatusShowsReportedAndPartialUsage (0.00s)
+PASS
+ok  	github.com/IsLand1314/Drift/internal/app	0.217s
+
+--- stderr ---
+

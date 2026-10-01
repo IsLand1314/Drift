@@ -27,14 +27,18 @@ var (
 )
 
 type Snapshot struct {
-	Version      int
-	ID           string
-	Title        string
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
-	Focus        string
-	ContextBytes int
-	Messages     []llm.Message
+	Version            int
+	ID                 string
+	Title              string
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	Focus              string
+	ContextBytes       int
+	Messages           []llm.Message
+	InputTokens        int
+	OutputTokens       int
+	ReportedRequests   int
+	UnreportedRequests int
 }
 
 type Metadata struct {
@@ -55,14 +59,18 @@ func NewStore(workspace string) *Store {
 }
 
 type persistedSnapshot struct {
-	Version      int                `json:"version"`
-	ID           string             `json:"id"`
-	Title        string             `json:"title,omitempty"`
-	CreatedAt    time.Time          `json:"created_at"`
-	UpdatedAt    time.Time          `json:"updated_at"`
-	Focus        string             `json:"focus,omitempty"`
-	ContextBytes int                `json:"context_bytes"`
-	Messages     []persistedMessage `json:"messages"`
+	Version            int                `json:"version"`
+	ID                 string             `json:"id"`
+	Title              string             `json:"title,omitempty"`
+	CreatedAt          time.Time          `json:"created_at"`
+	UpdatedAt          time.Time          `json:"updated_at"`
+	Focus              string             `json:"focus,omitempty"`
+	ContextBytes       int                `json:"context_bytes"`
+	Messages           []persistedMessage `json:"messages"`
+	InputTokens        int                `json:"input_tokens,omitempty"`
+	OutputTokens       int                `json:"output_tokens,omitempty"`
+	ReportedRequests   int                `json:"reported_requests,omitempty"`
+	UnreportedRequests int                `json:"unreported_requests,omitempty"`
 }
 
 type persistedMessage struct {
@@ -364,7 +372,7 @@ func validateTitle(title string) error {
 }
 
 func toPersisted(snapshot Snapshot) persistedSnapshot {
-	result := persistedSnapshot{Version: snapshot.Version, ID: snapshot.ID, Title: snapshot.Title, CreatedAt: snapshot.CreatedAt, UpdatedAt: snapshot.UpdatedAt, Focus: snapshot.Focus, ContextBytes: snapshot.ContextBytes, Messages: make([]persistedMessage, len(snapshot.Messages))}
+	result := persistedSnapshot{Version: snapshot.Version, ID: snapshot.ID, Title: snapshot.Title, CreatedAt: snapshot.CreatedAt, UpdatedAt: snapshot.UpdatedAt, Focus: snapshot.Focus, ContextBytes: snapshot.ContextBytes, Messages: make([]persistedMessage, len(snapshot.Messages)), InputTokens: snapshot.InputTokens, OutputTokens: snapshot.OutputTokens, ReportedRequests: snapshot.ReportedRequests, UnreportedRequests: snapshot.UnreportedRequests}
 	for i, message := range snapshot.Messages {
 		result.Messages[i] = persistedMessage{Role: message.Role, Content: message.Content, ToolCallID: message.ToolCallID, ReasoningContent: message.ReasoningContent, ToolCalls: make([]persistedToolCall, len(message.ToolCalls))}
 		for j, call := range message.ToolCalls {
@@ -375,7 +383,7 @@ func toPersisted(snapshot Snapshot) persistedSnapshot {
 }
 
 func fromPersisted(snapshot persistedSnapshot) Snapshot {
-	result := Snapshot{Version: snapshot.Version, ID: snapshot.ID, Title: snapshot.Title, CreatedAt: snapshot.CreatedAt, UpdatedAt: snapshot.UpdatedAt, Focus: snapshot.Focus, ContextBytes: snapshot.ContextBytes, Messages: make([]llm.Message, len(snapshot.Messages))}
+	result := Snapshot{Version: snapshot.Version, ID: snapshot.ID, Title: snapshot.Title, CreatedAt: snapshot.CreatedAt, UpdatedAt: snapshot.UpdatedAt, Focus: snapshot.Focus, ContextBytes: snapshot.ContextBytes, Messages: make([]llm.Message, len(snapshot.Messages)), InputTokens: snapshot.InputTokens, OutputTokens: snapshot.OutputTokens, ReportedRequests: snapshot.ReportedRequests, UnreportedRequests: snapshot.UnreportedRequests}
 	for i, message := range snapshot.Messages {
 		result.Messages[i] = llm.Message{Role: message.Role, Content: message.Content, ToolCallID: message.ToolCallID, ReasoningContent: message.ReasoningContent, ToolCalls: make([]llm.ToolCall, len(message.ToolCalls))}
 		for j, call := range message.ToolCalls {

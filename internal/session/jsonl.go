@@ -141,6 +141,9 @@ func entryFromEvent(event agent.Event, clean sanitizer) Entry {
 		AfterBytes:    event.AfterBytes,
 		MessageCount:  event.MessageCount,
 		KeptMessages:  event.KeptMessages,
+		InputTokens:   event.InputTokens,
+		OutputTokens:  event.OutputTokens,
+		TotalTokens:   event.TotalTokens,
 	}
 }
 

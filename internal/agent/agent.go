@@ -99,6 +99,7 @@ type CompactResult struct {
 	KeptMessages []llm.Message
 	BeforeBytes  int
 	AfterBytes   int
+	Usage        *llm.Usage
 }
 
 const compactKeepMessages = 4
@@ -144,7 +145,7 @@ func (r *Runner) Compact(ctx context.Context) (CompactResult, error) {
 	summary := llm.Message{Role: "assistant", Content: text}
 	updated := append([]llm.Message{summary}, kept...)
 	r.messages = updated
-	return CompactResult{Summary: summary, KeptMessages: kept, BeforeBytes: beforeBytes, AfterBytes: r.ContextBytes()}, nil
+	return CompactResult{Summary: summary, KeptMessages: kept, BeforeBytes: beforeBytes, AfterBytes: r.ContextBytes(), Usage: completion.Usage}, nil
 }
 
 // Run 执行受限 Agent Loop，并只把最终文本交给 emitText。
@@ -224,6 +225,15 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) e
 		})
 		if err != nil {
 			return fail(err)
+		}
+		usageEvent := Event{Type: EventModelUsage, UsageAvailable: completion.Usage != nil}
+		if completion.Usage != nil {
+			usageEvent.InputTokens = completion.Usage.InputTokens
+			usageEvent.OutputTokens = completion.Usage.OutputTokens
+			usageEvent.TotalTokens = completion.Usage.TotalTokens
+		}
+		if err := emit(usageEvent); err != nil {
+			return err
 		}
 
 		calls := completion.Assistant.ToolCalls

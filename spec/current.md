@@ -1,6 +1,27 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 `doc/architecture.md`。当前版本为 M1.5。下面的 M1.4、M1.3、M1.2、M1.1、M1.0、M0.9、M0.8、M0.7、M0.6、M0.5、M0.4、M0.3、M0.2.2 和 M0.2.1 章节是已完成阶段的历史记录，不覆盖当前 M1.5 的运行边界。
+本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 `doc/architecture.md`。当前版本为 M1.6。下面的 M1.5、M1.4、M1.3、M1.2、M1.1、M1.0、M0.9、M0.8、M0.7、M0.6、M0.5、M0.4、M0.3、M0.2.2 和 M0.2.1 章节是已完成阶段的历史记录，不覆盖当前 M1.6 的运行边界。
+
+## M1.6：真实 Token 用量
+
+M1.6 接入 OpenAI Compatible Provider 的真实 token usage，并贯穿 Agent 事件、完整会话快照、脱敏审计和 `/status`。
+
+### 当前范围
+
+- 流式请求带 `stream_options.include_usage=true`，解析 usage-only SSE chunk；缺失 usage 时不报错。
+- 每次成功模型请求发出一个 `model_usage` 事件；会话累计输入/输出 token、已报告和未报告请求数，`/clear` 一并清零。
+- `/status` 显示真实 `Tokens: <in> in / <out> out`，混合缺失 usage 时显示 `(partial)`；Context 仍是独立的 KB 字节估算。
+- JSONL 审计只记录事件类型和数值 usage 字段；旧快照缺少字段时按零值兼容。
+- 不实现自动重试、费用计算、第二 Provider、Memory 或 TUI。
+
+### M1.6 验收
+
+| ID | 验证方法 | 通过阈值 | 证据路径 |
+| --- | --- | --- | --- |
+| AC-M16-001 | OpenAI SSE usage-only chunk 测试 | 解析输入/输出/总 token，且请求包含 `include_usage` | `artifacts/verification/m1.6/provider-usage-test.txt` |
+| AC-M16-002 | Agent usage 事件与 chat `/status` 测试 | 每次成功请求一条事件，状态显示完整/不可用/partial | `artifacts/verification/m1.6/chat-usage-test.txt` |
+| AC-M16-003 | 会话保存、恢复、clear 测试 | 计数持久化，旧快照兼容，clear 清零 | `artifacts/verification/m1.6/storage-test.txt` |
+| AC-M16-004 | 全量测试、vet、build、diff 检查 | 全部退出码为 0 | `artifacts/verification/m1.6/full-check.txt` |
 
 ## M1.5：运行时卫生与边界对齐
 

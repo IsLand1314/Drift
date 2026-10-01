@@ -1,0 +1,17 @@
+command: ["go", "test", "./internal/conversation", "./internal/session", "-run", "TestStorePreservesUsageCountersAndOldSnapshotsDefaultToZero|TestJSONLWriterStoresNumericUsageOnly", "-count=1", "-v"]
+cwd: "F:\\code\\drift"
+output_encoding: utf-8
+exit_code: 0
+
+--- stdout ---
+=== RUN   TestStorePreservesUsageCountersAndOldSnapshotsDefaultToZero
+--- PASS: TestStorePreservesUsageCountersAndOldSnapshotsDefaultToZero (0.01s)
+PASS
+ok  	github.com/IsLand1314/Drift/internal/conversation	0.227s
+=== RUN   TestJSONLWriterStoresNumericUsageOnly
+--- PASS: TestJSONLWriterStoresNumericUsageOnly (0.00s)
+PASS
+ok  	github.com/IsLand1314/Drift/internal/session	0.236s
+
+--- stderr ---
+

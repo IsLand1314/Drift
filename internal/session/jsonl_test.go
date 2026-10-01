@@ -429,3 +429,22 @@ func TestJSONLWriterStoresCompactionCountersWithoutSummary(t *testing.T) {
 		t.Fatalf("audit=%s", text)
 	}
 }
+
+func TestJSONLWriterStoresNumericUsageOnly(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.jsonl")
+	writer, err := NewJSONLWriter(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Close()
+	if err := writer.Append(agent.Event{Type: agent.EventModelUsage, InputTokens: 17, OutputTokens: 9, TotalTokens: 26, UsageAvailable: true}); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := ReadEntries(path)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("entries=%v err=%v", entries, err)
+	}
+	if entries[0].InputTokens != 17 || entries[0].OutputTokens != 9 || entries[0].TotalTokens != 26 {
+		t.Fatalf("usage=%+v", entries[0])
+	}
+}

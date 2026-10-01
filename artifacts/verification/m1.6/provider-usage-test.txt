@@ -1,0 +1,27 @@
+command: ["go", "test", "./internal/llm/openai", "-run", "TestStreamIsIncremental|TestReadStreamProtocolRegressions", "-count=1", "-v"]
+cwd: "F:\\code\\drift"
+output_encoding: utf-8
+exit_code: 0
+
+--- stdout ---
+=== RUN   TestStreamIsIncremental
+--- PASS: TestStreamIsIncremental (0.00s)
+=== RUN   TestReadStreamProtocolRegressions
+=== RUN   TestReadStreamProtocolRegressions/usage-only_chunk
+=== RUN   TestReadStreamProtocolRegressions/missing_usage_remains_unavailable
+=== RUN   TestReadStreamProtocolRegressions/stop_text
+=== RUN   TestReadStreamProtocolRegressions/two_indexes_preserve_malformed_arguments
+=== RUN   TestReadStreamProtocolRegressions/callback_failure
+=== RUN   TestReadStreamProtocolRegressions/length_finish_reason
+--- PASS: TestReadStreamProtocolRegressions (0.00s)
+    --- PASS: TestReadStreamProtocolRegressions/usage-only_chunk (0.00s)
+    --- PASS: TestReadStreamProtocolRegressions/missing_usage_remains_unavailable (0.00s)
+    --- PASS: TestReadStreamProtocolRegressions/stop_text (0.00s)
+    --- PASS: TestReadStreamProtocolRegressions/two_indexes_preserve_malformed_arguments (0.00s)
+    --- PASS: TestReadStreamProtocolRegressions/callback_failure (0.00s)
+    --- PASS: TestReadStreamProtocolRegressions/length_finish_reason (0.00s)
+PASS
+ok  	github.com/IsLand1314/Drift/internal/llm/openai	0.203s
+
+--- stderr ---
+

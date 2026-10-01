@@ -30,6 +30,26 @@ func TestStoreSaveAndLoadPreservesToolMessages(t *testing.T) {
 	}
 }
 
+func TestStorePreservesUsageCountersAndOldSnapshotsDefaultToZero(t *testing.T) {
+	store := NewStore(t.TempDir())
+	snapshot, err := store.Create("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot.InputTokens, snapshot.OutputTokens = 17, 9
+	snapshot.ReportedRequests, snapshot.UnreportedRequests = 2, 1
+	if err := store.Save(snapshot); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.Load(snapshot.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.InputTokens != 17 || loaded.OutputTokens != 9 || loaded.ReportedRequests != 2 || loaded.UnreportedRequests != 1 {
+		t.Fatalf("usage counters=%+v", loaded)
+	}
+}
+
 func TestStoreRejectsInvalidIDs(t *testing.T) {
 	store := NewStore(t.TempDir())
 	for _, id := range []string{"", "../x", "x/y"} {

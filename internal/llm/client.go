@@ -52,6 +52,14 @@ type ToolCallDelta struct {
 type Completion struct {
 	Assistant    Message
 	FinishReason string
+	Usage        *Usage
+}
+
+// Usage 是 Provider 报告的真实 token 用量；nil 表示响应没有提供 usage。
+type Usage struct {
+	InputTokens  int
+	OutputTokens int
+	TotalTokens  int
 }
 
 // ErrorStage identifies the provider boundary that stopped a request.
