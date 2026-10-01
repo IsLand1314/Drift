@@ -43,6 +43,15 @@ target    = F:\code\drift\internal\demo\demo.go
 
 只新增一个原生工具：`write_file`。
 
+工具入口按运行模式隔离：
+
+| 入口 | `write_file` | 说明 |
+| --- | --- | --- |
+| `drift chat` | 启用 | 有终端人工确认，可创建或覆盖文件 |
+| `drift -p` | 不注册 | 保持单次、非交互、只读，适合脚本和 CI |
+
+工具只在交互式 `drift chat` 中注册。单次 `drift -p` 保持非交互只读，不注册 `write_file`，以避免没有人工确认通道时发生写入请求；`--no-session` 只控制完整会话保存，不改变 chat 的写入确认策略。
+
 ```json
 {
   "path": "internal/demo/demo.go",
