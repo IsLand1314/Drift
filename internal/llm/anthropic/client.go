@@ -242,6 +242,9 @@ func readStream(r io.Reader, emit func(llm.StreamEvent) error) (llm.Completion, 
 			}
 		case "message_delta":
 			completion.FinishReason = event.Delta.StopReason
+			if completion.FinishReason == "end_turn" {
+				completion.FinishReason = "stop"
+			}
 			if event.Usage.OutputTokens > 0 {
 				outputTokens = event.Usage.OutputTokens
 				haveOutput = true
