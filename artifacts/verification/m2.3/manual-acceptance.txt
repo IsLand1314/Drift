@@ -1,0 +1,22 @@
+M2.3 人工验收
+
+构建产物：.codex-temp\drift-m23.exe
+
+步骤：
+1. 启动 `go run ./cmd/drift chat -w .`。
+2. 输入 `/resume`，确认出现会话选择器。
+3. 输入会话标题或首条消息片段，确认列表过滤。
+4. 使用 ↑/↓ 和 Enter 选择另一条会话，使用 `/status` 确认 Session ID 已变化。
+5. 输入 `/resume <id>`，确认可以直接切换。
+6. 输入非法 `/resume conv-missing12345678`，确认原会话仍保持不变。
+7. 再次输入 `/resume` 后按 Esc，确认回到输入区且会话不变。
+8. 输入 `/new`，确认显示新的 Session ID，旧会话仍能由 `session list` 查到。
+9. 输入 `/rename 基本认识`，再次输入 `/resume`，确认当前会话显示自定义标题。
+10. 退出后运行 `go run ./cmd/drift session list` 与 `go run ./cmd/drift audit list`，确认两类输出仍然分离。
+
+实际结果：
+- 非 TTY 构建产物成功执行 `/resume <id>`、`/status`、`/new`；`/status` 显示目标会话切换和新会话 100% 空上下文。
+- 真实 TTY 成功打开 `Resume session` 选择器；输入搜索词后候选列表过滤为匹配项，按 Esc 返回输入区。
+- `/resume` 选择器只显示 `messages > 0` 的会话；磁盘上的空快照不删除，管理视图仍可保留这些记录。
+- `/rename 基本认识` 更新当前完整快照标题，不发起 Provider 请求。
+- 选择器显示会话预览、相对时间、消息数和上下文大小；未执行任何 Provider 请求。

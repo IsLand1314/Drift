@@ -1,0 +1,18 @@
+M2.2 人工验收
+
+构建产物：.codex-temp\drift-m22.exe
+
+执行：
+- .codex-temp\drift-m22.exe session list
+- .codex-temp\drift-m22.exe session show conv-c57d13e4056f99b83306b787
+- .codex-temp\drift-m22.exe audit list
+- .codex-temp\drift-m22.exe conversation list
+
+结果：
+- `session list` 显示来自 `.drift/sessions/conv-*.json` 的完整会话元数据；
+- `session show` 只显示指定完整会话的元数据，不输出正文；
+- `audit list` 显示来自 `.drift/audits/run-*.jsonl` 的脱敏审计事件数量；
+- 当前 workspace 旧 .drift/conversations/ 无残留 JSON 文件；
+- 旧审计已迁入 .drift/audits/，未覆盖新文件。
+- `conversation list` 返回 session 用法错误（退出码 2），不再作为兼容命令。
+- `session` 与 `audit` 输出不交叉；chat 内不提供 `/audit`。

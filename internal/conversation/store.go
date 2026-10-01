@@ -16,6 +16,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/IsLand1314/Drift/internal/layout"
 	"github.com/IsLand1314/Drift/internal/llm"
 )
 
@@ -45,6 +46,7 @@ type Metadata struct {
 	Version      int
 	ID           string
 	Title        string
+	Preview      string
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 	Focus        string
@@ -52,10 +54,13 @@ type Metadata struct {
 	ContextBytes int
 }
 
-type Store struct{ root string }
+type Store struct {
+	root string
+}
 
 func NewStore(workspace string) *Store {
-	return &Store{root: filepath.Join(workspace, ".drift", "conversations")}
+	drift := filepath.Join(workspace, ".drift")
+	return &Store{root: filepath.Join(drift, "sessions")}
 }
 
 type persistedSnapshot struct {
@@ -74,11 +79,10 @@ type persistedSnapshot struct {
 }
 
 type persistedMessage struct {
-	Role             string              `json:"role"`
-	Content          string              `json:"content,omitempty"`
-	ToolCalls        []persistedToolCall `json:"tool_calls,omitempty"`
-	ToolCallID       string              `json:"tool_call_id,omitempty"`
-	ReasoningContent string              `json:"reasoning_content,omitempty"`
+	Role       string              `json:"role"`
+	Content    string              `json:"content,omitempty"`
+	ToolCalls  []persistedToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string              `json:"tool_call_id,omitempty"`
 }
 
 type persistedToolCall struct {
@@ -111,18 +115,15 @@ func (s *Store) Save(snapshot Snapshot) error {
 	if err := ensureDirectory(filepath.Dir(s.root)); err != nil {
 		return err
 	}
-	if err := ensureDirectory(s.root); err != nil {
-		return err
-	}
-	path, err := s.pathFor(snapshot.ID)
-	if err != nil {
+	path := filepath.Join(layout.DateDir(s.root, snapshot.CreatedAt), "session-"+layout.FileTimestamp(snapshot.CreatedAt)+"-"+snapshot.ID+".json")
+	if err := ensureDirectory(filepath.Dir(path)); err != nil {
 		return err
 	}
 	encoded, err := json.MarshalIndent(toPersisted(snapshot), "", "  ")
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidSnapshot, err)
 	}
-	tmp, err := os.CreateTemp(s.root, ".snapshot-*")
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".snapshot-*")
 	if err != nil {
 		return err
 	}
@@ -169,16 +170,9 @@ func (s *Store) Rename(id, title string) error {
 }
 
 func (s *Store) Load(id string) (Snapshot, error) {
-	path, err := s.pathFor(id)
+	path, err := s.findPath(id)
 	if err != nil {
 		return Snapshot{}, err
-	}
-	info, err := os.Lstat(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return Snapshot{}, ErrNotFound
-	}
-	if err != nil || !info.Mode().IsRegular() {
-		return Snapshot{}, ErrInvalidSnapshot
 	}
 	file, err := os.Open(path)
 	if err != nil {
@@ -213,19 +207,35 @@ func (s *Store) Latest() (Snapshot, error) {
 }
 
 func (s *Store) List() ([]Metadata, error) {
-	entries, err := os.ReadDir(s.root)
+	ids := make(map[string]struct{})
+	err := filepath.WalkDir(s.root, func(path string, entry os.DirEntry, walkErr error) error {
+		if errors.Is(walkErr, os.ErrNotExist) {
+			return nil
+		}
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !entry.IsDir() && strings.HasPrefix(entry.Name(), "session-") && strings.HasSuffix(entry.Name(), ".json") {
+			if id, ok := sessionIDFromFilename(entry.Name()); ok {
+				ids[id] = struct{}{}
+			}
+		}
+		return nil
+	})
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	result := make([]Metadata, 0, len(entries))
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
-			continue
-		}
-		id := strings.TrimSuffix(entry.Name(), ".json")
+	result := make([]Metadata, 0, len(ids))
+	for id := range ids {
 		snapshot, err := s.Load(id)
 		if errors.Is(err, ErrNotFound) {
 			continue
@@ -233,7 +243,7 @@ func (s *Store) List() ([]Metadata, error) {
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, Metadata{Version: snapshot.Version, ID: snapshot.ID, Title: snapshot.Title, CreatedAt: snapshot.CreatedAt, UpdatedAt: snapshot.UpdatedAt, Focus: snapshot.Focus, MessageCount: len(snapshot.Messages), ContextBytes: snapshot.ContextBytes})
+		result = append(result, Metadata{Version: snapshot.Version, ID: snapshot.ID, Title: snapshot.Title, Preview: previewOf(snapshot.Messages), CreatedAt: snapshot.CreatedAt, UpdatedAt: snapshot.UpdatedAt, Focus: snapshot.Focus, MessageCount: len(snapshot.Messages), ContextBytes: snapshot.ContextBytes})
 	}
 	sort.Slice(result, func(i, j int) bool {
 		if result[i].UpdatedAt.Equal(result[j].UpdatedAt) {
@@ -242,6 +252,31 @@ func (s *Store) List() ([]Metadata, error) {
 		return result[i].UpdatedAt.After(result[j].UpdatedAt)
 	})
 	return result, nil
+}
+
+func sessionIDFromFilename(name string) (string, bool) {
+	name = strings.TrimSuffix(strings.TrimPrefix(name, "session-"), ".json")
+	index := strings.LastIndex(name, "-conv-")
+	if index < 0 {
+		return "", false
+	}
+	id := name[index+1:]
+	return id, idPattern.MatchString(id)
+}
+
+func previewOf(messages []llm.Message) string {
+	for _, message := range messages {
+		if message.Role != "user" || strings.TrimSpace(message.Content) == "" {
+			continue
+		}
+		preview := strings.Join(strings.Fields(message.Content), " ")
+		runes := []rune(preview)
+		if len(runes) > 96 {
+			preview = string(runes[:93]) + "..."
+		}
+		return preview
+	}
+	return ""
 }
 
 func (s *Store) Before(before time.Time) ([]Metadata, error) {
@@ -288,16 +323,9 @@ func (s *Store) Prune(before time.Time) ([]Metadata, error) {
 }
 
 func (s *Store) Delete(id string) error {
-	path, err := s.pathFor(id)
+	path, err := s.findPath(id)
 	if err != nil {
 		return err
-	}
-	info, err := os.Lstat(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return ErrNotFound
-	}
-	if err != nil || !info.Mode().IsRegular() {
-		return ErrInvalidSnapshot
 	}
 	if err := os.Remove(path); errors.Is(err, os.ErrNotExist) {
 		return ErrNotFound
@@ -306,11 +334,37 @@ func (s *Store) Delete(id string) error {
 	}
 }
 
-func (s *Store) pathFor(id string) (string, error) {
+func (s *Store) findPath(id string) (string, error) {
 	if !idPattern.MatchString(id) {
 		return "", ErrInvalidID
 	}
-	return filepath.Join(s.root, id+".json"), nil
+	var found string
+	err := filepath.WalkDir(s.root, func(path string, entry os.DirEntry, walkErr error) error {
+		if errors.Is(walkErr, os.ErrNotExist) {
+			return nil
+		}
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !entry.IsDir() && strings.HasPrefix(entry.Name(), "session-") && strings.HasSuffix(entry.Name(), "-"+id+".json") {
+			found = path
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	if found == "" {
+		return "", ErrNotFound
+	}
+	return found, nil
 }
 
 func newID() (string, error) {
@@ -334,7 +388,7 @@ func validateFocus(focus string) error {
 func ensureDirectory(path string) error {
 	info, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return os.Mkdir(path, 0o700)
+		return os.MkdirAll(path, 0o700)
 	}
 	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
 		return ErrInvalidSnapshot
@@ -374,7 +428,7 @@ func validateTitle(title string) error {
 func toPersisted(snapshot Snapshot) persistedSnapshot {
 	result := persistedSnapshot{Version: snapshot.Version, ID: snapshot.ID, Title: snapshot.Title, CreatedAt: snapshot.CreatedAt, UpdatedAt: snapshot.UpdatedAt, Focus: snapshot.Focus, ContextBytes: snapshot.ContextBytes, Messages: make([]persistedMessage, len(snapshot.Messages)), InputTokens: snapshot.InputTokens, OutputTokens: snapshot.OutputTokens, ReportedRequests: snapshot.ReportedRequests, UnreportedRequests: snapshot.UnreportedRequests}
 	for i, message := range snapshot.Messages {
-		result.Messages[i] = persistedMessage{Role: message.Role, Content: message.Content, ToolCallID: message.ToolCallID, ReasoningContent: message.ReasoningContent, ToolCalls: make([]persistedToolCall, len(message.ToolCalls))}
+		result.Messages[i] = persistedMessage{Role: message.Role, Content: message.Content, ToolCallID: message.ToolCallID, ToolCalls: make([]persistedToolCall, len(message.ToolCalls))}
 		for j, call := range message.ToolCalls {
 			result.Messages[i].ToolCalls[j] = persistedToolCall{ID: call.ID, Type: call.Type, Name: call.Name, Arguments: call.Arguments}
 		}
@@ -385,7 +439,7 @@ func toPersisted(snapshot Snapshot) persistedSnapshot {
 func fromPersisted(snapshot persistedSnapshot) Snapshot {
 	result := Snapshot{Version: snapshot.Version, ID: snapshot.ID, Title: snapshot.Title, CreatedAt: snapshot.CreatedAt, UpdatedAt: snapshot.UpdatedAt, Focus: snapshot.Focus, ContextBytes: snapshot.ContextBytes, Messages: make([]llm.Message, len(snapshot.Messages)), InputTokens: snapshot.InputTokens, OutputTokens: snapshot.OutputTokens, ReportedRequests: snapshot.ReportedRequests, UnreportedRequests: snapshot.UnreportedRequests}
 	for i, message := range snapshot.Messages {
-		result.Messages[i] = llm.Message{Role: message.Role, Content: message.Content, ToolCallID: message.ToolCallID, ReasoningContent: message.ReasoningContent, ToolCalls: make([]llm.ToolCall, len(message.ToolCalls))}
+		result.Messages[i] = llm.Message{Role: message.Role, Content: message.Content, ToolCallID: message.ToolCallID, ToolCalls: make([]llm.ToolCall, len(message.ToolCalls))}
 		for j, call := range message.ToolCalls {
 			result.Messages[i].ToolCalls[j] = llm.ToolCall{ID: call.ID, Type: call.Type, Name: call.Name, Arguments: call.Arguments}
 		}

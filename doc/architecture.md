@@ -209,7 +209,9 @@ Provider 层可以使用官方 SDK，但不要让 SDK 类型越过 `internal/llm
 ```text
 .drift/
 ├── config.json             # 项目配置，可选择提交 example
-├── sessions/               # JSONL 会话，不提交
+├── sessions/               # 可恢复的完整会话快照，不提交
+├── audits/                 # 脱敏运行审计，不提交
+├── skills/                 # workspace-local Skills
 ├── cache/                  # 可删除缓存，不提交
 └── tmp/                    # 大工具结果等临时内容，不提交
 ```
@@ -218,12 +220,16 @@ Provider 层可以使用官方 SDK，但不要让 SDK 类型越过 `internal/llm
 
 ## 9. 交付顺序
 
-### 已完成：M0～M2.0
+### 已完成：M0～M2.5
 
 - 已完成 workspace/focus、只读多轮探索、分页读取、Trace、脱敏审计、交互式 chat、完整会话恢复、会话生命周期管理、上下文压缩和 `/status` 状态面板。
 - 当前支持 OpenAI Compatible 与可选 Anthropic Messages 两个 Provider，二者都归一化为同一套消息、事件和工具协议；工具仍固定为三个只读工具。
 - 真实 TTY 会消费 Agent 的工具事件显示安全进度摘要，完成标记使用 ASCII 英文 `Done`；非 TTY 协议不变。
 - Workspace Skills 已接入：只从 `.drift/skills/<name>/SKILL.md` 显式加载一个 Skill，并作为 provider-neutral system context 注入。
+- M2.2 已统一本地状态目录：完整会话在 `.drift/sessions/`，脱敏审计在 `.drift/audits/`；`session` 只管理可恢复会话，`audit` 只查看审计，两套命令不互为别名。
+- M2.3 已支持 chat 内 `/resume` 会话选择、`/resume <id>` 直接切换和 `/new` 创建新会话；切换先加载后替换，失败不破坏当前上下文。
+- M2.4 已将会话和审计按 UTC 年/月/日分片；`session` 递归管理完整快照，`audit` 只提供 `list/show`，不兼容旧平铺路径。
+- M2.5 将预算和伪工具重试控制提示限定在当前请求的 system context，避免其以用户消息身份进入恢复快照；快照不保存 `reasoning_content`，`session timeline` 仅显示无正文的消息结构。
 
 ### M1.5：运行时卫生与边界对齐
 

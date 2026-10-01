@@ -1,0 +1,13 @@
+M2.1 全量验证
+
+go test ./internal/agent -count=1: PASS
+go test ./... -count=1: PASS
+go vet ./...: PASS
+go build -o .codex-temp\drift-m21.exe ./cmd/drift: PASS
+git diff --check: PASS
+
+重点覆盖：
+- 工具调用上限 12、模型请求上限 6；
+- 终答请求预留与 system context 重注入；
+- 终答阶段工具调用和 DSML 的受控重试；
+- Workspace Skill 注入仍保持三个只读工具与安全边界。

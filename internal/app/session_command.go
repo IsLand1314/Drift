@@ -9,40 +9,45 @@ import (
 	"strings"
 	"time"
 
+	"github.com/IsLand1314/Drift/internal/layout"
 	"github.com/IsLand1314/Drift/internal/session"
 )
 
-func runSessionCommand(args []string, out, stderr io.Writer) int {
+func runAuditCommand(args []string, out, stderr io.Writer) int {
 	if len(args) == 0 || (len(args) == 1 && (args[0] == "-h" || args[0] == "--help")) {
 		if len(args) == 0 {
-			fmt.Fprintln(stderr, "用法：drift session list | drift session show <jsonl路径>")
+			fmt.Fprintln(stderr, "用法：drift audit list | drift audit show <jsonl路径>")
 			return 2
 		}
-		fmt.Fprintln(out, "用法：drift session list | drift session show <jsonl路径>")
+		fmt.Fprintln(out, "用法：drift audit list | drift audit show <jsonl路径>")
 		return 0
 	}
 	switch args[0] {
 	case "list":
 		if len(args) != 1 {
-			fmt.Fprintln(stderr, "用法：drift session list")
+			fmt.Fprintln(stderr, "用法：drift audit list")
 			return 2
 		}
-		return listSessions(out, stderr)
+		return listAudits(out, stderr)
 	case "show":
 		if len(args) != 2 || strings.TrimSpace(args[1]) == "" {
-			fmt.Fprintln(stderr, "用法：drift session show <jsonl路径>")
+			fmt.Fprintln(stderr, "用法：drift audit show <jsonl路径>")
 			return 2
 		}
-		return showSession(args[1], out, stderr)
+		return showAudit(args[1], out, stderr)
 	default:
-		fmt.Fprintln(stderr, "用法：drift session list | drift session show <jsonl路径>")
+		fmt.Fprintln(stderr, "用法：drift audit list | drift audit show <jsonl路径>")
 		return 2
 	}
 }
 
-func listSessions(out, stderr io.Writer) int {
-	root := filepath.Join(".drift", "sessions")
-	files, err := session.ListFiles(root)
+func listAudits(out, stderr io.Writer) int {
+	storageLayout := layout.ForWorkspace(".")
+	if err := storageLayout.Prepare(); err != nil {
+		fmt.Fprintln(stderr, "错误：无法准备本地存储目录：", err)
+		return 1
+	}
+	files, err := session.ListFiles(storageLayout.Audits)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			fmt.Fprintln(out, "暂无会话记录")
@@ -66,11 +71,11 @@ func listSessions(out, stderr io.Writer) int {
 	return 0
 }
 
-func showSession(path string, out, stderr io.Writer) int {
+func showAudit(path string, out, stderr io.Writer) int {
 	entries, err := session.ReadEntries(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			fmt.Fprintln(stderr, "错误：会话文件不存在")
+			fmt.Fprintln(stderr, "错误：审计文件不存在")
 			return 2
 		}
 		fmt.Fprintln(stderr, "错误：", err)

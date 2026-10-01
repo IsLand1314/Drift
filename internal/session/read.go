@@ -3,6 +3,7 @@ package session
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -38,26 +39,69 @@ func ReadEntries(path string) ([]Entry, error) {
 	return entries, nil
 }
 
-// ListFiles 返回目录中按修改时间倒序排列的 run-*.jsonl 普通文件。
+// ListFiles 返回日期目录中按修改时间倒序排列的 run-*.jsonl 普通文件。
 func ListFiles(root string) ([]string, error) {
-	items, err := os.ReadDir(root)
-	if err != nil {
-		return nil, fmt.Errorf("session: list directory: %w", err)
+	return ListFilesInRoots([]string{root})
+}
+
+// ListFilesInRoots returns files from the supplied audit roots recursively.
+func ListFilesInRoots(roots []string) ([]string, error) {
+	all := make([]string, 0)
+	for _, root := range roots {
+		files, err := listFiles(root)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, files...)
 	}
+	sort.Slice(all, func(i, j int) bool {
+		li, _ := os.Stat(all[i])
+		lj, _ := os.Stat(all[j])
+		if li != nil && lj != nil && !li.ModTime().Equal(lj.ModTime()) {
+			return li.ModTime().After(lj.ModTime())
+		}
+		return all[i] > all[j]
+	})
+	return all, nil
+}
+
+func listFiles(root string) ([]string, error) {
 	type item struct {
 		path    string
 		modTime int64
 	}
-	files := make([]item, 0, len(items))
-	for _, entry := range items {
-		if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 || !strings.HasPrefix(entry.Name(), "run-") || !strings.HasSuffix(entry.Name(), ".jsonl") {
-			continue
+	files := make([]item, 0)
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if errors.Is(walkErr, os.ErrNotExist) {
+			return nil
+		}
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if entry.IsDir() || !strings.HasPrefix(entry.Name(), "run-") || !strings.HasSuffix(entry.Name(), ".jsonl") {
+			return nil
 		}
 		info, err := entry.Info()
 		if err != nil || !info.Mode().IsRegular() {
-			continue
+			return nil
 		}
-		files = append(files, item{path: filepath.Join(root, entry.Name()), modTime: info.ModTime().UnixNano()})
+		files = append(files, item{path: path, modTime: info.ModTime().UnixNano()})
+		return nil
+	})
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, os.ErrNotExist
+	}
+	if err != nil {
+		return nil, fmt.Errorf("session: list directory: %w", err)
 	}
 	sort.Slice(files, func(i, j int) bool {
 		if files[i].modTime != files[j].modTime {

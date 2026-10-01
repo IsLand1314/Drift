@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -14,6 +16,7 @@ import (
 	"github.com/IsLand1314/Drift/internal/agent"
 	"github.com/IsLand1314/Drift/internal/config"
 	"github.com/IsLand1314/Drift/internal/conversation"
+	"github.com/IsLand1314/Drift/internal/layout"
 	"github.com/IsLand1314/Drift/internal/llm"
 	"github.com/IsLand1314/Drift/internal/llm/anthropic"
 	"github.com/IsLand1314/Drift/internal/llm/openai"
@@ -58,8 +61,12 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 	if len(args) > 0 && args[0] == "session" {
 		return runSessionCommand(args[1:], out, stderr)
 	}
+	if len(args) > 0 && args[0] == "audit" {
+		return runAuditCommand(args[1:], out, stderr)
+	}
 	if len(args) > 0 && args[0] == "conversation" {
-		return runConversationCommand(args[1:], out, stderr)
+		fmt.Fprintln(stderr, sessionUsage)
+		return 2
 	}
 	if len(args) > 0 && args[0] == "skill" {
 		return runSkillCommand(args[1:], out, stderr)
@@ -180,7 +187,18 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	sessionPath := filepath.Join(selection.Root, ".drift", "sessions", fmt.Sprintf("run-%d.jsonl", time.Now().UTC().UnixNano()))
+	storageLayout := layout.ForWorkspace(selection.Root)
+	if err := storageLayout.Prepare(); err != nil {
+		fmt.Fprintln(stderr, "错误：无法准备本地存储目录：", err)
+		return 1
+	}
+	startedAt := time.Now().UTC()
+	runID := make([]byte, 8)
+	if _, err := rand.Read(runID); err != nil {
+		fmt.Fprintln(stderr, "错误：无法生成审计 ID：", err)
+		return 1
+	}
+	sessionPath := filepath.Join(layout.DateDir(storageLayout.Audits, startedAt), fmt.Sprintf("run-%s-%s.jsonl", layout.FileTimestamp(startedAt), hex.EncodeToString(runID)))
 	sessionWriter, err := session.NewJSONLWriterWithSecrets(sessionPath, selection.Root, key)
 	if err != nil {
 		fmt.Fprintln(stderr, "错误：", err)

@@ -1,0 +1,6 @@
+M2.4 全量验证
+
+go test ./... -count=1: PASS
+go vet ./...: PASS
+go build -o .codex-temp\drift-m24.exe ./cmd/drift: PASS
+git diff --check: PASS

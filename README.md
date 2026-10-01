@@ -1,8 +1,8 @@
 # Drift
 
-使用 Go 构建的本地只读 Coding Agent Runtime。当前版本为 M2.0：除单次 `-p` 请求外，还支持 `drift chat` 多轮交互、默认本地完整会话保存、`--resume` 恢复、`--no-session` 临时模式、`/status` 状态面板、`/compact` 手动压缩、活动轮次 Ctrl+C 取消和 workspace Skills。模型可以在选定 workspace 内列出文件、搜索文本、分页读取大文件，并根据每轮结果继续探索后给出解释；可选 `--trace` 会把安全运行摘要写到 stderr，`session list/show` 查看脱敏审计，`conversation` 命令支持会话列表、标题、恢复、精确删除和过期清理。Provider 默认是 OpenAI Compatible，也可显式选择 Anthropic Messages。
+使用 Go 构建的本地只读 Coding Agent Runtime。当前版本为 M2.5：除单次 `-p` 请求外，还支持 `drift chat` 多轮交互、默认本地完整会话保存、`--resume` 启动恢复、chat 内 `/resume` 会话切换、`/new` 新建会话、`--no-session` 临时模式、`/status` 状态面板、`/compact` 手动压缩、活动轮次 Ctrl+C 取消和 workspace Skills。模型可以在选定 workspace 内列出文件、搜索文本、分页读取大文件，并根据每轮结果继续探索后给出解释；可选 `--trace` 会把安全运行摘要写到 stderr。`session` 管理可恢复会话，`audit` 查看脱敏审计。Provider 默认是 OpenAI Compatible，也可显式选择 Anthropic Messages。
 
-默认提供三个工具：`list_files`、`search_text`、`read_file`。单次运行最多 4 次模型请求、6 次工具调用；成功工具结果累计最多 512 KiB，单文件最多 128 KiB。`list_files` 最多返回 200 个文件，`search_text` 最多扫描 200 个文件、返回 100 个匹配，输出最多 32 KiB。工具按顺序串行执行，达到限制后使用无工具 schema 的请求生成说明。没有写文件、删除文件、执行命令或运行程序的能力。
+默认提供三个工具：`list_files`、`search_text`、`read_file`。单次运行最多 6 次模型请求、12 次工具调用；成功工具结果累计最多 512 KiB，单文件最多 128 KiB。`list_files` 最多返回 200 个文件，`search_text` 最多扫描 200 个文件、返回 100 个匹配，输出最多 32 KiB。工具按顺序串行执行，达到限制后使用无工具 schema 的请求生成说明。没有写文件、删除文件、执行命令或运行程序的能力。
 
 ## 快速开始
 
@@ -60,29 +60,34 @@ go run ./cmd/drift chat -skill project-overview -w .
 
 Skill 只提供额外的只读分析说明；一次运行最多加载一个，不能新增工具、执行命令、写文件或越出 workspace。Skill 正文不会写入脱敏审计或会话元数据。
 
-默认 chat 会显示 Session ID，并把完整上下文保存到当前 workspace 的 `.drift/conversations/`。下次可恢复最近或指定会话；不希望保存完整上下文时使用：
+默认 chat 会显示 Session ID，并把完整上下文保存到当前 workspace 的 `.drift/sessions/`。脱敏运行审计保存到 `.drift/audits/`；下次可恢复最近或指定会话；不希望保存完整上下文时使用：
 
 ```powershell
 go run ./cmd/drift chat --resume -w .
 go run ./cmd/drift chat --resume conv-<id> -w .
 go run ./cmd/drift chat --no-session -w .
-go run ./cmd/drift conversation list
-go run ./cmd/drift conversation show conv-<id>
-go run ./cmd/drift conversation delete conv-<id> --yes
-go run ./cmd/drift conversation list --limit 10
-go run ./cmd/drift conversation rename conv-<id> "FoxCode 分析"
-go run ./cmd/drift conversation prune --before 2026-09-01T00:00:00Z
-go run ./cmd/drift conversation prune --before 2026-09-01T00:00:00Z --yes
+go run ./cmd/drift session list
+go run ./cmd/drift session show conv-<id>
+go run ./cmd/drift session timeline conv-<id>
+go run ./cmd/drift session delete conv-<id> --yes
+go run ./cmd/drift session list --limit 10
+go run ./cmd/drift session rename conv-<id> "FoxCode 分析"
+go run ./cmd/drift session prune --before 2026-09-01T00:00:00Z
+go run ./cmd/drift session prune --before 2026-09-01T00:00:00Z --yes
+go run ./cmd/drift audit list
+go run ./cmd/drift audit show .drift/audits/run-<timestamp>.jsonl
 ```
+
+进入 chat 后，`/resume` 打开当前 workspace 的可搜索会话选择器，`/resume <id>` 直接切换指定会话，`/new` 保存当前会话并创建新的空会话，`/rename <标题>` 更新当前持久会话标题。选择器取消或恢复失败时，当前上下文保持不变；`--no-session` 模式只能创建新的临时上下文。
 
 进入 chat 后可用 `/status` 查看 Session ID、Model、Context、Tokens、Tools 和 Workspace；Context 使用十进制 KB 估算，Tokens 使用 Provider 返回的真实 usage，未返回时显示 `unavailable`，混合状态显示 `(partial)`。用 `/compact` 请求模型生成摘要并保留最近消息；`/compact` 不提供文件工具，失败时保留原上下文。`/clear` 才是完全清空；普通 `clear`、`status`、`compact` 只会提示使用对应的斜杠命令。真实终端会以分隔线、彩色提示符、助手标记和本轮完成耗时区分交互；非终端输出保持纯文本。
 模型流或只读工具执行期间按 Ctrl+C 只取消当前轮，chat 继续等待下一条输入；空闲等待输入时按 Ctrl+C 以退出码 130 结束。取消轮不会写入半轮完整会话，只在脱敏审计中记录 `agent_cancelled`。真实终端会显示安全的工具进度摘要和英文 `Done - <seconds>s` 完成标记。
 
-长对话达到上下文上限时，输入 `/clear` 可清空当前上下文；持久会话会先保存空快照，保存成功后才清理。普通文本 `clear` 不会清理上下文，只会提示使用 `/clear`。完整快照可能包含提示词、回答和工具结果，不是脱敏日志，不应上传或分享；`.drift/sessions/` 仍只保存脱敏审计，永远不作为恢复来源。M1.3 的 `conversation prune` 不带 `--yes` 时只预览，不会删除文件。
+长对话达到上下文上限时，输入 `/clear` 可清空当前上下文；持久会话会先保存空快照，保存成功后才清理。普通文本 `clear` 不会清理上下文，只会提示使用 `/clear`。完整快照可能包含提示词、回答和工具结果，不是脱敏日志，不应上传或分享；`.drift/audits/` 只保存脱敏审计，永远不作为恢复来源。`session prune` 不带 `--yes` 时只预览，不会删除文件。
 
 配置优先级为：命令行 `-model`/`-base-url` > 进程环境变量 > 当前目录 `.env` > 内置默认值。API Key 没有命令行参数，只从环境变量或 `.env` 读取；缺少 Key 或模型时，请求不会发出。
 
-该示例会让模型按需探索并解释当前项目；stdout 只输出最终回答，同一次运行的安全审计事件会写入被 Git 忽略的 `.drift/sessions/`。需要观察过程时加 `--trace`，摘要会写入 stderr；需要查看历史摘要时运行 `drift session list` 或 `drift session show <path>`。新 JSONL 不保存提示词、原始工具参数、文件内容或回答正文，只保存安全的相对路径、脱敏占位符、字节数和结束原因。失败事件含稳定的 `stage`，例如 `provider_timeout`、`provider_sse_invalid_json`、`agent_empty_response` 或 `agent_context_limit`。完整对话恢复和边界见 [M1.2 阶段说明](doc/m1.2-conversation-persistence.md)，进程内上下文规则见 [M1.1 阶段说明](doc/m1.1-context-control.md) 和 [M1.0 阶段说明](doc/m1.0-interactive-chat.md)。当前范围和验收标准见 [spec/current.md](spec/current.md)。
+该示例会让模型按需探索并解释当前项目；stdout 只输出最终回答，同一次运行的安全审计事件会写入被 Git 忽略的 `.drift/audits/`。需要观察过程时加 `--trace`，摘要会写入 stderr；需要查看完整会话时使用 `drift session list/show`，`drift session timeline <id>` 只显示消息角色、工具名、调用 ID 和字节数，不显示正文；需要查看脱敏审计时使用 `drift audit list/show`。这两套命令不互为别名，聊天输入区也不提供 `/audit`。新 JSONL 不保存提示词、原始工具参数、文件内容或回答正文，只保存安全的相对路径、脱敏占位符、字节数和结束原因。运行时为预算收敛或伪工具重试附加的控制提示只在当次 system context 中存在，不会伪装成用户输入写入完整会话；完整快照也不会保存 Provider 的 `reasoning_content`。失败事件含稳定的 `stage`，例如 `provider_timeout`、`provider_sse_invalid_json`、`agent_empty_response` 或 `agent_context_limit`。完整对话恢复和边界见 [M1.2 阶段说明](doc/m1.2-conversation-persistence.md)，消息完整性见 [M2.5 阶段说明](doc/m2.5-message-integrity.md)，进程内上下文规则见 [M1.1 阶段说明](doc/m1.1-context-control.md) 和 [M1.0 阶段说明](doc/m1.0-interactive-chat.md)。当前范围和验收标准见 [spec/current.md](spec/current.md)。
 
 Drift 目前只接受原生工具调用中的三个只读工具，没有 `run_command`、shell 或 exec 工具，因此不会执行命令。OpenAI Compatible 与 Anthropic Messages 的工具调用都会归一化为同一套 Agent 事件；若模型输出 `<｜｜DSML｜｜ calls>`（或 ASCII 变体）等文本，这不是原生工具调用，而是模型生成的不兼容伪工具格式。所有无原生工具调用且以 `stop` 结束的最终文本都会经过兼容性守卫，不会把伪工具文本打印到 stdout，也不会执行它。
 
@@ -116,6 +121,11 @@ go build ./cmd/drift
 - [M1.9 Anthropic Provider](doc/m1.9-anthropic-provider.md)
 - [M1.10 运行过程反馈](doc/m1.10-runtime-feedback.md)
 - [M2.0 Workspace Skills](doc/m2.0-skills.md)
+- [M2.1 只读探索预算调整](doc/m2.1-exploration-budget.md)
+- [M2.2 Workspace 存储布局重命名](doc/m2.2-storage-layout.md)
+- [M2.3 聊天内会话切换](doc/m2.3-session-switching.md)
+- [M2.4 按日期分片的会话与审计存储](doc/m2.4-session-storage.md)
+- [M2.5 消息完整性与会话时间线](doc/m2.5-message-integrity.md)
 - [M1.0 交互式只读对话阶段说明](doc/m1.0-interactive-chat.md)
 - [M0.7 Provider 诊断与读取保护阶段说明](doc/m0.7-provider-reliability.md)
 - [M0.2 Read Agent 说明](doc/m0.2-read-agent.md)

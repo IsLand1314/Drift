@@ -107,7 +107,7 @@ func TestChatPreservesConversationAcrossTurns(t *testing.T) {
 	if !strings.Contains(out.String(), "first answer") || !strings.Contains(out.String(), "second answer") || requests != 2 {
 		t.Fatalf("out=%q requests=%d", out.String(), requests)
 	}
-	files, err := filepath.Glob(filepath.Join(root, ".drift", "sessions", "*.jsonl"))
+	files, err := session.ListFiles(filepath.Join(root, ".drift", "audits"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,6 +120,151 @@ func TestChatPreservesConversationAcrossTurns(t *testing.T) {
 	}
 	if strings.Contains(string(content), "first question") || strings.Contains(string(content), "first answer") || !strings.Contains(string(content), `"type":"run_started"`) {
 		t.Fatalf("chat audit leaked context or missed run_started: %s", content)
+	}
+}
+
+func TestSwitchChatSessionStagesTargetBeforeReplacingCurrent(t *testing.T) {
+	root := t.TempDir()
+	store := conversation.NewStore(root)
+	current, err := store.Create("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	current.Messages = []llm.Message{{Role: "user", Content: "current"}}
+	if err := store.Save(current); err != nil {
+		t.Fatal(err)
+	}
+	target, err := store.Create("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	target.Messages = []llm.Message{{Role: "user", Content: "target"}}
+	target.InputTokens, target.OutputTokens, target.ReportedRequests = 12, 4, 1
+	if err := store.Save(target); err != nil {
+		t.Fatal(err)
+	}
+	runner := agent.NewRunner(nil, root, "", tool.NewDefaultRegistry())
+	runner.RestoreMessages(current.Messages)
+	persistence := &chatPersistence{store: store, snapshot: current, persistent: true}
+	if err := switchChatSession(runner, persistence, target.ID); err != nil {
+		t.Fatal(err)
+	}
+	if persistence.snapshot.ID != target.ID || runner.Messages()[0].Content != "target" || persistence.usage.InputTokens != 12 {
+		t.Fatalf("snapshot=%+v messages=%+v usage=%+v", persistence.snapshot, runner.Messages(), persistence.usage)
+	}
+	if err := switchChatSession(runner, persistence, "conv-missing12345678"); err == nil {
+		t.Fatal("missing session unexpectedly switched")
+	}
+	if persistence.snapshot.ID != target.ID || runner.Messages()[0].Content != "target" {
+		t.Fatal("failed switch changed current session")
+	}
+}
+
+func TestChatResumeCommandSwitchesPersistentSession(t *testing.T) {
+	root := t.TempDir()
+	store := conversation.NewStore(root)
+	current, err := store.Create("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	current.Messages = []llm.Message{{Role: "user", Content: "current"}}
+	if err := store.Save(current); err != nil {
+		t.Fatal(err)
+	}
+	target, err := store.Create("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	target.Messages = []llm.Message{{Role: "user", Content: "target"}}
+	if err := store.Save(target); err != nil {
+		t.Fatal(err)
+	}
+	audit, err := session.NewJSONLWriter(filepath.Join(root, "audit.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer audit.Close()
+	runner := agent.NewRunner(nil, root, "", tool.NewDefaultRegistry())
+	runner.RestoreMessages(current.Messages)
+	persistence := &chatPersistence{store: store, snapshot: current, persistent: true}
+	var out, stderr bytes.Buffer
+	code := runChatLoopWithPersistence(context.Background(), runner, audit, nil, persistence, chatStatus{}, nil, strings.NewReader("/resume "+target.ID+"\n/status\nexit\n"), &out, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d out=%q stderr=%q", code, out.String(), stderr.String())
+	}
+	if persistence.snapshot.ID != target.ID || !strings.Contains(out.String(), target.ID) || runner.Messages()[0].Content != "target" {
+		t.Fatalf("out=%q snapshot=%+v messages=%+v", out.String(), persistence.snapshot, runner.Messages())
+	}
+}
+
+func TestStartNewChatSessionKeepsOldSnapshot(t *testing.T) {
+	root := t.TempDir()
+	store := conversation.NewStore(root)
+	current, err := store.Create("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	current.Messages = []llm.Message{{Role: "user", Content: "keep me"}}
+	if err := store.Save(current); err != nil {
+		t.Fatal(err)
+	}
+	runner := agent.NewRunner(nil, root, "", tool.NewDefaultRegistry())
+	runner.RestoreMessages(current.Messages)
+	persistence := &chatPersistence{store: store, snapshot: current, persistent: true, usage: usageTotals{InputTokens: 9}}
+	if err := startNewChatSession(runner, persistence); err != nil {
+		t.Fatal(err)
+	}
+	if persistence.snapshot.ID == current.ID || len(runner.Messages()) != 0 || persistence.usage != (usageTotals{}) {
+		t.Fatalf("snapshot=%+v messages=%+v usage=%+v", persistence.snapshot, runner.Messages(), persistence.usage)
+	}
+	if loaded, err := store.Load(current.ID); err != nil || len(loaded.Messages) != 1 {
+		t.Fatalf("old snapshot changed: %+v %v", loaded, err)
+	}
+}
+
+func TestChatNewCommandCreatesPersistentSession(t *testing.T) {
+	root := t.TempDir()
+	store := conversation.NewStore(root)
+	current, err := store.Create("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	audit, err := session.NewJSONLWriter(filepath.Join(root, "audit.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer audit.Close()
+	runner := agent.NewRunner(nil, root, "", tool.NewDefaultRegistry())
+	persistence := &chatPersistence{store: store, snapshot: current, persistent: true}
+	var out, stderr bytes.Buffer
+	code := runChatLoopWithPersistence(context.Background(), runner, audit, nil, persistence, chatStatus{}, nil, strings.NewReader("/new\n/status\nexit\n"), &out, &stderr)
+	if code != 0 || persistence.snapshot.ID == current.ID || !strings.Contains(out.String(), "已创建新会话") {
+		t.Fatalf("code=%d out=%q stderr=%q", code, out.String(), stderr.String())
+	}
+}
+
+func TestChatRenameCommandRenamesCurrentSession(t *testing.T) {
+	root := t.TempDir()
+	store := conversation.NewStore(root)
+	current, err := store.Create("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	audit, err := session.NewJSONLWriter(filepath.Join(root, "audit.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer audit.Close()
+	runner := agent.NewRunner(nil, root, "", tool.NewDefaultRegistry())
+	persistence := &chatPersistence{store: store, snapshot: current, persistent: true}
+	var out, stderr bytes.Buffer
+	code := runChatLoopWithPersistence(context.Background(), runner, audit, nil, persistence, chatStatus{}, nil, strings.NewReader("/rename 基本认识\nexit\n"), &out, &stderr)
+	if code != 0 || persistence.snapshot.Title != "基本认识" || !strings.Contains(out.String(), "已更新会话名称") {
+		t.Fatalf("code=%d out=%q snapshot=%+v", code, out.String(), persistence.snapshot)
+	}
+	loaded, err := store.Load(current.ID)
+	if err != nil || loaded.Title != "基本认识" {
+		t.Fatalf("loaded=%+v err=%v", loaded, err)
 	}
 }
 
@@ -499,7 +644,7 @@ func TestChatReportsEmptyProviderResponse(t *testing.T) {
 	if code != 1 || !strings.Contains(stderr.String(), "empty response") {
 		t.Fatalf("code=%d out=%q stderr=%q", code, out.String(), stderr.String())
 	}
-	files, err := filepath.Glob(filepath.Join(root, ".drift", "sessions", "*.jsonl"))
+	files, err := session.ListFiles(filepath.Join(root, ".drift", "audits"))
 	if err != nil || len(files) != 1 {
 		t.Fatalf("sessions=%v err=%v", files, err)
 	}

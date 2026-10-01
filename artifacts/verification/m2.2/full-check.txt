@@ -1,0 +1,13 @@
+M2.2 全量验证
+
+go test ./... -count=1: PASS
+go vet ./...: PASS
+go build -o .codex-temp\drift-m22.exe ./cmd/drift: PASS
+git diff --check: PASS
+
+重点覆盖：
+- 新 sessions/audits 布局解析；
+- 旧 conversations 与旧 sessions JSONL 的保守迁移；
+- 新目录优先、旧目录回退读取；
+- session 命令管理完整会话，audit 命令读取脱敏审计；
+- conversation 旧命令被拒绝，session 不再兼容旧审计语义。

@@ -15,6 +15,15 @@ import (
 
 const wantNativeToolSystemInstruction = "Drift is read-only. Only use the supplied native read-only tools. run_command, shell, and exec are unavailable. Never emit XML, DSML, or pseudo-tool syntax."
 
+func TestMaxToolCallsSupportsProjectExploration(t *testing.T) {
+	if MaxToolCalls != 12 {
+		t.Fatalf("MaxToolCalls = %d, want 12", MaxToolCalls)
+	}
+	if MaxModelRequests != 6 {
+		t.Fatalf("MaxModelRequests = %d, want 6", MaxModelRequests)
+	}
+}
+
 type scriptedStep struct {
 	events     []llm.StreamEvent
 	completion llm.Completion
@@ -103,6 +112,11 @@ func TestRunnerInjectsSkillAsSystemContext(t *testing.T) {
 	system := client.requests[0].Messages[0].Content
 	if !strings.Contains(system, wantNativeToolSystemInstruction) || !strings.Contains(system, "Prefer a concise project map.") {
 		t.Fatalf("system context = %q", system)
+	}
+	for _, required := range []string{"request/tool/read budgets", "return plain text only", "never emit XML, DSML, or pseudo-tool syntax"} {
+		if !strings.Contains(system, required) {
+			t.Fatalf("system context missing %q: %q", required, system)
+		}
 	}
 	if client.requests[0].Messages[1].Content != "analyze" || len(client.requests[0].Tools) != 3 {
 		t.Fatalf("request changed user/tools = %#v", client.requests[0])
@@ -469,12 +483,17 @@ func TestRunToolBudgetUsesToolFreeFinalRequest(t *testing.T) {
 		t.Fatalf("requests = %#v, want second tool-free final request", client.requests)
 	}
 	messages := client.requests[1].Messages
-	limitResult := messages[len(messages)-2]
+	limitResult := messages[len(messages)-1]
 	if limitResult.Role != "tool" || limitResult.ToolCallID != calls[MaxToolCalls].ID || !strings.Contains(limitResult.Content, "budget exceeded") {
 		t.Fatalf("limit tool result = %#v", limitResult)
 	}
-	if instruction := messages[len(messages)-1]; instruction.Role != "user" || !strings.Contains(instruction.Content, "budget exceeded") {
-		t.Fatalf("final limit instruction = %#v", instruction)
+	if instruction := messages[0]; instruction.Role != "system" || !strings.Contains(instruction.Content, "budget exceeded") {
+		t.Fatalf("final limit system instruction = %#v", instruction)
+	}
+	for _, message := range messages {
+		if message.Role == "user" && strings.Contains(message.Content, "Drift: request/tool budget exceeded") {
+			t.Fatalf("runtime limit leaked as user message: %#v", message)
+		}
 	}
 	toolCalls := 0
 	for _, event := range events {
@@ -484,6 +503,105 @@ func TestRunToolBudgetUsesToolFreeFinalRequest(t *testing.T) {
 	}
 	if toolCalls != len(calls) {
 		t.Fatalf("tool_call events = %d, want %d", toolCalls, len(calls))
+	}
+}
+
+func TestRunRetriesToolFreeFinalResponseAfterModelRequestsTool(t *testing.T) {
+	calls := make([]llm.ToolCall, MaxToolCalls)
+	for i := range calls {
+		calls[i] = llm.ToolCall{ID: string(rune('a' + i)), Type: "function", Name: "list_files", Arguments: `{}`}
+	}
+	ignoredCall := llm.ToolCall{ID: "ignored", Type: "function", Name: "read_file", Arguments: `{"path":"README.md"}`}
+	client := &scriptedClient{steps: []scriptedStep{
+		{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: calls}, FinishReason: "tool_calls"}},
+		{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{ignoredCall}}, FinishReason: "tool_calls"}},
+		{events: []llm.StreamEvent{{Text: "final answer"}}, completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "final answer"}, FinishReason: "stop"}},
+	}}
+	var output []string
+	if err := Run(context.Background(), client, t.TempDir(), "inspect", func(text string) error {
+		output = append(output, text)
+		return nil
+	}); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if !reflect.DeepEqual(output, []string{"final answer"}) {
+		t.Fatalf("output = %q, want final answer", output)
+	}
+	if len(client.requests) != 3 || len(client.requests[1].Tools) != 0 || len(client.requests[2].Tools) != 0 {
+		t.Fatalf("requests = %#v, want two tool-free final attempts", client.requests)
+	}
+}
+
+func TestRunReservesFinalResponseAttempts(t *testing.T) {
+	toolCall := llm.ToolCall{ID: "list", Type: "function", Name: "list_files", Arguments: `{}`}
+	steps := make([]scriptedStep, MaxModelRequests)
+	for i := 0; i < MaxModelRequests-2; i++ {
+		steps[i] = scriptedStep{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{toolCall}}, FinishReason: "tool_calls"}}
+	}
+	steps[MaxModelRequests-2] = scriptedStep{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{toolCall}}, FinishReason: "tool_calls"}}
+	steps[MaxModelRequests-1] = scriptedStep{events: []llm.StreamEvent{{Text: "reserved final"}}, completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "reserved final"}, FinishReason: "stop"}}
+	client := &scriptedClient{steps: steps}
+	var output []string
+	if err := Run(context.Background(), client, t.TempDir(), "inspect", func(text string) error {
+		output = append(output, text)
+		return nil
+	}); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if !reflect.DeepEqual(output, []string{"reserved final"}) {
+		t.Fatalf("output = %q, want reserved final", output)
+	}
+	if len(client.requests) != MaxModelRequests {
+		t.Fatalf("requests = %d, want %d", len(client.requests), MaxModelRequests)
+	}
+	for i := MaxModelRequests - 2; i < MaxModelRequests; i++ {
+		if len(client.requests[i].Tools) != 0 {
+			t.Fatalf("request %d has tools, want reserved tool-free final request", i)
+		}
+	}
+}
+
+func TestRunRetriesPseudoToolTextDuringReservedFinalResponse(t *testing.T) {
+	toolCall := llm.ToolCall{ID: "list", Type: "function", Name: "list_files", Arguments: `{}`}
+	steps := make([]scriptedStep, MaxModelRequests)
+	for i := 0; i < MaxModelRequests-finalResponseReserve; i++ {
+		steps[i] = scriptedStep{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{toolCall}}, FinishReason: "tool_calls"}}
+	}
+	steps[MaxModelRequests-finalResponseReserve] = scriptedStep{events: []llm.StreamEvent{{Text: "<|DSML|> calls"}}, completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "<|DSML|> calls"}, FinishReason: "stop"}}
+	steps[MaxModelRequests-1] = scriptedStep{events: []llm.StreamEvent{{Text: "plain final"}}, completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "plain final"}, FinishReason: "stop"}}
+	client := &scriptedClient{steps: steps}
+	var output []string
+	if err := Run(context.Background(), client, t.TempDir(), "inspect", func(text string) error {
+		output = append(output, text)
+		return nil
+	}); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if !reflect.DeepEqual(output, []string{"plain final"}) {
+		t.Fatalf("output = %q, want plain final", output)
+	}
+}
+
+func TestRunIncludesSystemContextOnEveryRequest(t *testing.T) {
+	call := llm.ToolCall{ID: "list", Type: "function", Name: "list_files", Arguments: `{}`}
+	steps := make([]scriptedStep, MaxModelRequests)
+	for i := 0; i < MaxModelRequests-finalResponseReserve; i++ {
+		steps[i] = scriptedStep{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{call}}, FinishReason: "tool_calls"}}
+	}
+	steps[MaxModelRequests-finalResponseReserve] = scriptedStep{events: []llm.StreamEvent{{Text: "done"}}, completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "done"}, FinishReason: "stop"}}
+	client := &scriptedClient{steps: steps}
+	runner := NewRunnerWithSystemContext(client, t.TempDir(), "", "project-overview", "Follow the selected project guidance.", tool.NewDefaultRegistry())
+	if err := runner.RunEvents(context.Background(), "inspect", nil); err != nil {
+		t.Fatalf("RunEvents() error = %v", err)
+	}
+	if len(client.requests) != MaxModelRequests-finalResponseReserve+1 {
+		t.Fatalf("requests = %d, want %d", len(client.requests), MaxModelRequests-finalResponseReserve+1)
+	}
+	for _, i := range []int{0, MaxModelRequests - finalResponseReserve} {
+		request := client.requests[i]
+		if len(request.Messages) == 0 || request.Messages[0].Role != "system" || !strings.Contains(request.Messages[0].Content, "Follow the selected project guidance.") {
+			t.Fatalf("request %d missing system context: %#v", i, request.Messages)
+		}
 	}
 }
 
@@ -509,9 +627,13 @@ func TestRunExactToolBudgetAddsLimitInstruction(t *testing.T) {
 	if len(final.Tools) != 0 {
 		t.Fatalf("final request tools = %d, want none", len(final.Tools))
 	}
-	last := final.Messages[len(final.Messages)-1]
-	if last.Role != "user" || !strings.Contains(last.Content, "request/tool budget exceeded") {
-		t.Fatalf("final limit instruction = %#v", last)
+	if first := final.Messages[0]; first.Role != "system" || !strings.Contains(first.Content, "request/tool budget exceeded") {
+		t.Fatalf("final limit system instruction = %#v", first)
+	}
+	for _, message := range final.Messages {
+		if message.Role == "user" && strings.Contains(message.Content, "Drift: request/tool budget exceeded") {
+			t.Fatalf("runtime limit leaked as user message: %#v", message)
+		}
 	}
 	for _, call := range calls {
 		if callEvents[call.ID] != 1 {
@@ -650,9 +772,12 @@ func TestRunEnforcesAggregateReadBudget(t *testing.T) {
 	if len(second.Messages) != 7 {
 		t.Fatalf("second request messages = %d, want 7", len(second.Messages))
 	}
+	if first := second.Messages[0]; first.Role != "system" || !strings.Contains(first.Content, "total read limit exceeded") {
+		t.Fatalf("final limit system instruction = %#v", first)
+	}
 	total := 0
 	for i, call := range calls {
-		result := second.Messages[i+2]
+		result := second.Messages[i+3]
 		if result.Role != "tool" || result.ToolCallID != call.ID {
 			t.Fatalf("tool message %d = %#v, want result for %q", i, result, call.ID)
 		}
@@ -663,10 +788,6 @@ func TestRunEnforcesAggregateReadBudget(t *testing.T) {
 	}
 	if total != 512<<10 {
 		t.Fatalf("total read bytes = %d, want %d", total, 512<<10)
-	}
-	limit := second.Messages[len(second.Messages)-1]
-	if limit.Role != "user" || !strings.Contains(limit.Content, "total read limit exceeded") {
-		t.Fatalf("final limit instruction = %#v", limit)
 	}
 }
 

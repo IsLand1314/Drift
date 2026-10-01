@@ -1,0 +1,5 @@
+M2.4 人工验收
+
+已验证：代码测试覆盖 UTC 日期目录、`session-时间-ID.json` / `run-时间-ID.jsonl` 命名、递归读取、旧路径不读取和 audit 仅 list/show。
+
+旧数据清理：删除 `.drift/sessions/*.json` 8 个、`.drift/audits/*.jsonl` 64 个平铺文件；未删除 `.drift/skills` 或日期目录。

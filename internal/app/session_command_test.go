@@ -7,14 +7,18 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/IsLand1314/Drift/internal/layout"
 )
 
-func TestSessionList(t *testing.T) {
+func TestAuditList(t *testing.T) {
 	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, ".drift", "sessions"), 0o700); err != nil {
+	auditDir := layout.DateDir(filepath.Join(root, ".drift", "audits"), time.Now())
+	if err := os.MkdirAll(auditDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, ".drift", "sessions", "run-1.jsonl"), []byte(`{"version":1,"type":"run_started"}`+"\n"+`{"version":1,"type":"run_finished"}`+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(auditDir, "run-1.jsonl"), []byte(`{"version":1,"type":"run_started"}`+"\n"+`{"version":1,"type":"run_finished"}`+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	old, err := os.Getwd()
@@ -26,7 +30,7 @@ func TestSessionList(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chdir(old) })
 	var out, stderr bytes.Buffer
-	if code := Run(context.Background(), []string{"session", "list"}, func(string) string { return "" }, &out, &stderr); code != 0 {
+	if code := Run(context.Background(), []string{"audit", "list"}, func(string) string { return "" }, &out, &stderr); code != 0 {
 		t.Fatalf("code = %d, out=%q, stderr=%q", code, out.String(), stderr.String())
 	}
 	if !strings.Contains(out.String(), "run-1.jsonl") || !strings.Contains(out.String(), "events=2") {
@@ -51,7 +55,7 @@ func TestSessionShowDoesNotPrintLegacyContent(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out, stderr bytes.Buffer
-	if code := Run(context.Background(), []string{"session", "show", path}, func(string) string { return "" }, &out, &stderr); code != 0 {
+	if code := Run(context.Background(), []string{"audit", "show", path}, func(string) string { return "" }, &out, &stderr); code != 0 {
 		t.Fatalf("code = %d, out=%q, stderr=%q", code, out.String(), stderr.String())
 	}
 	text := out.String()
@@ -73,7 +77,21 @@ func TestSessionShowDoesNotPrintLegacyContent(t *testing.T) {
 
 func TestSessionShowMissingFileReturnsUsageError(t *testing.T) {
 	var out, stderr bytes.Buffer
-	if code := Run(context.Background(), []string{"session", "show", filepath.Join(t.TempDir(), "missing.jsonl")}, func(string) string { return "" }, &out, &stderr); code != 2 {
+	if code := Run(context.Background(), []string{"audit", "show", filepath.Join(t.TempDir(), "missing.jsonl")}, func(string) string { return "" }, &out, &stderr); code != 2 {
 		t.Fatalf("code = %d, out=%q, stderr=%q", code, out.String(), stderr.String())
+	}
+}
+
+func TestSessionCommandDoesNotReadAudit(t *testing.T) {
+	var out, stderr bytes.Buffer
+	if code := Run(context.Background(), []string{"session", "list"}, func(string) string { return "" }, &out, &stderr); code != 0 || strings.Contains(out.String(), "run-1.jsonl") {
+		t.Fatalf("code=%d out=%q stderr=%q", code, out.String(), stderr.String())
+	}
+}
+
+func TestConversationCommandIsRemoved(t *testing.T) {
+	var out, stderr bytes.Buffer
+	if code := Run(context.Background(), []string{"conversation", "list"}, func(string) string { return "" }, &out, &stderr); code != 2 || !strings.Contains(stderr.String(), "drift session list") {
+		t.Fatalf("code=%d out=%q stderr=%q", code, out.String(), stderr.String())
 	}
 }

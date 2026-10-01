@@ -38,6 +38,55 @@ type usageTotals struct {
 	ReportedRequests, UnreportedRequests int
 }
 
+func switchChatSession(runner *agent.Runner, persistence *chatPersistence, targetID string) error {
+	if persistence == nil || !persistence.persistent {
+		return errors.New("chat: session switching requires persistent mode")
+	}
+	target, err := persistence.store.Load(strings.TrimSpace(targetID))
+	if err != nil {
+		return err
+	}
+	usage := usageTotals{
+		InputTokens:        target.InputTokens,
+		OutputTokens:       target.OutputTokens,
+		ReportedRequests:   target.ReportedRequests,
+		UnreportedRequests: target.UnreportedRequests,
+	}
+	runner.RestoreMessages(target.Messages)
+	persistence.snapshot = target
+	persistence.usage = usage
+	return nil
+}
+
+func startNewChatSession(runner *agent.Runner, persistence *chatPersistence) error {
+	if persistence == nil || !persistence.persistent {
+		runner.ResetContext()
+		return nil
+	}
+	target, err := persistence.store.Create(persistence.snapshot.Focus)
+	if err != nil {
+		return err
+	}
+	runner.ResetContext()
+	persistence.snapshot = target
+	persistence.usage = usageTotals{}
+	return nil
+}
+
+func renameChatSession(persistence *chatPersistence, title string) error {
+	if persistence == nil || !persistence.persistent {
+		return errors.New("chat: session naming requires persistent mode")
+	}
+	updated := persistence.snapshot
+	updated.Title = strings.TrimSpace(title)
+	updated.UpdatedAt = time.Now().UTC()
+	if err := persistence.store.Save(updated); err != nil {
+		return err
+	}
+	persistence.snapshot = updated
+	return nil
+}
+
 func (u *usageTotals) add(event agent.Event) {
 	if event.Type != agent.EventModelUsage {
 		return
@@ -132,6 +181,64 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 		}
 		if prompt == "compact" {
 			fmt.Fprintln(out, "如需压缩上下文，请输入 /compact")
+			continue
+		}
+		if prompt == "/resume" || strings.HasPrefix(prompt, "/resume ") {
+			if persistence == nil || !persistence.persistent {
+				fmt.Fprintln(out, "当前为 --no-session 模式，无法恢复持久会话")
+				continue
+			}
+			targetID := strings.TrimSpace(strings.TrimPrefix(prompt, "/resume"))
+			if targetID == "" {
+				if !interactiveInput {
+					fmt.Fprintln(out, "请在交互终端使用 /resume，或输入 /resume <id>")
+					continue
+				}
+				items, listErr := persistence.store.List()
+				if listErr != nil {
+					fmt.Fprintln(stderr, "错误：无法列出会话：", listErr)
+					continue
+				}
+				selectedID, selected, pickerErr := runChatResumePicker(ctx, in, out, items)
+				if pickerErr != nil {
+					fmt.Fprintln(stderr, "错误：会话选择器失败：", pickerErr)
+					continue
+				}
+				if !selected {
+					continue
+				}
+				targetID = selectedID
+			}
+			if err := switchChatSession(runner, persistence, targetID); err != nil {
+				fmt.Fprintln(out, "无法恢复会话：", err)
+				continue
+			}
+			fmt.Fprintln(out, "已切换会话：", persistence.snapshot.ID)
+			continue
+		}
+		if prompt == "/new" {
+			if err := startNewChatSession(runner, persistence); err != nil {
+				fmt.Fprintln(out, "无法创建新会话：", err)
+				continue
+			}
+			if persistence != nil && persistence.persistent {
+				fmt.Fprintln(out, "已创建新会话：", persistence.snapshot.ID)
+			} else {
+				fmt.Fprintln(out, "已创建新的临时会话")
+			}
+			continue
+		}
+		if prompt == "/rename" || strings.HasPrefix(prompt, "/rename ") {
+			title := strings.TrimSpace(strings.TrimPrefix(prompt, "/rename"))
+			if title == "" {
+				fmt.Fprintln(out, "用法：/rename <标题>")
+				continue
+			}
+			if err := renameChatSession(persistence, title); err != nil {
+				fmt.Fprintln(out, "无法更新会话名称：", err)
+				continue
+			}
+			fmt.Fprintln(out, "已更新会话名称：", persistence.snapshot.Title)
 			continue
 		}
 		if prompt == "/status" {

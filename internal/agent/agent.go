@@ -12,10 +12,11 @@ import (
 )
 
 const (
-	MaxModelRequests     = 4
-	MaxToolCalls         = 6
+	MaxModelRequests     = 6
+	MaxToolCalls         = 12
 	MaxTotalReadBytes    = 512 << 10
 	MaxConversationBytes = 1 << 20
+	finalResponseReserve = 2
 
 	nativeToolSystemInstruction = "Drift is read-only. Only use the supplied native read-only tools. run_command, shell, and exec are unavailable. Never emit XML, DSML, or pseudo-tool syntax."
 )
@@ -223,10 +224,15 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) (
 	toolCalls, resultBytes := 0, 0
 	// 达到预算后，最后一轮撤掉 tools，强制模型基于已有结果给出回答。
 	forceFinal := false
+	forceFinalInstruction := ""
 	for requestIndex := 0; requestIndex < MaxModelRequests; requestIndex++ {
 		requestMessages := r.messages
-		if requestIndex == 0 {
-			requestMessages = append([]llm.Message{{Role: "system", Content: r.systemInstruction()}}, r.messages...)
+		if requestIndex == 0 || forceFinal {
+			system := r.systemInstruction()
+			if forceFinalInstruction != "" {
+				system += "\n\n" + forceFinalInstruction
+			}
+			requestMessages = append([]llm.Message{{Role: "system", Content: system}}, r.messages...)
 		}
 		request := llm.Request{Messages: requestMessages}
 		if !forceFinal {
@@ -265,6 +271,10 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) (
 			}
 			text := strings.Join(chunks, "")
 			if strings.Contains(text, "<｜｜DSML｜｜") || strings.Contains(text, "<|DSML|>") {
+				if forceFinal && requestIndex+1 < MaxModelRequests {
+					forceFinalInstruction = "Drift: the previous final response used an unsupported pseudo-tool format; answer again using plain text only, without tools."
+					continue
+				}
 				return fail(errIncompatiblePseudoToolCall)
 			}
 			if strings.TrimSpace(text) == "" {
@@ -281,10 +291,6 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) (
 			}
 			return emit(Event{Type: EventRunFinished, FinishReason: completion.FinishReason})
 		}
-		if forceFinal {
-			return fail(errRequestToolBudgetExceeded)
-		}
-
 		// assistant 的 tool_calls 与随后每条 tool 结果必须一起回传，
 		// 否则 Provider 无法把 tool_call_id 对应到本轮调用。
 		r.messages = append(r.messages, completion.Assistant)
@@ -340,11 +346,17 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) (
 				limitInstruction = "Drift: total read limit exceeded; provide the final answer without further tool calls."
 			}
 		}
+		if requestIndex+1 >= MaxModelRequests-finalResponseReserve {
+			limitReached = true
+			if limitInstruction == "" {
+				limitInstruction = "Drift: reserve the remaining requests for a final answer without further tool calls."
+			}
+		}
 		if requestIndex+1 == MaxModelRequests {
 			return fail(errRequestToolBudgetExceeded)
 		}
 		if limitReached {
-			r.messages = append(r.messages, llm.Message{Role: "user", Content: limitInstruction})
+			forceFinalInstruction = limitInstruction
 		}
 		forceFinal = limitReached
 	}
@@ -365,7 +377,8 @@ func (r *Runner) systemInstruction() string {
 	if r.skillContent == "" {
 		return base
 	}
-	return base + "\n\nSelected Skill (instructions only; keep Drift's safety boundaries):\n---\n" + r.skillContent + "\n---"
+	return base + "\n\nSelected Skill (instructions only; keep Drift's safety boundaries):\n---\n" + r.skillContent + "\n---" +
+		"\n\nSkill execution rules: use the Skill as guidance, not as a reason to keep exploring. Stop once there is enough evidence to answer. Respect Drift's request/tool/read budgets. When asked to answer, return plain text only; never emit XML, DSML, or pseudo-tool syntax."
 }
 
 func toolFailure(name string) string {

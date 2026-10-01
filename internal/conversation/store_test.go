@@ -1,6 +1,7 @@
 package conversation
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
@@ -8,8 +9,36 @@ import (
 	"testing"
 	"time"
 
+	"github.com/IsLand1314/Drift/internal/layout"
 	"github.com/IsLand1314/Drift/internal/llm"
 )
+
+func TestListIncludesLocalPreviewWithoutPersistingIt(t *testing.T) {
+	root := t.TempDir()
+	store := NewStore(root)
+	snapshot, err := store.Create("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot.Messages = []llm.Message{{Role: "user", Content: "第一行\n第二行"}}
+	if err := store.Save(snapshot); err != nil {
+		t.Fatal(err)
+	}
+	items, err := store.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].Preview != "第一行 第二行" {
+		t.Fatalf("items = %+v", items)
+	}
+	raw, err := os.ReadFile(filepath.Join(layout.DateDir(filepath.Join(root, ".drift", "sessions"), snapshot.CreatedAt), "session-"+layout.FileTimestamp(snapshot.CreatedAt)+"-"+snapshot.ID+".json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(raw, []byte(`"preview"`)) {
+		t.Fatal("preview must not be persisted")
+	}
+}
 
 func TestStoreSaveAndLoadPreservesToolMessages(t *testing.T) {
 	store := NewStore(t.TempDir())
@@ -26,6 +55,22 @@ func TestStoreSaveAndLoadPreservesToolMessages(t *testing.T) {
 	}
 	loaded, err := store.Load(snapshot.ID)
 	if err != nil || loaded.Messages[1].Content != "# Drift" {
+		t.Fatalf("loaded=%+v err=%v", loaded, err)
+	}
+}
+
+func TestStoreDoesNotPersistReasoningContent(t *testing.T) {
+	store := NewStore(t.TempDir())
+	snapshot, err := store.Create("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot.Messages = []llm.Message{{Role: "assistant", Content: "answer", ReasoningContent: "private reasoning"}}
+	if err := store.Save(snapshot); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.Load(snapshot.ID)
+	if err != nil || loaded.Messages[0].ReasoningContent != "" {
 		t.Fatalf("loaded=%+v err=%v", loaded, err)
 	}
 }
@@ -62,15 +107,31 @@ func TestStoreRejectsInvalidIDs(t *testing.T) {
 func TestStoreRejectsMalformedJSON(t *testing.T) {
 	root := t.TempDir()
 	store := NewStore(root)
-	if err := os.MkdirAll(filepath.Join(root, ".drift", "conversations"), 0o700); err != nil {
+	if err := os.MkdirAll(layout.DateDir(filepath.Join(root, ".drift", "sessions"), time.Now()), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(root, ".drift", "conversations", "conv-invalid1.json")
+	path := filepath.Join(layout.DateDir(filepath.Join(root, ".drift", "sessions"), time.Now()), "session-2026-10-01T00-00-00Z-conv-invalid1.json")
 	if err := os.WriteFile(path, []byte("{"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.Load("conv-invalid1"); !errors.Is(err, ErrInvalidSnapshot) {
 		t.Fatalf("Load malformed error = %v, want ErrInvalidSnapshot", err)
+	}
+}
+
+func TestStoreDoesNotReadLegacyConversationPath(t *testing.T) {
+	root := t.TempDir()
+	store := NewStore(root)
+	legacyDir := filepath.Join(root, ".drift", "conversations")
+	if err := os.MkdirAll(legacyDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	legacyPath := filepath.Join(legacyDir, "conv-legacy12345678.json")
+	if err := os.WriteFile(legacyPath, []byte(`{"version":1}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Load("conv-legacy12345678"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("legacy load error=%v, want ErrNotFound", err)
 	}
 }
 

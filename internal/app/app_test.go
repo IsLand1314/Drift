@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/IsLand1314/Drift/internal/session"
 )
 
 func TestRunLoadsDotEnv(t *testing.T) {
@@ -386,7 +388,7 @@ func TestRunMultiTurnExplorationRoundTripAndSessionAudit(t *testing.T) {
 		t.Fatalf("out=%q stderr=%q requests=%d", out.String(), stderr.String(), requests)
 	}
 
-	files, err := filepath.Glob(filepath.Join(root, ".drift", "sessions", "*.jsonl"))
+	files, err := session.ListFiles(filepath.Join(root, ".drift", "audits"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -460,7 +462,7 @@ func TestRunWritesSessionAudit(t *testing.T) {
 		t.Fatalf("out=%q stderr=%q requests=%d", out.String(), stderr.String(), requests)
 	}
 
-	files, err := filepath.Glob(filepath.Join(root, ".drift", "sessions", "*.jsonl"))
+	files, err := session.ListFiles(filepath.Join(root, ".drift", "audits"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -559,7 +561,7 @@ func TestRunWorkspaceDirectory(t *testing.T) {
 	if out.String() != "workspace answer\n" || stderr.String() != "" || requests != 2 {
 		t.Fatalf("out=%q stderr=%q requests=%d", out.String(), stderr.String(), requests)
 	}
-	files, err := filepath.Glob(filepath.Join(workspace, ".drift", "sessions", "*.jsonl"))
+	files, err := session.ListFiles(filepath.Join(workspace, ".drift", "audits"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -604,7 +606,7 @@ func TestRunWorkspaceFileFocusDoesNotAutoRead(t *testing.T) {
 	if out.String() != "direct file answer\n" || stderr.String() != "" || requests != 1 {
 		t.Fatalf("out=%q stderr=%q requests=%d", out.String(), stderr.String(), requests)
 	}
-	files, err := filepath.Glob(filepath.Join(workspace, ".drift", "sessions", "*.jsonl"))
+	files, err := session.ListFiles(filepath.Join(workspace, ".drift", "audits"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -649,7 +651,7 @@ func TestRunRecordsProviderErrorStage(t *testing.T) {
 	if code := Run(context.Background(), []string{"-p", "x"}, getenv, &out, &stderr); code != 1 {
 		t.Fatalf("code = %d, stderr = %q", code, stderr.String())
 	}
-	files, err := filepath.Glob(filepath.Join(root, ".drift", "sessions", "*.jsonl"))
+	files, err := session.ListFiles(filepath.Join(root, ".drift", "audits"))
 	if err != nil || len(files) != 1 {
 		t.Fatalf("session files = %#v, %v", files, err)
 	}

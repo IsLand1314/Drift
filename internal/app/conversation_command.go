@@ -10,15 +10,16 @@ import (
 	"time"
 
 	"github.com/IsLand1314/Drift/internal/conversation"
+	"github.com/IsLand1314/Drift/internal/layout"
 )
 
-func runConversationCommand(args []string, out, stderr io.Writer) int {
+func runSessionCommand(args []string, out, stderr io.Writer) int {
 	if len(args) == 0 || (len(args) == 1 && (args[0] == "-h" || args[0] == "--help")) {
 		if len(args) == 0 {
-			fmt.Fprintln(stderr, conversationUsage)
+			fmt.Fprintln(stderr, sessionUsage)
 			return 2
 		}
-		fmt.Fprintln(out, conversationUsage)
+		fmt.Fprintln(out, sessionUsage)
 		return 0
 	}
 	root, err := os.Getwd()
@@ -26,12 +27,16 @@ func runConversationCommand(args []string, out, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "错误：无法获取当前目录")
 		return 1
 	}
+	if err := layout.ForWorkspace(root).Prepare(); err != nil {
+		fmt.Fprintln(stderr, "错误：无法准备本地存储目录：", err)
+		return 1
+	}
 	store := conversation.NewStore(root)
 	switch args[0] {
 	case "list":
 		limit, ok := parseConversationLimit(args[1:])
 		if !ok {
-			fmt.Fprintln(stderr, "用法：drift conversation list [--limit N]")
+			fmt.Fprintln(stderr, "用法：drift session list [--limit N]")
 			return 2
 		}
 		metadata, err := store.List()
@@ -52,7 +57,7 @@ func runConversationCommand(args []string, out, stderr io.Writer) int {
 		return 0
 	case "show":
 		if len(args) != 2 || strings.TrimSpace(args[1]) == "" {
-			fmt.Fprintln(stderr, "用法：drift conversation show <id>")
+			fmt.Fprintln(stderr, "用法：drift session show <id>")
 			return 2
 		}
 		snapshot, err := store.Load(args[1])
@@ -66,9 +71,25 @@ func runConversationCommand(args []string, out, stderr io.Writer) int {
 		}
 		fmt.Fprintf(out, "id=%s version=%d title=%s created_at=%s updated_at=%s focus=%s messages=%d context_bytes=%d\n", snapshot.ID, snapshot.Version, snapshot.Title, snapshot.CreatedAt.UTC().Format(timeFormat), snapshot.UpdatedAt.UTC().Format(timeFormat), snapshot.Focus, len(snapshot.Messages), snapshot.ContextBytes)
 		return 0
+	case "timeline":
+		if len(args) != 2 || strings.TrimSpace(args[1]) == "" {
+			fmt.Fprintln(stderr, "用法：drift session timeline <id>")
+			return 2
+		}
+		snapshot, err := store.Load(args[1])
+		if errors.Is(err, conversation.ErrNotFound) {
+			fmt.Fprintln(stderr, "错误：完整会话不存在")
+			return 2
+		}
+		if err != nil {
+			fmt.Fprintln(stderr, "错误：", err)
+			return 1
+		}
+		writeConversationTimeline(out, snapshot)
+		return 0
 	case "rename":
 		if len(args) != 3 || strings.TrimSpace(args[1]) == "" {
-			fmt.Fprintln(stderr, "用法：drift conversation rename <id> <title>")
+			fmt.Fprintln(stderr, "用法：drift session rename <id> <title>")
 			return 2
 		}
 		if err := store.Rename(args[1], args[2]); err != nil {
@@ -84,7 +105,7 @@ func runConversationCommand(args []string, out, stderr io.Writer) int {
 	case "prune":
 		before, confirmed, ok := parsePruneArgs(args[1:])
 		if !ok {
-			fmt.Fprintln(stderr, "用法：drift conversation prune --before <RFC3339> [--yes]")
+			fmt.Fprintln(stderr, "用法：drift session prune --before <RFC3339> [--yes]")
 			return 2
 		}
 		if !confirmed {
@@ -112,7 +133,7 @@ func runConversationCommand(args []string, out, stderr io.Writer) int {
 		return 0
 	case "delete":
 		if len(args) != 3 || strings.TrimSpace(args[1]) == "" || args[2] != "--yes" {
-			fmt.Fprintln(stderr, "用法：drift conversation delete <id> --yes")
+			fmt.Fprintln(stderr, "用法：drift session delete <id> --yes")
 			return 2
 		}
 		err := store.Delete(args[1])
@@ -127,14 +148,14 @@ func runConversationCommand(args []string, out, stderr io.Writer) int {
 		fmt.Fprintln(out, "已删除完整会话："+args[1])
 		return 0
 	default:
-		fmt.Fprintln(stderr, conversationUsage)
+		fmt.Fprintln(stderr, sessionUsage)
 		return 2
 	}
 }
 
 const timeFormat = "2006-01-02T15:04:05.999999999Z07:00"
 
-const conversationUsage = "用法：drift conversation list [--limit N] | drift conversation show <id> | drift conversation rename <id> <title> | drift conversation delete <id> --yes | drift conversation prune --before <RFC3339> [--yes]"
+const sessionUsage = "用法：drift session list [--limit N] | drift session show <id> | drift session timeline <id> | drift session rename <id> <title> | drift session delete <id> --yes | drift session prune --before <RFC3339> [--yes]"
 
 func parseConversationLimit(args []string) (int, bool) {
 	if len(args) == 0 {
@@ -174,4 +195,21 @@ func writeConversationMetadata(out io.Writer, item conversation.Metadata) {
 		fmt.Fprintf(out, " focus=%s", item.Focus)
 	}
 	fmt.Fprintln(out)
+}
+
+func writeConversationTimeline(out io.Writer, snapshot conversation.Snapshot) {
+	for index, message := range snapshot.Messages {
+		fmt.Fprintf(out, "%02d %s", index+1, message.Role)
+		if len(message.ToolCalls) > 0 {
+			names := make([]string, 0, len(message.ToolCalls))
+			for _, call := range message.ToolCalls {
+				names = append(names, call.Name)
+			}
+			fmt.Fprintf(out, " tool_calls=%s", strings.Join(names, ","))
+		}
+		if message.ToolCallID != "" {
+			fmt.Fprintf(out, " tool_call_id=%s", message.ToolCallID)
+		}
+		fmt.Fprintf(out, " bytes=%d\n", len(message.Content))
+	}
 }

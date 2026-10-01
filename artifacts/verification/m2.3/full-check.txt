@@ -1,0 +1,14 @@
+M2.3 全量验证
+
+go test ./... -count=1: PASS
+go vet ./...: PASS
+go build -o .codex-temp\drift-m23.exe ./cmd/drift: PASS
+git diff --check: PASS
+
+覆盖：
+- 会话预览元数据不写入 JSON；
+- Resume 选择器过滤、Enter 选择、Esc 取消和窄终端渲染；
+- Resume 选择器隐藏零消息空快照，但不删除磁盘文件；
+- /resume 事务式切换与失败回滚；
+- /new 持久会话和 --no-session 临时上下文。
+- /rename 更新当前持久会话标题且不发起 Provider 请求。

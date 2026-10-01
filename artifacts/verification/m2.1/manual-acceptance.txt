@@ -1,0 +1,10 @@
+M2.1 人工验收
+
+命令：
+go run ./cmd/drift --trace -skill project-overview -p "介绍一下当前项目"
+
+预期：
+- 可进行超过 6 次的只读探索，最多执行 12 次；模型请求最多 6 次；
+- trace 中只出现 list_files、search_text、read_file；
+- 达到预算后的模型工具请求不会执行；
+- 最终 stdout 输出普通文本回答。

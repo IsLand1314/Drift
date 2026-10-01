@@ -34,7 +34,7 @@ func TestRunSelectsAnthropicProvider(t *testing.T) {
 	if code != 0 || out.String() != "anthropic answer\n" || requests != 1 {
 		t.Fatalf("code=%d out=%q stderr=%q requests=%d", code, out.String(), stderr.String(), requests)
 	}
-	if _, err := os.Stat(filepath.Join(workspace, ".drift", "sessions")); err != nil {
+	if _, err := os.Stat(filepath.Join(workspace, ".drift", "audits")); err != nil {
 		t.Fatalf("session directory missing: %v", err)
 	}
 }

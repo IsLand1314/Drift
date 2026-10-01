@@ -1,10 +1,111 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 `doc/architecture.md`。当前版本为 M2.0。下面的 M1.10、M1.9、M1.8、M1.7、M1.6、M1.5、M1.4、M1.3、M1.2、M1.1、M1.0、M0.9、M0.8、M0.7、M0.6、M0.5、M0.4、M0.3、M0.2.2 和 M0.2.1 章节是已完成阶段的历史记录，不覆盖当前 M2.0 的运行边界。
+本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 `doc/architecture.md`。当前版本为 M2.5。下面的 M2.4、M2.3、M2.2、M2.1、M2.0、M1.10、M1.9、M1.8、M1.7、M1.6、M1.5、M1.4、M1.3、M1.2、M1.1、M1.0、M0.9、M0.8、M0.7、M0.6、M0.5、M0.4、M0.3、M0.2.2 和 M0.2.1 章节是已完成阶段的历史记录，不覆盖当前 M2.5 的运行边界。
+
+## M2.5：消息完整性与会话时间线
+
+M2.5 修正运行时控制提示的消息来源：预算耗尽和伪工具重试提示只作为当次请求的 system context，不作为用户消息保存在完整会话中；完整会话快照不再持久化 Provider 的 `reasoning_content`。本阶段新增不显示正文的结构化时间线，便于检查快照消息形态而不扩大敏感内容暴露面。
+
+### 当前范围
+
+- 强制终答时的预算和 DSML 重试提示只影响当前模型请求，后续 Runner 消息与新保存的完整会话不含这类伪用户消息。
+- `.drift/sessions/` 的 JSON 快照继续作为恢复格式；不改为 JSONL，也不新增逐消息时间戳。
+- `drift session timeline <id>` 只输出序号、角色、工具调用名、工具调用 ID 和正文长度；不输出用户、助手或工具正文。
+- 既有快照不自动改写；历史快照中已经保存的内容不会被本阶段删除。需要干净测试时创建新会话。
+
+### M2.5 验收
+
+| ID | 验证方法 | 通过阈值 | 证据路径 |
+| --- | --- | --- | --- |
+| AC-M25-001 | 触发工具/读取预算终答和 DSML 终答重试的单元测试 | 最终请求在 system context 含控制提示，Runner 消息不新增伪用户提示 | `artifacts/verification/m2.5/full-check.txt` |
+| AC-M25-002 | 保存带 `reasoning_content` 的消息并重新加载 | 快照 JSON 不含该字段，恢复消息不含该字段 | `artifacts/verification/m2.5/full-check.txt` |
+| AC-M25-003 | `drift session timeline <id>` | 仅显示结构元数据，不回显提示词、回答或工具结果 | `artifacts/verification/m2.5/manual-acceptance.txt` |
+| AC-M25-004 | 全量测试、vet、构建和 diff 检查 | 全部退出码为 0 | `artifacts/verification/m2.5/full-check.txt` |
+
+## M2.4：按日期分片的会话与审计存储
+
+M2.4 保持 `session` 与 `audit` 的职责分离：完整会话和脱敏审计都按 UTC 年/月/日写入日期目录；不再读取旧的平铺路径，也不在 `audit` 命令中增加会话管理操作。
+
+### 当前范围
+
+- 完整会话写入 `.drift/sessions/YYYY/MM/DD/session-<timestamp>-<id>.json`；审计写入 `.drift/audits/YYYY/MM/DD/run-<timestamp>-<audit-id>.jsonl`。
+- `session list/show/rename/delete/prune` 只操作完整会话；`audit list/show` 只读取脱敏 JSONL。
+- 会话和审计读取递归日期目录；旧平铺文件不兼容读取，由用户使用清理命令或人工清理。
+- 日期使用 UTC；会话按创建日期归档，更新标题不会改变归档目录。
+
+### M2.4 验收
+
+| ID | 验证方法 | 通过阈值 | 证据路径 |
+| --- | --- | --- | --- |
+| AC-M24-001 | 新建 chat、运行单次请求 | 会话与审计分别落入 UTC 日期目录 | `artifacts/verification/m2.4/manual-acceptance.txt` |
+| AC-M24-002 | `session list/show/rename/delete/prune` | 只管理日期目录中的完整会话 | `artifacts/verification/m2.4/manual-acceptance.txt` |
+| AC-M24-003 | `audit list/show` | 递归读取日期目录，不出现 rename/delete/prune | `artifacts/verification/m2.4/manual-acceptance.txt` |
+| AC-M24-004 | 旧平铺路径检查 | 旧文件不被自动迁移或读取 | `artifacts/verification/m2.4/manual-acceptance.txt` |
+| AC-M24-005 | 全量测试、vet、构建和 diff 检查 | 全部退出码为 0 | `artifacts/verification/m2.4/full-check.txt` |
+
+## M2.3：聊天内会话切换
+
+M2.3 在现有完整会话快照之上增加 chat 内 `/resume`、`/new` 和 `/rename`。`/resume` 可搜索并选择当前 workspace 的会话，也可通过 ID 直接切换；`/new` 在持久模式下保留旧快照并创建新的空会话；`/rename <标题>` 更新当前持久会话标题。切换采用先加载后替换，失败时当前上下文不变。
+
+### 当前范围
+
+- 选择器只显示至少包含一条消息的会话，按会话标题、首条用户消息和 ID 过滤，支持上下移动、Enter 选择和 Esc 取消；空快照不自动删除。
+- `/rename <标题>` 只更新当前完整会话快照的标题，不请求 Provider；`--no-session` 模式拒绝持久标题操作。
+- `session` 仍只管理 `.drift/sessions/` 完整快照，`audit` 仍只查看 `.drift/audits/` 脱敏审计。
+- 不改变快照格式，不增加 `/audit`、`/tree`、`/fork`、写文件或命令执行能力。
+
+### M2.3 验收
+
+| ID | 验证方法 | 通过阈值 | 证据路径 |
+| --- | --- | --- | --- |
+| AC-M23-001 | chat 输入 `/resume` | 出现可搜索、可滚动的会话选择器 | `artifacts/verification/m2.3/manual-acceptance.txt` |
+| AC-M23-002 | 选择另一条会话、查看 `/status` | Session ID、消息和 Context 切换到目标快照 | `artifacts/verification/m2.3/manual-acceptance.txt` |
+| AC-M23-003 | 输入 `/resume <id>`、非法 ID、Esc | 合法 ID 切换；非法 ID/Esc 不改变当前会话 | `artifacts/verification/m2.3/manual-acceptance.txt` |
+| AC-M23-004 | 输入 `/new` 与 `--no-session` 下输入 `/new` | 持久模式保留旧快照并创建新 ID；临时模式只清空内存 | `artifacts/verification/m2.3/manual-acceptance.txt` |
+| AC-M23-005 | 全量测试、vet、构建和 diff 检查 | 全部退出码为 0 | `artifacts/verification/m2.3/full-check.txt` |
+
+## M2.2：Workspace 存储布局重命名
+
+M2.2 将完整会话快照放入 `.drift/sessions/`，将脱敏运行审计放入 `.drift/audits/`，让目录名称直接表达职责。旧 `.drift/conversations/` 和旧审计 `.drift/sessions/*.jsonl` 保守迁移并兼容读取，不改变 JSON 快照或 JSONL 格式。
+
+### 当前范围
+
+- 新会话：`.drift/sessions/conv-<id>.json`；新审计：`.drift/audits/run-*.jsonl`。
+- 旧 `conversations/*.json` 按文件迁入新 sessions；旧 `sessions/run-*.jsonl` 按文件迁入 audits；同名目标不覆盖。
+- 新运行只写新目录；读取优先新目录并回退旧目录。
+- `drift session list/show/rename/delete/prune` 只管理完整可恢复会话；`drift audit list/show` 只查看脱敏 JSONL 审计。两套命令不互为别名，也不在 chat 中增加 `/audit`。
+- `.drift/` 整体继续被 Git 忽略；本阶段不新增 `tmp/`。
+
+### M2.2 验收
+
+| ID | 验证方法 | 通过阈值 | 证据路径 |
+| --- | --- | --- | --- |
+| AC-M22-001 | `go test ./internal/layout ./internal/conversation ./internal/session ./internal/app -count=1` | 布局迁移、新写入和旧目录回退通过 | `artifacts/verification/m2.2/full-check.txt` |
+| AC-M22-002 | `go test ./... -count=1`、`go vet ./...`、build、diff | 全部退出码为 0 | `artifacts/verification/m2.2/full-check.txt` |
+| AC-M22-003 | 运行一次 chat、`session list` 和 `audit list` | 新文件分别出现在 `sessions/` 和 `audits/`，两套命令读取对象不交叉 | `artifacts/verification/m2.2/manual-acceptance.txt` |
+
+## M2.1：只读探索预算调整
+
+M2.1 将单次运行的工具调用上限由 6 次提高到 12 次、模型请求上限由 4 次提高到 6 次，以支持真实项目的目录、规格与关键文件探索；累计成功工具结果仍为 512 KiB，单文件读取仍为 128 KiB。
+
+### 当前范围
+
+- 仅调整 `agent.MaxToolCalls`：6 → 12、`agent.MaxModelRequests`：4 → 6；不新增配置项，不允许无限循环。
+- 达到 12 次或读取总量上限后，工具 schema 仍会撤掉；模型后续工具请求不会执行，并会获得一次或多次剩余的无工具终答机会。
+- 终答请求会重新注入只读与 Skill system context；若模型在无工具请求中仍返回工具调用或 DSML，运行时只重试普通文本，不执行伪工具。
+- 三个只读工具、workspace 路径边界、DSML 守卫、Session 审计与完整会话隐私规则保持不变。
+
+### M2.1 验收
+
+| ID | 验证方法 | 通过阈值 | 证据路径 |
+| --- | --- | --- | --- |
+| AC-M21-001 | `go test ./internal/agent -run TestMaxToolCallsSupportsProjectExploration -count=1` | 当前工具调用上限为 12 | `artifacts/verification/m2.1/full-check.txt` |
+| AC-M21-002 | `go test ./... -count=1`、`go vet ./...`、build、diff | 全部退出码为 0 | `artifacts/verification/m2.1/full-check.txt` |
+| AC-M21-003 | `drift --trace -skill project-overview -p "介绍一下当前项目"` | 可进行超过 6 次的只读探索或直接回答；没有额外工具类型 | `artifacts/verification/m2.1/manual-acceptance.txt` |
 
 ## M2.0：Workspace Skills
 
-M2.0 增加 Codex 风格的 workspace-local Skills。Skill 只作为显式选择的额外 system context，不改变三个只读工具、路径保护、模型请求预算或会话隐私边界。
+M2.0 增加 Codex 风格的 workspace-local Skills。Skill 只作为显式选择的额外 system context，不改变三个只读工具、路径保护、模型请求预算或会话隐私边界；运行时会要求 Skill 在证据足够时停止探索，并以普通文本完成回答。
 
 ### 当前范围
 
