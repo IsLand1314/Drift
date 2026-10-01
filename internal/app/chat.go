@@ -211,6 +211,10 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 		wroteAssistantPrefix := false
 		turnCtx, turnCancel := context.WithCancel(ctx)
 		endTurn := interrupt.beginTurn(turnCancel)
+		usageBefore := usageTotals{}
+		if persistence != nil {
+			usageBefore = persistence.usage
+		}
 		err := runner.RunEvents(turnCtx, prompt, func(event agent.Event) error {
 			// 同一事件先写脱敏审计，再按需转发 trace 和 stdout。
 			if err := audit.Append(event); err != nil {
@@ -237,6 +241,9 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 		})
 		endTurn()
 		if err != nil {
+			if persistence != nil {
+				persistence.usage = usageBefore
+			}
 			if errors.Is(err, context.Canceled) && turnCtx.Err() != nil && ctx.Err() == nil {
 				_ = appendChatEvent(audit, traceSink, agent.Event{Type: agent.EventError, Stage: "agent_cancelled"})
 				fmt.Fprintln(out, "已取消当前轮；会话仍可继续")
@@ -244,13 +251,16 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 				continue
 			}
 			if errors.Is(err, context.Canceled) {
+				turnCancel()
 				fmt.Fprintln(stderr, "已取消")
 				return 130
 			}
 			if errors.Is(err, agent.ErrContextLimit) {
+				turnCancel()
 				fmt.Fprintln(stderr, "错误：对话上下文已达到上限，请输入 /clear 后继续")
 				continue
 			}
+			turnCancel()
 			fmt.Fprintln(stderr, "错误：", err)
 			return 1
 		}

@@ -15,8 +15,28 @@ import (
 
 	"github.com/IsLand1314/Drift/internal/agent"
 	"github.com/IsLand1314/Drift/internal/conversation"
+	"github.com/IsLand1314/Drift/internal/llm"
+	"github.com/IsLand1314/Drift/internal/session"
 	"github.com/IsLand1314/Drift/internal/tool"
 )
+
+type cancelThenAnswerClient struct {
+	signals chan os.Signal
+	calls   int
+}
+
+func (c *cancelThenAnswerClient) Stream(ctx context.Context, _ llm.Request, emit func(llm.StreamEvent) error) (llm.Completion, error) {
+	c.calls++
+	if c.calls == 1 {
+		c.signals <- os.Interrupt
+		<-ctx.Done()
+		return llm.Completion{}, ctx.Err()
+	}
+	if err := emit(llm.StreamEvent{Text: "continued answer"}); err != nil {
+		return llm.Completion{}, err
+	}
+	return llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "continued answer"}, FinishReason: "stop"}, nil
+}
 
 func TestChatPreservesConversationAcrossTurns(t *testing.T) {
 	root := t.TempDir()
@@ -211,6 +231,30 @@ func TestChatStatusDoesNotCallProvider(t *testing.T) {
 	}
 	if requests != 0 || !strings.Contains(out.String(), "Drift Status") || !strings.Contains(out.String(), "\n  Session ID:  temporary (not saved)\n") || !strings.Contains(out.String(), "\n  Model:       test-model\n") || !strings.Contains(out.String(), "\n  Context:     100% remaining\n               1.2 KB used / 1048.6 KB total\n") || !strings.Contains(out.String(), "\n  Tokens:      unavailable\n") || !strings.Contains(out.String(), "\n  Tools:       3 enabled\n") || !strings.Contains(out.String(), "\n  Workspace:   ") {
 		t.Fatalf("requests=%d out=%q", requests, out.String())
+	}
+}
+
+func TestChatCancelsCurrentTurnAndContinues(t *testing.T) {
+	signals := make(chan os.Signal, 1)
+	client := &cancelThenAnswerClient{signals: signals}
+	root := t.TempDir()
+	runner := agent.NewRunner(client, root, "", tool.NewDefaultRegistry())
+	audit, err := session.NewJSONLWriter(filepath.Join(root, "audit.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer audit.Close()
+	chatCtx, cancelChat := context.WithCancel(context.Background())
+	coordinator := newInterruptCoordinator(signals, cancelChat)
+	stop := coordinator.start()
+	defer stop()
+	var out, stderr bytes.Buffer
+	code := runChatLoopWithPersistence(chatCtx, runner, audit, nil, nil, chatStatus{}, coordinator, strings.NewReader("first\nsecond\nexit\n"), &out, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d out=%q stderr=%q", code, out.String(), stderr.String())
+	}
+	if client.calls != 2 || !strings.Contains(out.String(), "已取消当前轮；会话仍可继续") || !strings.Contains(out.String(), "continued answer") {
+		t.Fatalf("calls=%d out=%q stderr=%q", client.calls, out.String(), stderr.String())
 	}
 }
 
