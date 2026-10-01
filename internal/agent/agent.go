@@ -229,6 +229,7 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) (
 	// 达到预算后，最后一轮撤掉 tools，强制模型基于已有结果给出回答。
 	forceFinal := false
 	forceFinalInstruction := ""
+	pseudoToolRetryUsed := false
 	for requestIndex := 0; requestIndex < MaxModelRequests; requestIndex++ {
 		requestMessages := r.messages
 		if requestIndex == 0 || forceFinal {
@@ -275,8 +276,10 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) (
 			}
 			text := strings.Join(chunks, "")
 			if strings.Contains(text, "<｜｜DSML｜｜") || strings.Contains(text, "<|DSML|>") {
-				if forceFinal && requestIndex+1 < MaxModelRequests {
+				if requestIndex > 0 && !pseudoToolRetryUsed && requestIndex+1 < MaxModelRequests {
+					pseudoToolRetryUsed = true
 					forceFinalInstruction = "Drift: the previous final response used an unsupported pseudo-tool format; answer again using plain text only, without tools."
+					forceFinal = true
 					continue
 				}
 				return fail(errIncompatiblePseudoToolCall)

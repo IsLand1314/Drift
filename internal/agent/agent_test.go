@@ -340,6 +340,7 @@ func TestRunRejectsDSMLTextAfterNativeToolCall(t *testing.T) {
 	client := &scriptedClient{steps: []scriptedStep{
 		{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{call}}, FinishReason: "tool_calls"}},
 		{events: []llm.StreamEvent{{Text: "<｜｜DSML｜｜ calls>"}}, completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "<｜｜DSML｜｜ calls>"}, FinishReason: "stop"}},
+		{events: []llm.StreamEvent{{Text: "<｜｜DSML｜｜ calls>"}}, completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "<｜｜DSML｜｜ calls>"}, FinishReason: "stop"}},
 	}}
 	var output []string
 	err := Run(context.Background(), client, t.TempDir(), "inspect", func(text string) error {
@@ -349,8 +350,28 @@ func TestRunRejectsDSMLTextAfterNativeToolCall(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "模型返回了不兼容的伪工具调用格式") {
 		t.Fatalf("Run() error = %v, want incompatible pseudo-tool error", err)
 	}
-	if len(output) != 0 || len(client.requests) != 2 {
-		t.Fatalf("output=%q requests=%d, want no output and two requests", output, len(client.requests))
+	if len(output) != 0 || len(client.requests) != 3 {
+		t.Fatalf("output=%q requests=%d, want no output and three requests", output, len(client.requests))
+	}
+}
+
+func TestRunRetriesDSMLAfterNativeToolCallWithPlainFinal(t *testing.T) {
+	call := llm.ToolCall{ID: "call-list", Type: "function", Name: "list_files", Arguments: `{}`}
+	client := &scriptedClient{steps: []scriptedStep{
+		{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{call}}, FinishReason: "tool_calls"}},
+		{events: []llm.StreamEvent{{Text: "<｜｜DSML｜｜ calls>"}}, completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "<｜｜DSML｜｜ calls>"}, FinishReason: "stop"}},
+		{events: []llm.StreamEvent{{Text: "plain final"}}, completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "plain final"}, FinishReason: "stop"}},
+	}}
+	var output []string
+	err := Run(context.Background(), client, t.TempDir(), "inspect", func(text string) error {
+		output = append(output, text)
+		return nil
+	})
+	if err != nil || strings.Join(output, "") != "plain final" {
+		t.Fatalf("err=%v output=%q", err, output)
+	}
+	if len(client.requests) != 3 || len(client.requests[2].Tools) != 0 {
+		t.Fatalf("requests=%d final_tools=%v, want three requests and no final tools", len(client.requests), client.requests[2].Tools)
 	}
 }
 

@@ -136,8 +136,17 @@ func (p *chatPersistence) clearRunner(runner *agent.Runner) error {
 func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit session.Writer, traceSink agent.EventSink, persistence *chatPersistence, status chatStatus, interrupt *interruptCoordinator, in io.Reader, out, stderr io.Writer) int {
 	input := newChatInput(in, out, status.Model)
 	permissionMemory := newPermissionMemory()
+	var currentActivity *chatActivity
 	if runner != nil {
 		runner.SetPermissionPrompt(func(promptCtx context.Context, request agent.PermissionRequest) (agent.PermissionDecision, error) {
+			if currentActivity != nil {
+				currentActivity.Stop()
+			}
+			defer func() {
+				if currentActivity != nil {
+					currentActivity.Start()
+				}
+			}()
 			return confirmWrite(promptCtx, input, out, permissionMemory, request)
 		})
 	}
@@ -334,6 +343,10 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 		if persistence != nil {
 			usageBefore = persistence.usage
 		}
+		if interactiveInput {
+			currentActivity = newChatActivity(out)
+			currentActivity.Start()
+		}
 		toolStarted := make(map[string]toolProgress)
 		err = runner.RunEvents(turnCtx, prompt, func(event agent.Event) error {
 			// 同一事件先写脱敏审计，再按需转发 trace 和 stdout。
@@ -349,20 +362,27 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 			if interactiveInput {
 				switch event.Type {
 				case agent.EventToolCall:
+					currentActivity.Stop()
 					toolStarted[event.ToolCallID] = toolProgress{started: time.Now(), path: safeToolPath(event.Arguments)}
 					if _, err := fmt.Fprintln(out, chatToolCallLine(out, event)); err != nil {
 						return err
 					}
+					currentActivity.Start()
 				case agent.EventToolResult:
+					currentActivity.Stop()
 					progress := toolStarted[event.ToolCallID]
 					delete(toolStarted, event.ToolCallID)
 					if _, err := fmt.Fprintln(out, chatToolResultLine(out, event, progress.path, time.Since(progress.started))); err != nil {
 						return err
 					}
+					currentActivity.Start()
 				}
 			}
 			if event.Type != agent.EventTextDelta {
 				return nil
+			}
+			if interactiveInput {
+				currentActivity.Stop()
 			}
 			if !wroteAssistantPrefix {
 				if _, err := fmt.Fprint(out, chatAssistantPrefix(out)); err != nil {
@@ -374,6 +394,10 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 			_, err := io.WriteString(out, event.Text)
 			return err
 		})
+		if currentActivity != nil {
+			currentActivity.Stop()
+			currentActivity = nil
+		}
 		endTurn()
 		if err != nil {
 			if persistence != nil {
