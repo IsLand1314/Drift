@@ -35,11 +35,24 @@ func (c modelClient) Stream(ctx context.Context, request llm.Request, emit func(
 // Run 是 CLI 的应用编排层：加载配置 → 校验参数 → 创建 Provider → 启动 Agent。
 // getenv、out 和 stderr 都通过参数注入，方便测试时使用模拟环境和 HTTP 服务。
 func Run(ctx context.Context, args []string, getenv func(string) string, out, stderr io.Writer) int {
-	return RunWithInput(ctx, args, getenv, os.Stdin, out, stderr)
+	return RunWithSignals(ctx, args, getenv, os.Stdin, out, stderr, nil)
 }
 
 // RunWithInput 与 Run 相同，但允许交互式命令注入 stdin，便于测试和嵌入。
 func RunWithInput(ctx context.Context, args []string, getenv func(string) string, in io.Reader, out, stderr io.Writer) int {
+	return RunWithSignals(ctx, args, getenv, in, out, stderr, nil)
+}
+
+// RunWithSignals 允许命令入口注入 Ctrl+C 信号，使 chat 能区分取消当前轮和退出进程。
+func RunWithSignals(ctx context.Context, args []string, getenv func(string) string, in io.Reader, out, stderr io.Writer, interrupts <-chan os.Signal) int {
+	runCtx := ctx
+	var coordinator *interruptCoordinator
+	if interrupts != nil {
+		var cancel context.CancelFunc
+		runCtx, cancel = context.WithCancel(ctx)
+		coordinator = newInterruptCoordinator(interrupts, cancel)
+		defer coordinator.start()()
+	}
 	if len(args) > 0 && args[0] == "session" {
 		return runSessionCommand(args[1:], out, stderr)
 	}
@@ -170,7 +183,7 @@ func RunWithInput(ctx context.Context, args []string, getenv func(string) string
 	}
 	if chat {
 		status := chatStatus{Model: *model, Workspace: selection.Root, ToolCount: len(registry.Definitions())}
-		code := runChatLoopWithPersistence(ctx, runner, sessionWriter, traceSink, persistence, status, in, out, stderr)
+		code := runChatLoopWithPersistence(runCtx, runner, sessionWriter, traceSink, persistence, status, coordinator, in, out, stderr)
 		if closeErr := sessionWriter.Close(); closeErr != nil && code == 0 {
 			fmt.Fprintln(stderr, "错误：", closeErr)
 			return 1
@@ -179,7 +192,7 @@ func RunWithInput(ctx context.Context, args []string, getenv func(string) string
 	}
 	var lastText string
 	// Event Sink 先追加脱敏审计记录，再把最终文本事件写到 stdout。
-	err = runner.RunEvents(ctx, *prompt, func(event agent.Event) error {
+	err = runner.RunEvents(runCtx, *prompt, func(event agent.Event) error {
 		if err := sessionWriter.Append(event); err != nil {
 			return err
 		}

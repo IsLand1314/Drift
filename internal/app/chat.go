@@ -17,7 +17,7 @@ import (
 )
 
 func runChatLoop(ctx context.Context, runner *agent.Runner, audit session.Writer, traceSink agent.EventSink, in io.Reader, out, stderr io.Writer) int {
-	return runChatLoopWithPersistence(ctx, runner, audit, traceSink, nil, chatStatus{}, in, out, stderr)
+	return runChatLoopWithPersistence(ctx, runner, audit, traceSink, nil, chatStatus{}, nil, in, out, stderr)
 }
 
 type chatStatus struct {
@@ -84,7 +84,7 @@ func (p *chatPersistence) clearRunner(runner *agent.Runner) error {
 	return nil
 }
 
-func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit session.Writer, traceSink agent.EventSink, persistence *chatPersistence, status chatStatus, in io.Reader, out, stderr io.Writer) int {
+func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit session.Writer, traceSink agent.EventSink, persistence *chatPersistence, status chatStatus, interrupt *interruptCoordinator, in io.Reader, out, stderr io.Writer) int {
 	scanner := bufio.NewScanner(in)
 	scanner.Buffer(make([]byte, 4096), 1<<20)
 	for {
@@ -103,6 +103,9 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 			if err := scanner.Err(); err != nil {
 				fmt.Fprintln(stderr, "错误：", err)
 				return 1
+			}
+			if ctx.Err() != nil {
+				return 130
 			}
 			return 0
 		}
@@ -206,7 +209,9 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 		startedAt := time.Now()
 		var lastText string
 		wroteAssistantPrefix := false
-		err := runner.RunEvents(ctx, prompt, func(event agent.Event) error {
+		turnCtx, turnCancel := context.WithCancel(ctx)
+		endTurn := interrupt.beginTurn(turnCancel)
+		err := runner.RunEvents(turnCtx, prompt, func(event agent.Event) error {
 			// 同一事件先写脱敏审计，再按需转发 trace 和 stdout。
 			if err := audit.Append(event); err != nil {
 				return err
@@ -230,7 +235,14 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 			_, err := io.WriteString(out, event.Text)
 			return err
 		})
+		endTurn()
 		if err != nil {
+			if errors.Is(err, context.Canceled) && turnCtx.Err() != nil && ctx.Err() == nil {
+				_ = appendChatEvent(audit, traceSink, agent.Event{Type: agent.EventError, Stage: "agent_cancelled"})
+				fmt.Fprintln(out, "已取消当前轮；会话仍可继续")
+				turnCancel()
+				continue
+			}
 			if errors.Is(err, context.Canceled) {
 				fmt.Fprintln(stderr, "已取消")
 				return 130
@@ -242,6 +254,7 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 			fmt.Fprintln(stderr, "错误：", err)
 			return 1
 		}
+		turnCancel()
 		if wroteAssistantPrefix {
 			if !strings.HasSuffix(lastText, "\n") {
 				if _, err := io.WriteString(out, "\n"); err != nil {
