@@ -59,13 +59,20 @@ func TestWriteRejectsUnsafeTargets(t *testing.T) {
 	}
 }
 
-func TestWriteRejectsMissingParentAndUnknownFields(t *testing.T) {
+func TestWriteAllowsMissingParentAndRejectsUnknownFields(t *testing.T) {
 	root := t.TempDir()
-	if _, err := Write(root, `{"path":"missing/file.txt","content":"x"}`); err == nil {
-		t.Fatal("missing parent accepted")
+	preview, err := Write(root, `{"path":"missing/file.txt","content":"x"}`)
+	if err != nil || preview.Path != "missing/file.txt" {
+		t.Fatalf("missing parent preview = %#v, err=%v", preview, err)
 	}
 	if _, err := Write(root, `{"path":"file.txt","content":"x","extra":true}`); err == nil {
 		t.Fatal("unknown field accepted")
+	}
+	if _, err := CommitWrite(context.Background(), root, preview); err != nil {
+		t.Fatal(err)
+	}
+	if content, err := os.ReadFile(filepath.Join(root, "missing", "file.txt")); err != nil || string(content) != "x" {
+		t.Fatalf("created nested file=%q err=%v", content, err)
 	}
 }
 

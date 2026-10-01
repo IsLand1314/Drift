@@ -91,14 +91,8 @@ func Write(root, rawArguments string) (Preview, error) {
 	if parent == "." {
 		parent = "."
 	}
-	if hasSymlink, err := hasSymlinkComponent(workspace, parent); err != nil {
-		return Preview{}, fmt.Errorf("stat write_file parent: %w", err)
-	} else if hasSymlink {
-		return Preview{}, fmt.Errorf("write_file parent is not a regular directory")
-	}
-	parentInfo, err := workspace.Stat(parent)
-	if err != nil || !parentInfo.IsDir() {
-		return Preview{}, fmt.Errorf("write_file parent directory does not exist")
+	if err := validateParentForCreation(workspace, parent); err != nil {
+		return Preview{}, err
 	}
 	old, operation := []byte(nil), "create_file"
 	info, statErr := workspace.Lstat(args.Path)
@@ -135,6 +129,10 @@ func validateWritePath(path string) error {
 }
 
 func CommitWrite(ctx context.Context, root string, preview Preview) (string, error) {
+	return commitTextPreview(ctx, root, preview)
+}
+
+func commitTextPreview(ctx context.Context, root string, preview Preview) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -146,12 +144,23 @@ func CommitWrite(ctx context.Context, root string, preview Preview) (string, err
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
+	parent := filepath.ToSlash(filepath.Dir(preview.Path))
+	if parent != "." {
+		if err := workspace.MkdirAll(parent, 0o755); err != nil {
+			return "", fmt.Errorf("write_file create parent directory: %w", err)
+		}
+	}
 	id, err := changes.NewID()
 	if err != nil {
 		return "", fmt.Errorf("write_file operation id: %w", err)
 	}
 	started := time.Now().UTC()
-	if _, err := changes.Record(root, started, id, changes.Manifest{Operation: preview.Operation, Path: preview.Path, OldBytes: preview.OldBytes, NewBytes: preview.NewBytes, Decision: "allow"}, preview.Diff, preview.Content, filepath.Base(filepath.FromSlash(preview.Path))); err != nil {
+	manifest := changes.Manifest{Operation: preview.Operation, Path: preview.Path, OldBytes: preview.OldBytes, NewBytes: preview.NewBytes, Decision: "allow"}
+	if set := changes.FromContext(ctx); set != nil {
+		if err := set.Record(manifest, preview.Diff, preview.Content, filepath.ToSlash(preview.Path)); err != nil {
+			return "", err
+		}
+	} else if _, err := changes.Record(root, started, id, manifest, preview.Diff, preview.Content, filepath.Base(filepath.FromSlash(preview.Path))); err != nil {
 		return "", err
 	}
 	tempPath := filepath.Join(filepath.Dir(preview.Path), ".drift-write-"+id)
@@ -174,7 +183,35 @@ func CommitWrite(ctx context.Context, root string, preview Preview) (string, err
 	if err := workspace.Rename(tempPath, preview.Path); err != nil {
 		return "", fmt.Errorf("write_file replace target: %w", err)
 	}
-	return "write_file: " + preview.Operation + " " + preview.Path, nil
+	return preview.Operation + ": " + preview.Path, nil
+}
+
+func validateParentForCreation(workspace *os.Root, parent string) error {
+	if parent == "." || parent == "" {
+		return nil
+	}
+	current := ""
+	for _, part := range strings.Split(filepath.ToSlash(parent), "/") {
+		if part == "" || part == "." {
+			continue
+		}
+		if current == "" {
+			current = part
+		} else {
+			current = filepath.Join(current, part)
+		}
+		info, err := workspace.Lstat(current)
+		if os.IsNotExist(err) {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("stat write_file parent: %w", err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			return fmt.Errorf("write_file parent is not a regular directory")
+		}
+	}
+	return nil
 }
 
 func bytesContainNUL(value []byte) bool {

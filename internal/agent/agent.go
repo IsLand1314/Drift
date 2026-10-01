@@ -418,7 +418,7 @@ func systemInstruction(focus string) string {
 func (r *Runner) systemInstruction() string {
 	base := systemInstruction(r.focus)
 	if _, writable := r.registry.Lookup("write_file"); writable {
-		base = strings.Replace(base, nativeToolSystemInstruction, "Drift is workspace-scoped. Use the supplied read-only tools to inspect files. write_file may create or overwrite a regular text file only after the user explicitly approves the preview. If write_file fails, explain its safe error summary and do not read Drift's implementation files to diagnose the runtime. Never emit XML, DSML, or pseudo-tool syntax.", 1)
+		base = strings.Replace(base, nativeToolSystemInstruction, "Drift is workspace-scoped. Use the supplied tools to inspect and modify files only after the user explicitly approves each preview. The native write_file, edit_file, and delete_file tools are available only in chat. When the user explicitly asks to create, write, edit, or delete, call the corresponding native tool instead of only suggesting code; never claim a change succeeded unless the tool result says it succeeded. If a mutation tool fails, explain its safe error summary and do not read Drift's implementation files to diagnose the runtime. Never emit XML, DSML, or pseudo-tool syntax.", 1)
 	}
 	if r.skillContent == "" {
 		return base
@@ -438,12 +438,20 @@ func safeToolError(root, message string) string {
 	message = sanitizeError(root, message)
 	for _, known := range []string{
 		"write_file parent directory does not exist",
+		"write_file create parent directory",
 		"write_file path is invalid",
 		"write_file target is not a regular file",
 		"write_file target is binary",
 		"write_file content exceeds",
 		"permission denied",
 		"requires permission confirmation",
+		"edit_file target does not exist",
+		"edit_file old_text must match exactly once",
+		"edit_file target is not a regular file",
+		"edit_file target is binary",
+		"delete_file target does not exist",
+		"delete_file target is not a regular file",
+		"delete_file target is binary",
 	} {
 		if strings.Contains(message, known) {
 			return known

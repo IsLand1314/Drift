@@ -63,7 +63,14 @@ func (m approvalInputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m approvalInputModel) View() string {
-	title := lipgloss.NewStyle().Foreground(lipgloss.Color("220")).Bold(true).Render("WriteFile command")
+	titleText := "WriteFile command"
+	switch m.request.ToolName {
+	case "edit_file":
+		titleText = "EditFile command"
+	case "delete_file":
+		titleText = "DeleteFile command"
+	}
+	title := lipgloss.NewStyle().Foreground(lipgloss.Color("220")).Bold(true).Render(titleText)
 	muted := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	path := "  " + m.request.Path
 	text := title + "\n\n" + path + "\n\n" + muted.Render("  This command requires approval") + "\n\n"

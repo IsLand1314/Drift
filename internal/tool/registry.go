@@ -52,7 +52,7 @@ func NewDefaultRegistry() Registry {
 
 // NewChatRegistry returns the read-only tools plus the confirmation-gated writer.
 func NewChatRegistry() Registry {
-	result, err := NewRegistry(listFilesTool{}, searchTextTool{}, readFileTool{}, writeFileTool{})
+	result, err := NewRegistry(listFilesTool{}, searchTextTool{}, readFileTool{}, writeFileTool{}, editFileTool{}, deleteFileTool{})
 	if err != nil {
 		panic(err)
 	}

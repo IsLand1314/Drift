@@ -29,11 +29,11 @@ func TestChatRegistrySystemInstructionAllowsConfirmedWrite(t *testing.T) {
 	if err := RunEventsWithRegistry(context.Background(), client, t.TempDir(), "describe", "", tool.NewChatRegistry(), nil); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(client.requests[0].Messages[0].Content, "write_file") || strings.Contains(client.requests[0].Messages[0].Content, "read-only tools. run_command") {
+	if !strings.Contains(client.requests[0].Messages[0].Content, "write_file") || !strings.Contains(client.requests[0].Messages[0].Content, "create, write, edit, or delete") {
 		t.Fatalf("system instruction=%q", client.requests[0].Messages[0].Content)
 	}
-	if len(client.requests[0].Tools) != 4 {
-		t.Fatalf("tools=%d, want 4", len(client.requests[0].Tools))
+	if len(client.requests[0].Tools) != 6 {
+		t.Fatalf("tools=%d, want 6", len(client.requests[0].Tools))
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/IsLand1314/Drift/internal/agent"
+	"github.com/IsLand1314/Drift/internal/changes"
 	"github.com/IsLand1314/Drift/internal/conversation"
 	"github.com/IsLand1314/Drift/internal/llm"
 	"github.com/IsLand1314/Drift/internal/session"
@@ -338,6 +339,16 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 		var lastText string
 		wroteAssistantPrefix := false
 		turnCtx, turnCancel := context.WithCancel(ctx)
+		var changeSet *changes.ChangeSet
+		if status.ToolCount > 3 {
+			changeSet, err = changes.Begin(status.Workspace, startedAt)
+			if err != nil {
+				turnCancel()
+				fmt.Fprintln(stderr, "错误：无法创建变更记录：", err)
+				continue
+			}
+			turnCtx = changes.WithChangeSet(turnCtx, changeSet)
+		}
 		endTurn := interrupt.beginTurn(turnCancel)
 		usageBefore := usageTotals{}
 		if persistence != nil {
@@ -397,6 +408,15 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 		if currentActivity != nil {
 			currentActivity.Stop()
 			currentActivity = nil
+		}
+		if changeSet != nil {
+			statusText := "complete"
+			if err != nil {
+				statusText = "partial"
+			}
+			if finalizeErr := changeSet.Finalize(statusText); finalizeErr != nil && err == nil {
+				err = finalizeErr
+			}
 		}
 		endTurn()
 		if err != nil {
