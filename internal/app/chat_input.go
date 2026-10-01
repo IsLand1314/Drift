@@ -66,7 +66,7 @@ func (t *ttyChatInput) Read(ctx context.Context) (string, error) {
 			return "", err
 		}
 	}
-	model := newChatInputModel(t.modelName)
+	model := newChatInputModel(t.modelName, chatSeparator(t.out))
 	program := tea.NewProgram(
 		&model,
 		tea.WithContext(ctx),
@@ -76,11 +76,6 @@ func (t *ttyChatInput) Read(ctx context.Context) (string, error) {
 		tea.WithoutSignals(),
 	)
 	result, runErr := program.Run()
-	if separator := chatSeparator(t.out); separator != "" {
-		if _, separatorErr := fmt.Fprintln(t.out, separator); runErr == nil {
-			runErr = separatorErr
-		}
-	}
 	var finalModel chatInputModel
 	switch model := result.(type) {
 	case chatInputModel:
@@ -114,12 +109,13 @@ func (t *ttyChatInput) Read(ctx context.Context) (string, error) {
 type chatInputModel struct {
 	editor    textarea.Model
 	modelName string
+	separator string
 	width     int
 	submitted bool
 	cancelled bool
 }
 
-func newChatInputModel(modelName string) chatInputModel {
+func newChatInputModel(modelName, separator string) chatInputModel {
 	editor := textarea.New()
 	editor.Placeholder = "Send a message..."
 	editor.Prompt = "❯ "
@@ -132,7 +128,7 @@ func newChatInputModel(modelName string) chatInputModel {
 	editor.FocusedStyle.Placeholder = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	editor.BlurredStyle = editor.FocusedStyle
 	editor.Focus()
-	return chatInputModel{editor: editor, modelName: modelName, width: 80}
+	return chatInputModel{editor: editor, modelName: modelName, separator: separator, width: 80}
 }
 
 func (m chatInputModel) Init() tea.Cmd {
@@ -169,5 +165,5 @@ func (m chatInputModel) View() string {
 		spaces = 1
 	}
 	footer := lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(left + strings.Repeat(" ", spaces) + right)
-	return m.editor.View() + "\n" + footer
+	return m.editor.View() + "\n" + footer + "\n" + m.separator
 }
