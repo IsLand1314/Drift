@@ -50,6 +50,15 @@ func NewDefaultRegistry() Registry {
 	return result
 }
 
+// NewChatRegistry returns the read-only tools plus the confirmation-gated writer.
+func NewChatRegistry() Registry {
+	result, err := NewRegistry(listFilesTool{}, searchTextTool{}, readFileTool{}, writeFileTool{})
+	if err != nil {
+		panic(err)
+	}
+	return result
+}
+
 func (r *registry) Definitions() []llm.ToolDefinition {
 	definitions := make([]llm.ToolDefinition, 0, len(r.order))
 	for _, current := range r.order {

@@ -1,8 +1,8 @@
 # Drift
 
-使用 Go 构建的本地只读 Coding Agent Runtime。当前版本为 M2.5：除单次 `-p` 请求外，还支持 `drift chat` 多轮交互、默认本地完整会话保存、`--resume` 启动恢复、chat 内 `/resume` 会话切换、`/new` 新建会话、`--no-session` 临时模式、`/status` 状态面板、`/compact` 手动压缩、活动轮次 Ctrl+C 取消和 workspace Skills。模型可以在选定 workspace 内列出文件、搜索文本、分页读取大文件，并根据每轮结果继续探索后给出解释；可选 `--trace` 会把安全运行摘要写到 stderr。`session` 管理可恢复会话，`audit` 查看脱敏审计。Provider 默认是 OpenAI Compatible，也可显式选择 Anthropic Messages。
+使用 Go 构建的本地受控 Coding Agent Runtime。当前版本为 M3.1：除单次 `-p` 请求外，还支持 `drift chat` 多轮交互、默认本地完整会话保存、`--resume` 启动恢复、chat 内 `/resume` 会话切换、`/new` 新建会话、`--no-session` 临时模式、`/status` 状态面板、`/compact` 手动压缩、活动轮次 Ctrl+C 取消、workspace Skills 和确认式 `write_file`。模型可以在选定 workspace 内列出文件、搜索文本、分页读取大文件，并根据每轮结果继续探索后给出解释；可选 `--trace` 会把安全运行摘要写到 stderr。`session` 管理可恢复会话，`audit` 查看脱敏审计。Provider 默认是 OpenAI Compatible，也可显式选择 Anthropic Messages。
 
-默认提供三个工具：`list_files`、`search_text`、`read_file`。单次运行最多 6 次模型请求、12 次工具调用；成功工具结果累计最多 512 KiB，单文件最多 128 KiB。`list_files` 最多返回 200 个文件，`search_text` 最多扫描 200 个文件、返回 100 个匹配，输出最多 32 KiB。工具按顺序串行执行，达到限制后使用无工具 schema 的请求生成说明。没有写文件、删除文件、执行命令或运行程序的能力。
+`-p` 只注册三个只读工具：`list_files`、`search_text`、`read_file`。`chat` 额外注册 `write_file`，创建或覆盖文件前必须由用户确认。单次运行最多 6 次模型请求、12 次工具调用；成功工具结果累计最多 512 KiB，单文件最多 128 KiB。`list_files` 最多返回 200 个文件，`search_text` 最多扫描 200 个文件、返回 100 个匹配，输出最多 32 KiB。M3.1 仍不提供删除文件、执行命令或运行程序的能力。
 
 ## 快速开始
 
@@ -87,9 +87,9 @@ go run ./cmd/drift audit show .drift/audits/run-<timestamp>.jsonl
 
 配置优先级为：命令行 `-model`/`-base-url` > 进程环境变量 > 当前目录 `.env` > 内置默认值。API Key 没有命令行参数，只从环境变量或 `.env` 读取；缺少 Key 或模型时，请求不会发出。
 
-该示例会让模型按需探索并解释当前项目；stdout 只输出最终回答，同一次运行的安全审计事件会写入被 Git 忽略的 `.drift/audits/`。需要观察过程时加 `--trace`，摘要会写入 stderr；需要查看完整会话时使用 `drift session list/show`，`drift session timeline <id>` 只显示消息角色、工具名、调用 ID 和字节数，不显示正文；需要查看脱敏审计时使用 `drift audit list/show`。这两套命令不互为别名，聊天输入区也不提供 `/audit`。新 JSONL 不保存提示词、原始工具参数、文件内容或回答正文，只保存安全的相对路径、脱敏占位符、字节数和结束原因。运行时为预算收敛或伪工具重试附加的控制提示只在当次 system context 中存在，不会伪装成用户输入写入完整会话；完整快照也不会保存 Provider 的 `reasoning_content`。失败事件含稳定的 `stage`，例如 `provider_timeout`、`provider_sse_invalid_json`、`agent_empty_response` 或 `agent_context_limit`。完整对话恢复和边界见 [M1.2 阶段说明](doc/m1.2-conversation-persistence.md)，消息完整性见 [M2.5 阶段说明](doc/m2.5-message-integrity.md)，进程内上下文规则见 [M1.1 阶段说明](doc/m1.1-context-control.md) 和 [M1.0 阶段说明](doc/m1.0-interactive-chat.md)。当前范围和验收标准见 [spec/current.md](spec/current.md)。
+该示例会让模型按需探索并解释当前项目；stdout 只输出最终回答，同一次运行的安全审计事件会写入被 Git 忽略的 `.drift/audits/`。`chat` 中的写入过程记录在 `.drift/changes/YYYY/MM/DD/`，可能包含项目敏感内容，不应上传。需要观察过程时加 `--trace`，摘要会写入 stderr；需要查看完整会话时使用 `drift session list/show`，`drift session timeline <id>` 只显示消息角色、工具名、调用 ID 和字节数，不显示正文；需要查看脱敏审计时使用 `drift audit list/show`。这两套命令不互为别名，聊天输入区也不提供 `/audit`。新 JSONL 不保存提示词、原始工具参数、文件内容或回答正文，只保存安全的相对路径、脱敏占位符、字节数和结束原因。运行时为预算收敛或伪工具重试附加的控制提示只在当次 system context 中存在，不会伪装成用户输入写入完整会话；完整快照也不会保存 Provider 的 `reasoning_content`。失败事件含稳定的 `stage`，例如 `provider_timeout`、`provider_sse_invalid_json`、`agent_empty_response` 或 `agent_context_limit`。完整对话恢复和边界见 [M1.2 阶段说明](doc/m1.2-conversation-persistence.md)，消息完整性见 [M2.5 阶段说明](doc/m2.5-message-integrity.md)，安全写入见 [M3.1 阶段说明](doc/m3.1-safe-file-write.md)，进程内上下文规则见 [M1.1 阶段说明](doc/m1.1-context-control.md) 和 [M1.0 阶段说明](doc/m1.0-interactive-chat.md)。当前范围和验收标准见 [spec/current.md](spec/current.md)。
 
-Drift 目前只接受原生工具调用中的三个只读工具，没有 `run_command`、shell 或 exec 工具，因此不会执行命令。OpenAI Compatible 与 Anthropic Messages 的工具调用都会归一化为同一套 Agent 事件；若模型输出 `<｜｜DSML｜｜ calls>`（或 ASCII 变体）等文本，这不是原生工具调用，而是模型生成的不兼容伪工具格式。所有无原生工具调用且以 `stop` 结束的最终文本都会经过兼容性守卫，不会把伪工具文本打印到 stdout，也不会执行它。
+Drift 的 `-p` 模式只接受三个只读工具；`chat` 额外接受经过确认的 `write_file`。当前仍没有 `delete_file`、`run_command`、shell 或 exec 工具，因此不会删除文件或执行命令。OpenAI Compatible 与 Anthropic Messages 的工具调用都会归一化为同一套 Agent 事件；若模型输出 `<｜｜DSML｜｜ calls>`（或 ASCII 变体）等文本，这不是原生工具调用，而是模型生成的不兼容伪工具格式。所有无原生工具调用且以 `stop` 结束的最终文本都会经过兼容性守卫，不会把伪工具文本打印到 stdout，也不会执行它。
 
 ## 开发
 
@@ -126,6 +126,7 @@ go build ./cmd/drift
 - [M2.3 聊天内会话切换](doc/m2.3-session-switching.md)
 - [M2.4 按日期分片的会话与审计存储](doc/m2.4-session-storage.md)
 - [M2.5 消息完整性与会话时间线](doc/m2.5-message-integrity.md)
+- [M3.1 安全文件写入](doc/m3.1-safe-file-write.md)
 - [M1.0 交互式只读对话阶段说明](doc/m1.0-interactive-chat.md)
 - [M0.7 Provider 诊断与读取保护阶段说明](doc/m0.7-provider-reliability.md)
 - [M0.2 Read Agent 说明](doc/m0.2-read-agent.md)

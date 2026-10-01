@@ -1,0 +1,18 @@
+M3.1 verification
+Date: 2026-10-01
+Branch: codex/m31-safe-file-write
+
+Commands:
+  go test ./... -count=1
+  go vet ./...
+  go build -o .codex-temp\drift-m31.exe ./cmd/drift
+  git diff --check
+
+Result: all commands passed.
+
+The regular chat command was also exercised with a local OpenAI-compatible
+mock provider using the real command path:
+  go run ./cmd/drift chat -w .
+
+The mock provider is only a test fixture; no external API key or network
+service was used.

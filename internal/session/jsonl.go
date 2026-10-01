@@ -121,30 +121,39 @@ func entryFromEvent(event agent.Event, clean sanitizer) Entry {
 	if event.Result != "" {
 		result = "<redacted>"
 	}
+	path := auditToolPath(event.Type, event.ToolName, event.Arguments)
+	if event.Type == agent.EventPermissionRequest || event.Type == agent.EventPermissionDecision {
+		path = auditRelativePath(event.Path)
+	}
 	return Entry{
-		Version:       1,
-		Type:          string(event.Type),
-		Time:          time.Now().UTC(),
-		Text:          text,
-		Skill:         clean.text(event.SkillName),
-		TextBytes:     len(event.Text),
-		ToolCallID:    clean.text(event.ToolCallID),
-		Tool:          clean.text(event.ToolName),
-		Path:          auditToolPath(event.Type, event.ToolName, event.Arguments),
-		Arguments:     arguments,
-		ArgumentBytes: len(event.Arguments),
-		Result:        result,
-		ResultBytes:   len(event.Result),
-		Error:         clean.text(event.Error),
-		Stage:         clean.text(event.Stage),
-		FinishReason:  sanitizeFinishReason(event.FinishReason),
-		BeforeBytes:   event.BeforeBytes,
-		AfterBytes:    event.AfterBytes,
-		MessageCount:  event.MessageCount,
-		KeptMessages:  event.KeptMessages,
-		InputTokens:   event.InputTokens,
-		OutputTokens:  event.OutputTokens,
-		TotalTokens:   event.TotalTokens,
+		Version:        1,
+		Type:           string(event.Type),
+		Time:           time.Now().UTC(),
+		Text:           text,
+		Skill:          clean.text(event.SkillName),
+		TextBytes:      len(event.Text),
+		ToolCallID:     clean.text(event.ToolCallID),
+		Tool:           clean.text(event.ToolName),
+		Path:           path,
+		Operation:      clean.text(event.Operation),
+		OldBytes:       event.OldBytes,
+		NewBytes:       event.NewBytes,
+		Allowed:        event.Allowed,
+		DecisionReason: clean.text(event.DecisionReason),
+		Arguments:      arguments,
+		ArgumentBytes:  len(event.Arguments),
+		Result:         result,
+		ResultBytes:    len(event.Result),
+		Error:          clean.text(event.Error),
+		Stage:          clean.text(event.Stage),
+		FinishReason:   sanitizeFinishReason(event.FinishReason),
+		BeforeBytes:    event.BeforeBytes,
+		AfterBytes:     event.AfterBytes,
+		MessageCount:   event.MessageCount,
+		KeptMessages:   event.KeptMessages,
+		InputTokens:    event.InputTokens,
+		OutputTokens:   event.OutputTokens,
+		TotalTokens:    event.TotalTokens,
 	}
 }
 
@@ -159,6 +168,9 @@ func sanitizeFinishReason(value string) string {
 // auditToolPath extracts only the relative path from known read-only tool calls.
 // The complete arguments stay redacted; unsafe paths are omitted rather than normalized.
 func auditToolPath(eventType agent.EventType, toolName, rawArguments string) string {
+	if eventType == agent.EventPermissionRequest || eventType == agent.EventPermissionDecision {
+		return auditRelativePath(rawArguments)
+	}
 	if eventType != agent.EventToolCall || (toolName != "read_file" && toolName != "list_files" && toolName != "search_text") {
 		return ""
 	}
@@ -182,6 +194,19 @@ func auditToolPath(eventType agent.EventType, toolName, rawArguments string) str
 		}
 	}
 	return pathpkg.Clean(normalized)
+}
+
+func auditRelativePath(value string) string {
+	value = strings.TrimSpace(strings.ReplaceAll(value, `\`, "/"))
+	if value == "" || pathpkg.IsAbs(value) || filepath.IsAbs(value) || hasWindowsVolume(value) {
+		return ""
+	}
+	for _, part := range strings.Split(value, "/") {
+		if part == ".." || part == ".env" || strings.HasPrefix(part, ".env.") {
+			return ""
+		}
+	}
+	return pathpkg.Clean(value)
 }
 
 func hasWindowsVolume(value string) bool {

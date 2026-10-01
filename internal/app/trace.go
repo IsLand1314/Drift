@@ -19,6 +19,10 @@ func newTraceSink(writer io.Writer) agent.EventSink {
 			line = "[drift] tool_call " + event.ToolName
 		case agent.EventToolResult:
 			line = fmt.Sprintf("[drift] tool_result %s bytes=%d", event.ToolName, len(event.Result))
+		case agent.EventPermissionRequest:
+			line = fmt.Sprintf("[drift] permission_request %s operation=%s", event.ToolName, event.Operation)
+		case agent.EventPermissionDecision:
+			line = fmt.Sprintf("[drift] permission_decision %s allowed=%t", event.ToolName, event.Allowed)
 		case agent.EventError:
 			stage := event.Stage
 			if stage == "" {

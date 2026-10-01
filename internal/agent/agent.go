@@ -38,13 +38,14 @@ var ErrContextLimit = errors.New("agent: context limit exceeded")
 
 // Runner 保存一个进程内的只读对话上下文；它不会从 Session JSONL 恢复历史消息。
 type Runner struct {
-	client       llm.Client
-	root         string
-	focus        string
-	skillName    string
-	skillContent string
-	registry     tool.Registry
-	messages     []llm.Message
+	client           llm.Client
+	root             string
+	focus            string
+	skillName        string
+	skillContent     string
+	registry         tool.Registry
+	messages         []llm.Message
+	permissionPrompt PermissionPrompt
 }
 
 // NewRunner 创建一个新的内存 Agent Runner。
@@ -81,6 +82,9 @@ func NewRunnerWithMessagesAndSystemContext(client llm.Client, root, focus, skill
 
 // Messages returns a copy of the current conversation messages.
 func (r *Runner) Messages() []llm.Message { return cloneMessages(r.messages) }
+
+// SetPermissionPrompt installs the approval callback for previewable tools.
+func (r *Runner) SetPermissionPrompt(prompt PermissionPrompt) { r.permissionPrompt = prompt }
 
 // RestoreMessages replaces the current messages with a caller-owned snapshot.
 func (r *Runner) RestoreMessages(messages []llm.Message) { r.messages = cloneMessages(messages) }
@@ -313,7 +317,34 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) (
 			} else {
 				toolCalls++
 				registeredTool, _ := r.registry.Lookup(call.Name)
-				result, toolErr := registeredTool.Execute(ctx, r.root, call.Arguments)
+				var result string
+				var toolErr error
+				if previewable, ok := registeredTool.(tool.Previewable); ok {
+					preview, previewErr := previewable.Preview(ctx, r.root, call.Arguments)
+					if previewErr != nil {
+						toolErr = previewErr
+					} else {
+						request := PermissionRequest{ToolName: call.Name, Operation: preview.Operation, Path: preview.Path, OldBytes: preview.OldBytes, NewBytes: preview.NewBytes, Diff: preview.Diff}
+						if err := emit(Event{Type: EventPermissionRequest, ToolCallID: call.ID, ToolName: call.Name, Operation: preview.Operation, Path: preview.Path, OldBytes: preview.OldBytes, NewBytes: preview.NewBytes}); err != nil {
+							return err
+						}
+						decision := PermissionDecision{Reason: "permission denied"}
+						if r.permissionPrompt != nil {
+							decision, toolErr = r.permissionPrompt(ctx, request)
+						}
+						if toolErr == nil && !decision.Allow {
+							toolErr = errors.New("permission denied")
+						}
+						if err := emit(Event{Type: EventPermissionDecision, ToolCallID: call.ID, ToolName: call.Name, Operation: preview.Operation, Path: preview.Path, OldBytes: preview.OldBytes, NewBytes: preview.NewBytes, Allowed: decision.Allow, DecisionReason: decision.Reason}); err != nil {
+							return err
+						}
+						if toolErr == nil {
+							result, toolErr = previewable.ExecutePreview(ctx, r.root, preview)
+						}
+					}
+				} else {
+					result, toolErr = registeredTool.Execute(ctx, r.root, call.Arguments)
+				}
 				if toolErr != nil && ctx.Err() != nil {
 					return fail(ctx.Err())
 				}
@@ -374,6 +405,9 @@ func systemInstruction(focus string) string {
 
 func (r *Runner) systemInstruction() string {
 	base := systemInstruction(r.focus)
+	if _, writable := r.registry.Lookup("write_file"); writable {
+		base = strings.Replace(base, nativeToolSystemInstruction, "Drift is workspace-scoped. Use the supplied read-only tools to inspect files. write_file may create or overwrite a regular text file only after the user explicitly approves the preview. Never emit XML, DSML, or pseudo-tool syntax.", 1)
+	}
 	if r.skillContent == "" {
 		return base
 	}
