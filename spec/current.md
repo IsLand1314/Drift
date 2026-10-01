@@ -1,6 +1,6 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 `doc/architecture.md`。当前版本为 M3.1。下面的 M2.5、M2.4、M2.3、M2.2、M2.1、M2.0、M1.10、M1.9、M1.8、M1.7、M1.6、M1.5、M1.4、M1.3、M1.2、M1.1、M1.0、M0.9、M0.8、M0.7、M0.6、M0.5、M0.4、M0.3、M0.2.2 和 M0.2.1 章节是已完成阶段的历史记录，不覆盖当前 M3.1 的运行边界。
+本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 `doc/architecture.md`。当前版本为 M3.2。下面的 M2.5、M2.4、M2.3、M2.2、M2.1、M2.0、M1.10、M1.9、M1.8、M1.7、M1.6、M1.5、M1.4、M1.3、M1.2、M1.1、M1.0、M0.9、M0.8、M0.7、M0.6、M0.5、M0.4、M0.3、M0.2.2 和 M0.2.1 章节是已完成阶段的历史记录，不覆盖当前 M3.2 的运行边界。
 
 ## M3.1：安全文件写入
 
@@ -22,6 +22,27 @@ M3.1 将 Drift 从只读 Runtime 扩展为受控写入 Runtime。`drift -p` 继�
 | AC-M31-002 | `go test ./internal/agent ./internal/app -count=1` | `chat` 可确认写入，`-p` 不注册写入工具 | `artifacts/verification/m3.1/full-check.txt` |
 | AC-M31-003 | `go run ./cmd/drift chat -w .` | 拒绝不改文件，批准后创建/覆盖目标并生成 changes 记录 | `artifacts/verification/m3.1/manual-acceptance.txt` |
 | AC-M31-004 | 全量测试、vet、构建和 diff 检查 | 全部退出码为 0 | `artifacts/verification/m3.1/full-check.txt` |
+
+## M3.2：审批选择器与运行反馈
+
+M3.2 将 M3.1 的 TTY 写入确认改为方向键选择，并统一读写工具的紧凑进度和耗时反馈。当前会话内的“允许此类操作”不持久化，不改变 `-p` 的只读边界。
+
+### 当前范围
+
+- 真实 TTY 提供 `Yes`、`Yes, and don't ask again for this pattern`、`No` 三个选择；方向键/数字键移动，Enter 确认，Esc/Ctrl+C 拒绝。
+- 非 TTY 保留 `y`/`yes` 兼容输入，重定向输出无 ANSI。
+- 工具反馈显示开始、成功/失败和耗时；TTY 审批不展开完整 diff，完整 diff 仍写入 `.drift/changes/`。
+- 写入预检失败显示脱敏、可理解的安全原因；模型不得读取 Drift 实现文件解释运行时失败。
+- 不自动创建父目录，不提供永久权限、完整全屏 TUI、删除、命令执行、测试运行、OS 沙箱或 Git 回滚。
+
+### M3.2 验收
+
+| ID | 验证方法 | 通过阈值 | 证据路径 |
+| --- | --- | --- | --- |
+| AC-M32-001 | `go test ./internal/app -run 'Approval|PermissionMemory' -count=1` | 选择移动、数字键、确认、拒绝和当前会话记忆通过 | `artifacts/verification/m3.2/full-check.txt` |
+| AC-M32-002 | `go test ./internal/agent ./internal/app -count=1` | 安全错误摘要、紧凑工具反馈和既有 chat 行为通过 | `artifacts/verification/m3.2/full-check.txt` |
+| AC-M32-003 | `go run ./cmd/drift chat -w .` | 审批选择完成后面板消失；批准、记忆批准、拒绝和取消行为正确 | `artifacts/verification/m3.2/manual-acceptance.txt` |
+| AC-M32-004 | 全量测试、vet、构建、diff 检查和重定向输出 | 全部退出码为 0，非 TTY 无 ANSI | `artifacts/verification/m3.2/full-check.txt` |
 
 ## M2.5：消息完整性与会话时间线
 

@@ -220,7 +220,7 @@ Provider 层可以使用官方 SDK，但不要让 SDK 类型越过 `internal/llm
 
 ## 9. 交付顺序
 
-### 已完成：M0～M3.1
+### 已完成：M0～M3.2
 
 - 已完成 workspace/focus、只读多轮探索、分页读取、Trace、脱敏审计、交互式 chat、完整会话恢复、会话生命周期管理、上下文压缩和 `/status` 状态面板。
 - 当前支持 OpenAI Compatible 与可选 Anthropic Messages 两个 Provider，二者都归一化为同一套消息、事件和工具协议；工具仍固定为三个只读工具。
@@ -231,6 +231,7 @@ Provider 层可以使用官方 SDK，但不要让 SDK 类型越过 `internal/llm
 - M2.4 已将会话和审计按 UTC 年/月/日分片；`session` 递归管理完整快照，`audit` 只提供 `list/show`，不兼容旧平铺路径。
 - M2.5 将预算和伪工具重试控制提示限定在当前请求的 system context，避免其以用户消息身份进入恢复快照；快照不保存 `reasoning_content`，`session timeline` 仅显示无正文的消息结构。
 - M3.1 增加确认式 `write_file`：仅 `chat` 注册写入工具，`-p` 保持只读；目标文件在 workspace 内原子替换，过程记录写入 `.drift/changes/`。
+- M3.2 将写入审批改为 TTY 方向键选择，增加当前 chat 的模式记忆、读写紧凑进度和安全失败摘要；不增加永久权限或完整 TUI。
 
 ### M1.5：运行时卫生与边界对齐
 

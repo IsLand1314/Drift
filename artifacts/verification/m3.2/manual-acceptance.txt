@@ -1,0 +1,21 @@
+M3.2 manual acceptance
+Date: 2026-10-01
+
+TTY approval:
+  - Started `go run ./cmd/drift chat -w .` with a local mock provider.
+  - Entered a write request and used Down + Enter to select the second option.
+  - Approval panel showed the yellow `WriteFile command` title, muted approval
+    copy, and highlighted selection; the panel disappeared after selection.
+  - A green compact completion line showed the relative path and elapsed time.
+  - A dated `.drift/changes/YYYY/MM/DD/change-.../` directory contained the
+    manifest, diff, and work artifact.
+
+TTY denial:
+  - Started a fresh chat and used Down + Down + Enter to select `No`.
+  - The panel disappeared and a red `permission denied` line was shown.
+  - The existing target file remained unchanged and no new change artifact was
+    created by the denied operation.
+
+Non-TTY compatibility:
+  - Piped `create request`, `y`, and `/exit` to the same `go run` command.
+  - The legacy y/N fallback approved the write without ANSI output.

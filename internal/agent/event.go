@@ -30,6 +30,7 @@ type Event struct {
 	ToolName       string
 	Arguments      string
 	Result         string
+	ErrorSummary   string
 	Error          string
 	Stage          string
 	FinishReason   string

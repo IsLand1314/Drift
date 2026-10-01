@@ -1,0 +1,18 @@
+M3.2 verification
+Date: 2026-10-01
+Branch: codex/m32-approval-tui
+
+Passed commands:
+  go test ./... -count=1
+  go vet ./...
+  go build -o .codex-temp\drift-m32.exe ./cmd/drift
+  git diff --check
+
+Focused checks passed:
+  go test ./internal/app -run Approval -count=1
+  go test ./internal/app -run PermissionMemory -count=1
+  go test ./internal/agent ./internal/app -count=1
+
+The actual command path `go run ./cmd/drift chat -w .` was exercised with a
+local OpenAI-compatible mock provider. No external API key or network service
+was used.
