@@ -63,7 +63,7 @@ func TestStreamMapsRequestAndSSE(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if text.String() != "hello" || completion.Assistant.Content != "hello" || completion.FinishReason != "end_turn" {
+	if text.String() != "hello" || completion.Assistant.Content != "hello" || completion.FinishReason != "stop" {
 		t.Fatalf("completion = %+v, text=%q", completion, text.String())
 	}
 	if completion.Usage == nil || completion.Usage.InputTokens != 11 || completion.Usage.OutputTokens != 7 {

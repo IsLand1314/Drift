@@ -450,6 +450,9 @@ func TestChatExitAndEOFDoNotCallProvider(t *testing.T) {
 				if key == "OPENAI_MODEL" {
 					return "test-model"
 				}
+				if key == "DRIFT_PROVIDER" {
+					return ""
+				}
 				return "http://127.0.0.1:1/v1"
 			}
 			var out, stderr bytes.Buffer
