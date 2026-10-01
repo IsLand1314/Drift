@@ -40,7 +40,7 @@ flowchart TB
     TOOL --> POLICY[policy: 权限与路径边界]
     AGENT <--> CONV[conversation: 上下文视图]
     AGENT --> SESSION[session: JSONL 事实记录]
-    APP --> RESOURCE[skills / prompts / MCP]
+    APP --> RESOURCE[skills / MCP]
     RESOURCE --> TOOL
     RESOURCE --> CONV
 ```
@@ -103,9 +103,8 @@ drift/
 │   │   └── prompt.go               # 系统提示词与 AGENTS.md 上下文组装
 │   ├── config/
 │   │   └── config.go               # 全局 + 项目 + 环境变量覆盖
-│   ├── resource/                    # 第三阶段再创建
-│   │   ├── skills.go               # Markdown Skill 发现与加载
-│   │   └── prompts.go              # Prompt 模板发现与加载
+│   ├── resource/                    # M2 再创建
+│   │   └── skills.go               # Skill 目录发现与加载
 │   ├── mcp/                         # 第三阶段再创建
 │   │   └── client.go               # MCP 工具转换为 tool.Tool
 │   └── ui/
@@ -132,7 +131,7 @@ drift/
 
 Go 原生 `plugin` 的平台和版本约束不适合跨平台 CLI。Drift 的运行时扩展优先采用：
 
-- Skills / Prompts：普通 Markdown 文件；
+- Skills：每个 Skill 一个目录，入口文件固定为 `SKILL.md`；
 - 外部工具：MCP 或独立进程协议；
 - 内建能力：编译期注册的 Go 工具。
 
@@ -238,7 +237,7 @@ Provider 层可以使用官方 SDK，但不要让 SDK 类型越过 `internal/llm
 
 ### M2：可扩展
 
-- Skills 与 Prompt 模板；
+- Skills 与 Skill 级上下文加载；
 - MCP 工具接入与按需 schema 加载；
 - Project Trust；
 - hooks，但只开放已出现真实需求的生命周期事件。
