@@ -58,6 +58,8 @@ type ttyChatInput struct {
 	in        io.Reader
 	out       io.Writer
 	modelName string
+	width     int
+	height    int
 }
 
 func (t *ttyChatInput) Read(ctx context.Context) (string, error) {
@@ -91,6 +93,7 @@ func (t *ttyChatInput) Read(ctx context.Context) (string, error) {
 		}
 		return "", errors.New("chat input returned an invalid model")
 	}
+	t.width, t.height = finalModel.width, finalModel.height
 	if finalModel.cancelled {
 		return "", errChatInputCancelled
 	}
@@ -111,6 +114,7 @@ type chatInputModel struct {
 	modelName string
 	separator string
 	width     int
+	height    int
 	submitted bool
 	cancelled bool
 }
@@ -128,7 +132,7 @@ func newChatInputModel(modelName, separator string) chatInputModel {
 	editor.FocusedStyle.Placeholder = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	editor.BlurredStyle = editor.FocusedStyle
 	editor.Focus()
-	return chatInputModel{editor: editor, modelName: modelName, separator: separator, width: 80}
+	return chatInputModel{editor: editor, modelName: modelName, separator: separator, width: 80, height: 24}
 }
 
 func (m chatInputModel) Init() tea.Cmd {
@@ -138,6 +142,7 @@ func (m chatInputModel) Init() tea.Cmd {
 func (m chatInputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if size, ok := msg.(tea.WindowSizeMsg); ok {
 		m.width = size.Width
+		m.height = size.Height
 		m.editor.SetWidth(size.Width)
 		return m, nil
 	}

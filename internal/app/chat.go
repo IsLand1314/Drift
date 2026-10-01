@@ -354,6 +354,11 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 		if persistence != nil {
 			usageBefore = persistence.usage
 		}
+		var fixedFooter *fixedChatFooter
+		if interactiveInput {
+			fixedFooter = newFixedChatFooter(out, input.(*ttyChatInput))
+			fixedFooter.Begin()
+		}
 		if interactiveInput {
 			currentActivity = newChatActivity(out)
 			currentActivity.Start()
@@ -408,6 +413,9 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 		if currentActivity != nil {
 			currentActivity.Stop()
 			currentActivity = nil
+		}
+		if fixedFooter != nil {
+			fixedFooter.End()
 		}
 		if changeSet != nil {
 			statusText := "complete"
