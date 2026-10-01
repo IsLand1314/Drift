@@ -1250,3 +1250,12 @@ func (t *registryTestTool) Execute(context.Context, string, string) (string, err
 	t.called = true
 	return "fake result", nil
 }
+
+func TestSafeToolErrorDoesNotExposeWorkspaceOrContent(t *testing.T) {
+	if got := safeToolError(`C:\workspace`, `write_file parent directory does not exist: C:\workspace\tmp`); got != "write_file parent directory does not exist" {
+		t.Fatalf("safe summary = %q", got)
+	}
+	if got := safeToolError(`C:\workspace`, "secret file contents"); got != "tool execution failed" {
+		t.Fatalf("unknown summary = %q", got)
+	}
+}

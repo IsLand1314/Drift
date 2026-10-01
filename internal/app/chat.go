@@ -135,9 +135,10 @@ func (p *chatPersistence) clearRunner(runner *agent.Runner) error {
 
 func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit session.Writer, traceSink agent.EventSink, persistence *chatPersistence, status chatStatus, interrupt *interruptCoordinator, in io.Reader, out, stderr io.Writer) int {
 	input := newChatInput(in, out, status.Model)
+	permissionMemory := newPermissionMemory()
 	if runner != nil {
 		runner.SetPermissionPrompt(func(promptCtx context.Context, request agent.PermissionRequest) (agent.PermissionDecision, error) {
-			return confirmWrite(promptCtx, input, out, request)
+			return confirmWrite(promptCtx, input, out, permissionMemory, request)
 		})
 	}
 	interactiveInput := false
@@ -333,6 +334,7 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 		if persistence != nil {
 			usageBefore = persistence.usage
 		}
+		toolStarted := make(map[string]toolProgress)
 		err = runner.RunEvents(turnCtx, prompt, func(event agent.Event) error {
 			// 同一事件先写脱敏审计，再按需转发 trace 和 stdout。
 			if err := audit.Append(event); err != nil {
@@ -347,11 +349,14 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 			if interactiveInput {
 				switch event.Type {
 				case agent.EventToolCall:
+					toolStarted[event.ToolCallID] = toolProgress{started: time.Now(), path: safeToolPath(event.Arguments)}
 					if _, err := fmt.Fprintln(out, chatToolCallLine(out, event)); err != nil {
 						return err
 					}
 				case agent.EventToolResult:
-					if _, err := fmt.Fprintln(out, chatToolResultLine(out, event)); err != nil {
+					progress := toolStarted[event.ToolCallID]
+					delete(toolStarted, event.ToolCallID)
+					if _, err := fmt.Fprintln(out, chatToolResultLine(out, event, progress.path, time.Since(progress.started))); err != nil {
 						return err
 					}
 				}
@@ -416,31 +421,96 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 }
 
 func chatToolCallLine(out io.Writer, event agent.Event) string {
-	text := "> " + event.ToolName
+	text := "● " + toolLabel(event.ToolName)
 	if path := safeToolPath(event.Arguments); path != "" {
 		text += " " + path
 	}
+	text += " ..."
 	return chatMuted(out) + text + chatReset(out)
 }
 
-func chatToolResultLine(out io.Writer, event agent.Event) string {
-	return chatMuted(out) + "+ " + event.ToolName + " · " + formatToolBytes(len([]byte(event.Result))) + chatReset(out)
+type toolProgress struct {
+	started time.Time
+	path    string
 }
 
-func confirmWrite(ctx context.Context, input chatInput, out io.Writer, request agent.PermissionRequest) (agent.PermissionDecision, error) {
-	fmt.Fprintf(out, "\nWrite request: %s %s (%d -> %d bytes)\n", request.Operation, request.Path, request.OldBytes, request.NewBytes)
-	if request.Diff != "" {
-		fmt.Fprintln(out, request.Diff)
+func chatToolResultLine(out io.Writer, event agent.Event, path string, elapsed time.Duration) string {
+	if event.ErrorSummary != "" {
+		return chatError(out) + "✖ " + toolLabel(event.ToolName) + formatToolPath(path) + " · " + event.ErrorSummary + chatReset(out)
 	}
+	bytes := len([]byte(event.Result))
+	if event.ToolName == "write_file" && event.NewBytes > 0 {
+		bytes = event.NewBytes
+	}
+	return chatSuccess(out) + "✓ " + toolLabel(event.ToolName) + formatToolPath(path) + " · " + formatToolBytes(bytes) + " · " + formatDuration(elapsed) + chatReset(out)
+}
+
+func formatToolPath(path string) string {
+	if path == "" {
+		return ""
+	}
+	return " " + path
+}
+
+func toolLabel(name string) string {
+	switch strings.TrimSpace(name) {
+	case "read_file":
+		return "Read"
+	case "list_files":
+		return "List"
+	case "search_text":
+		return "Search"
+	case "write_file":
+		return "Write"
+	default:
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return "Tool"
+		}
+		return strings.ToUpper(name[:1]) + name[1:]
+	}
+}
+
+func formatDuration(elapsed time.Duration) string {
+	if elapsed < 0 {
+		elapsed = 0
+	}
+	return fmt.Sprintf("%.1fs", elapsed.Seconds())
+}
+
+func confirmWrite(ctx context.Context, input chatInput, out io.Writer, memory *permissionMemory, request agent.PermissionRequest) (agent.PermissionDecision, error) {
+	if memory.Allow(request) {
+		return agent.PermissionDecision{Allow: true, Reason: "session_pattern_approved"}, nil
+	}
+	if _, ok := input.(*ttyChatInput); ok {
+		choice, err := readApprovalChoice(ctx, input, request)
+		if err != nil {
+			return agent.PermissionDecision{Reason: "approval_cancelled"}, err
+		}
+		switch choice {
+		case approveOnce:
+			return agent.PermissionDecision{Allow: true, Reason: "user_approved"}, nil
+		case approvePattern:
+			memory.Remember(request)
+			return agent.PermissionDecision{Allow: true, Reason: "session_pattern_approved"}, nil
+		default:
+			return agent.PermissionDecision{Reason: "user_denied"}, nil
+		}
+	}
+	fmt.Fprintf(out, "\nWrite request: %s %s (%d -> %d bytes)\n", request.Operation, request.Path, request.OldBytes, request.NewBytes)
 	fmt.Fprint(out, "Allow this change? [y/N] ")
-	answer, err := input.Read(ctx)
+	choice, err := readApprovalChoice(ctx, input, request)
 	if err != nil {
 		return agent.PermissionDecision{Reason: "confirmation input unavailable"}, err
 	}
-	if strings.EqualFold(strings.TrimSpace(answer), "y") || strings.EqualFold(strings.TrimSpace(answer), "yes") {
-		return agent.PermissionDecision{Allow: true, Reason: "user approved"}, nil
+	if choice == approveOnce {
+		return agent.PermissionDecision{Allow: true, Reason: "user_approved"}, nil
 	}
-	return agent.PermissionDecision{Reason: "user denied"}, nil
+	if choice == approvePattern {
+		memory.Remember(request)
+		return agent.PermissionDecision{Allow: true, Reason: "session_pattern_approved"}, nil
+	}
+	return agent.PermissionDecision{Reason: "user_denied"}, nil
 }
 
 func safeToolPath(arguments string) string {
@@ -559,6 +629,20 @@ func chatStatusLabel(out io.Writer) string {
 func chatStatusWarning(out io.Writer) string {
 	if chatUsesColor(out) {
 		return "\x1b[33m"
+	}
+	return ""
+}
+
+func chatSuccess(out io.Writer) string {
+	if chatUsesColor(out) {
+		return "\x1b[32m"
+	}
+	return ""
+}
+
+func chatError(out io.Writer) string {
+	if chatUsesColor(out) {
+		return "\x1b[31m"
 	}
 	return ""
 }

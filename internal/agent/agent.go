@@ -310,6 +310,9 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) (
 				return err
 			}
 			var content string
+			var errorSummary string
+			var operation, path string
+			var oldBytes, newBytes int
 			if toolCalls >= MaxToolCalls {
 				content = call.Name + " failed: request/tool budget exceeded"
 				limitReached = true
@@ -324,6 +327,8 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) (
 					if previewErr != nil {
 						toolErr = previewErr
 					} else {
+						operation, path = preview.Operation, preview.Path
+						oldBytes, newBytes = preview.OldBytes, preview.NewBytes
 						request := PermissionRequest{ToolName: call.Name, Operation: preview.Operation, Path: preview.Path, OldBytes: preview.OldBytes, NewBytes: preview.NewBytes, Diff: preview.Diff}
 						if err := emit(Event{Type: EventPermissionRequest, ToolCallID: call.ID, ToolName: call.Name, Operation: preview.Operation, Path: preview.Path, OldBytes: preview.OldBytes, NewBytes: preview.NewBytes}); err != nil {
 							return err
@@ -350,7 +355,11 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) (
 				}
 				switch {
 				case toolErr != nil:
+					errorSummary = safeToolError(r.root, toolErr.Error())
 					content = toolFailure(call.Name)
+					if call.Name == "write_file" {
+						content = call.Name + " failed: " + errorSummary
+					}
 				case resultBytes+len(result) > MaxTotalReadBytes:
 					content = call.Name + " failed: total read limit exceeded"
 					limitReached = true
@@ -361,7 +370,7 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) (
 				}
 			}
 			r.messages = append(r.messages, llm.Message{Role: "tool", Content: content, ToolCallID: call.ID})
-			if err := emit(Event{Type: EventToolResult, ToolCallID: call.ID, ToolName: call.Name, Result: content}); err != nil {
+			if err := emit(Event{Type: EventToolResult, ToolCallID: call.ID, ToolName: call.Name, Result: content, ErrorSummary: errorSummary, Operation: operation, Path: path, OldBytes: oldBytes, NewBytes: newBytes}); err != nil {
 				return err
 			}
 		}
@@ -406,7 +415,7 @@ func systemInstruction(focus string) string {
 func (r *Runner) systemInstruction() string {
 	base := systemInstruction(r.focus)
 	if _, writable := r.registry.Lookup("write_file"); writable {
-		base = strings.Replace(base, nativeToolSystemInstruction, "Drift is workspace-scoped. Use the supplied read-only tools to inspect files. write_file may create or overwrite a regular text file only after the user explicitly approves the preview. Never emit XML, DSML, or pseudo-tool syntax.", 1)
+		base = strings.Replace(base, nativeToolSystemInstruction, "Drift is workspace-scoped. Use the supplied read-only tools to inspect files. write_file may create or overwrite a regular text file only after the user explicitly approves the preview. If write_file fails, explain its safe error summary and do not read Drift's implementation files to diagnose the runtime. Never emit XML, DSML, or pseudo-tool syntax.", 1)
 	}
 	if r.skillContent == "" {
 		return base
@@ -420,6 +429,27 @@ func toolFailure(name string) string {
 		return "read_file failed: unable to read requested file"
 	}
 	return name + " failed: unable to execute requested tool"
+}
+
+func safeToolError(root, message string) string {
+	message = sanitizeError(root, message)
+	for _, known := range []string{
+		"write_file parent directory does not exist",
+		"write_file path is invalid",
+		"write_file target is not a regular file",
+		"write_file target is binary",
+		"write_file content exceeds",
+		"permission denied",
+		"requires permission confirmation",
+	} {
+		if strings.Contains(message, known) {
+			return known
+		}
+	}
+	if strings.Contains(message, "failed") || strings.Contains(message, "unable") {
+		return "tool execution failed"
+	}
+	return "tool execution failed"
 }
 
 func sanitizeError(root, message string) string {

@@ -390,7 +390,7 @@ func TestChatStatusDoesNotCallProvider(t *testing.T) {
 	if code := RunWithInput(context.Background(), []string{"chat", "--no-session", "-model", "test-model", "-w", t.TempDir()}, getenv, strings.NewReader("/status\nexit\n"), &out, &stderr); code != 0 {
 		t.Fatalf("code=%d out=%q stderr=%q", code, out.String(), stderr.String())
 	}
-	if requests != 0 || !strings.Contains(out.String(), "Drift Status") || !strings.Contains(out.String(), "\n  Session ID:  temporary (not saved)\n") || !strings.Contains(out.String(), "\n  Model:       test-model\n") || !strings.Contains(out.String(), "\n  Context:     100% remaining\n               1.7 KB used / 1048.6 KB total\n") || !strings.Contains(out.String(), "\n  Tokens:      unavailable\n") || !strings.Contains(out.String(), "\n  Tools:       4 enabled\n") || !strings.Contains(out.String(), "\n  Workspace:   ") {
+	if requests != 0 || !strings.Contains(out.String(), "Drift Status") || !strings.Contains(out.String(), "\n  Session ID:  temporary (not saved)\n") || !strings.Contains(out.String(), "\n  Model:       test-model\n") || !strings.Contains(out.String(), "\n  Context:     100% remaining\n") || !strings.Contains(out.String(), "KB used / 1048.6 KB total\n") || !strings.Contains(out.String(), "\n  Tokens:      unavailable\n") || !strings.Contains(out.String(), "\n  Tools:       4 enabled\n") || !strings.Contains(out.String(), "\n  Workspace:   ") {
 		t.Fatalf("requests=%d out=%q", requests, out.String())
 	}
 }
@@ -502,8 +502,8 @@ func TestChatDisplaysAssistantMarkerAndDuration(t *testing.T) {
 func TestChatToolProgressUsesSafeSummary(t *testing.T) {
 	var out bytes.Buffer
 	call := chatToolCallLine(&out, agent.Event{ToolName: "read_file", Arguments: `{"path":"README.md","secret":"hidden"}`})
-	result := chatToolResultLine(&out, agent.Event{ToolName: "read_file", Result: "hello"})
-	if call != "> read_file README.md" || result != "+ read_file · 5 B" {
+	result := chatToolResultLine(&out, agent.Event{ToolName: "read_file", Result: "hello"}, "README.md", 200*time.Millisecond)
+	if call != "● Read README.md ..." || result != "✓ Read README.md · 5 B · 0.2s" {
 		t.Fatalf("call=%q result=%q", call, result)
 	}
 	if got := safeToolPath(`{"path":"F:\\secret.txt"}`); got != "" {
