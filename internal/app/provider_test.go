@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -56,5 +57,51 @@ func TestRunRejectsMissingAnthropicKeyBeforeRequest(t *testing.T) {
 	}, strings.NewReader(""), &out, &stderr)
 	if code != 2 || !strings.Contains(stderr.String(), "ANTHROPIC_API_KEY") {
 		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+}
+
+func TestAnthropicToolRoundTripAndUsage(t *testing.T) {
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "README.md"), []byte("Drift README"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var requests []map[string]json.RawMessage
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]json.RawMessage
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		requests = append(requests, body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		if len(requests) == 1 {
+			_, _ = fmt.Fprint(w, "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":10}}}\n\n")
+			_, _ = fmt.Fprint(w, "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"call-read\",\"name\":\"read_file\"}}\n\n")
+			_, _ = fmt.Fprint(w, "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"path\\\":\\\"README.md\\\"}\"}}\n\n")
+			_, _ = fmt.Fprint(w, "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\"},\"usage\":{\"output_tokens\":4}}\n\n")
+		} else {
+			var messages []struct {
+				Role    string            `json:"role"`
+				Content []json.RawMessage `json:"content"`
+			}
+			if err := json.Unmarshal(body["messages"], &messages); err != nil {
+				t.Fatal(err)
+			}
+			if len(messages) < 3 || messages[len(messages)-1].Role != "user" || !strings.Contains(string(messages[len(messages)-1].Content[0]), "tool_result") {
+				t.Errorf("messages do not contain tool_result: %+v", messages)
+			}
+			_, _ = fmt.Fprint(w, "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":20}}}\n\n")
+			_, _ = fmt.Fprint(w, "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"README says Drift\"}}\n\n")
+			_, _ = fmt.Fprint(w, "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":6}}\n\n")
+		}
+		_, _ = fmt.Fprint(w, "data: {\"type\":\"message_stop\"}\n\n")
+	}))
+	defer server.Close()
+	getenv := func(key string) string {
+		return map[string]string{"ANTHROPIC_API_KEY": "test-key"}[key]
+	}
+	var out, stderr strings.Builder
+	code := RunWithInput(context.Background(), []string{"-provider", "anthropic", "-base-url", server.URL, "-model", "claude-test", "-w", workspace, "-p", "read README.md"}, getenv, strings.NewReader(""), &out, &stderr)
+	if code != 0 || out.String() != "README says Drift\n" || len(requests) != 2 {
+		t.Fatalf("code=%d out=%q stderr=%q requests=%d", code, out.String(), stderr.String(), len(requests))
 	}
 }

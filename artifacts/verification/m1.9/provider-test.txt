@@ -1,0 +1,13 @@
+M1.9 Provider compatibility verification
+
+go test ./internal/llm/anthropic -count=1 -v: PASS
+go test ./internal/app -run TestAnthropicToolRoundTripAndUsage -count=1 -v: PASS
+go test ./... -count=1: PASS
+
+Coverage:
+- Anthropic request headers and Messages payload mapping;
+- system prompt, text blocks, tool_use and tool_result conversion;
+- streaming text and partial tool JSON aggregation;
+- Anthropic end_turn normalized to the Agent stop reason;
+- two-request read_file Agent loop with final stdout answer;
+- provider-specific key validation and OpenAI default compatibility.
