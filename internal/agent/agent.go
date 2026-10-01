@@ -37,16 +37,23 @@ var ErrContextLimit = errors.New("agent: context limit exceeded")
 
 // Runner 保存一个进程内的只读对话上下文；它不会从 Session JSONL 恢复历史消息。
 type Runner struct {
-	client   llm.Client
-	root     string
-	focus    string
-	registry tool.Registry
-	messages []llm.Message
+	client       llm.Client
+	root         string
+	focus        string
+	skillName    string
+	skillContent string
+	registry     tool.Registry
+	messages     []llm.Message
 }
 
 // NewRunner 创建一个新的内存 Agent Runner。
 func NewRunner(client llm.Client, root, focus string, registry tool.Registry) *Runner {
-	return &Runner{client: client, root: root, focus: focus, registry: registry}
+	return NewRunnerWithSystemContext(client, root, focus, "", "", registry)
+}
+
+// NewRunnerWithSystemContext creates a Runner with one explicit Skill context.
+func NewRunnerWithSystemContext(client llm.Client, root, focus, skillName, skillContent string, registry tool.Registry) *Runner {
+	return &Runner{client: client, root: root, focus: focus, skillName: skillName, skillContent: skillContent, registry: registry}
 }
 
 func cloneMessages(messages []llm.Message) []llm.Message {
@@ -60,7 +67,13 @@ func cloneMessages(messages []llm.Message) []llm.Message {
 
 // NewRunnerWithMessages creates a Runner from a caller-owned message snapshot.
 func NewRunnerWithMessages(client llm.Client, root, focus string, registry tool.Registry, messages []llm.Message) *Runner {
-	runner := NewRunner(client, root, focus, registry)
+	runner := NewRunnerWithMessagesAndSystemContext(client, root, focus, "", "", registry, messages)
+	return runner
+}
+
+// NewRunnerWithMessagesAndSystemContext restores messages and applies current Skill context.
+func NewRunnerWithMessagesAndSystemContext(client llm.Client, root, focus, skillName, skillContent string, registry tool.Registry, messages []llm.Message) *Runner {
+	runner := NewRunnerWithSystemContext(client, root, focus, skillName, skillContent, registry)
 	runner.messages = cloneMessages(messages)
 	return runner
 }
@@ -74,7 +87,7 @@ func (r *Runner) RestoreMessages(messages []llm.Message) { r.messages = cloneMes
 // ContextBytes 估算当前消息、首轮系统指令和工具 schema 的 UTF-8 字节数。
 // 这是保守的字节预算，不等同于 Provider 的 token 计数。
 func (r *Runner) ContextBytes() int {
-	size := len(systemInstruction(r.focus))
+	size := len(r.systemInstruction())
 	for _, message := range r.messages {
 		size += len(message.Role) + len(message.Content) + len(message.ToolCallID) + len(message.ReasoningContent)
 		for _, call := range message.ToolCalls {
@@ -201,7 +214,7 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) (
 	fail := func(err error) error {
 		return failWithFinishReason(err, "")
 	}
-	if err := emit(Event{Type: EventRunStarted, Text: prompt}); err != nil {
+	if err := emit(Event{Type: EventRunStarted, Text: prompt, SkillName: r.skillName}); err != nil {
 		return err
 	}
 
@@ -213,7 +226,7 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) (
 	for requestIndex := 0; requestIndex < MaxModelRequests; requestIndex++ {
 		requestMessages := r.messages
 		if requestIndex == 0 {
-			requestMessages = append([]llm.Message{{Role: "system", Content: systemInstruction(r.focus)}}, r.messages...)
+			requestMessages = append([]llm.Message{{Role: "system", Content: r.systemInstruction()}}, r.messages...)
 		}
 		request := llm.Request{Messages: requestMessages}
 		if !forceFinal {
@@ -345,6 +358,14 @@ func systemInstruction(focus string) string {
 	return nativeToolSystemInstruction +
 		"\n\nThe user-selected initial focus target is " + strconv.Quote(focus) +
 		". Prioritize answering about it; use read_file only when needed."
+}
+
+func (r *Runner) systemInstruction() string {
+	base := systemInstruction(r.focus)
+	if r.skillContent == "" {
+		return base
+	}
+	return base + "\n\nSelected Skill (instructions only; keep Drift's safety boundaries):\n---\n" + r.skillContent + "\n---"
 }
 
 func toolFailure(name string) string {

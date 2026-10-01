@@ -21,6 +21,7 @@ const (
 type Event struct {
 	Type           EventType
 	Text           string
+	SkillName      string
 	ToolCallID     string
 	ToolName       string
 	Arguments      string

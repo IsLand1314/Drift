@@ -61,6 +61,39 @@ func TestJSONLWriterAppendsVersionedEntries(t *testing.T) {
 	}
 }
 
+func TestJSONLWriterRecordsOnlySkillName(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "run.jsonl")
+	writer, err := NewJSONLWriter(path)
+	if err != nil {
+		t.Fatalf("NewJSONLWriter() error = %v", err)
+	}
+	if err := writer.Append(agent.Event{Type: agent.EventRunStarted, SkillName: "project-overview"}); err != nil {
+		t.Fatalf("Append() error = %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	entries, err := ReadEntries(path)
+	if err != nil {
+		t.Fatalf("ReadEntries() error = %v", err)
+	}
+	if len(entries) != 1 || entries[0].Skill != "project-overview" {
+		t.Fatalf("entries = %#v", entries)
+	}
+	if strings.Contains(string(mustReadFile(t, path)), "SKILL") {
+		t.Fatal("session contains Skill content")
+	}
+}
+
+func mustReadFile(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
 func TestJSONLWriterCreatesParentAndRejectsAppendAfterClose(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested", "run.jsonl")
 	writer, err := NewJSONLWriter(path)

@@ -88,6 +88,30 @@ func TestRunDirectStopBuffersFirstTurnText(t *testing.T) {
 	}
 }
 
+func TestRunnerInjectsSkillAsSystemContext(t *testing.T) {
+	client := &scriptedClient{steps: []scriptedStep{{
+		events:     []llm.StreamEvent{{Text: "answer"}},
+		completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "answer"}, FinishReason: "stop"},
+	}}}
+	runner := NewRunnerWithSystemContext(client, t.TempDir(), "", "project-overview", "Prefer a concise project map.", tool.NewDefaultRegistry())
+	if err := runner.RunEvents(context.Background(), "analyze", nil); err != nil {
+		t.Fatalf("RunEvents() error = %v", err)
+	}
+	if len(client.requests) != 1 || len(client.requests[0].Messages) != 2 {
+		t.Fatalf("requests = %#v", client.requests)
+	}
+	system := client.requests[0].Messages[0].Content
+	if !strings.Contains(system, wantNativeToolSystemInstruction) || !strings.Contains(system, "Prefer a concise project map.") {
+		t.Fatalf("system context = %q", system)
+	}
+	if client.requests[0].Messages[1].Content != "analyze" || len(client.requests[0].Tools) != 3 {
+		t.Fatalf("request changed user/tools = %#v", client.requests[0])
+	}
+	if runner.ContextBytes() <= len(wantNativeToolSystemInstruction) {
+		t.Fatal("ContextBytes() did not include Skill context")
+	}
+}
+
 func TestRunnerPreservesConversationAcrossTurns(t *testing.T) {
 	client := &scriptedClient{steps: []scriptedStep{
 		{events: []llm.StreamEvent{{Text: "first answer"}}, completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "first answer"}, FinishReason: "stop"}},

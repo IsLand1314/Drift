@@ -126,6 +126,7 @@ func entryFromEvent(event agent.Event, clean sanitizer) Entry {
 		Type:          string(event.Type),
 		Time:          time.Now().UTC(),
 		Text:          text,
+		Skill:         clean.text(event.SkillName),
 		TextBytes:     len(event.Text),
 		ToolCallID:    clean.text(event.ToolCallID),
 		Tool:          clean.text(event.ToolName),

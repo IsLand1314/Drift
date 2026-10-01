@@ -12,6 +12,7 @@ type Entry struct {
 	Type          string    `json:"type"`
 	Time          time.Time `json:"time"`
 	Text          string    `json:"text,omitempty"`
+	Skill         string    `json:"skill,omitempty"`
 	TextBytes     int       `json:"text_bytes,omitempty"`
 	ToolCallID    string    `json:"tool_call_id,omitempty"`
 	Tool          string    `json:"tool,omitempty"`
