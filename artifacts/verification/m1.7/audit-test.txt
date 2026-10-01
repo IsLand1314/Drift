@@ -1,0 +1,19 @@
+command: ["go", "test", "./internal/session", "./internal/conversation", "-run", "Cancel|Cancelled|Snapshot", "-count=1", "-v"]
+cwd: "F:\\code\\drift"
+output_encoding: utf-8
+exit_code: 0
+
+--- stdout ---
+=== RUN   TestJSONLWriterStoresCancellationStageWithoutBody
+--- PASS: TestJSONLWriterStoresCancellationStageWithoutBody (0.00s)
+PASS
+ok  	github.com/IsLand1314/Drift/internal/session	0.260s
+=== RUN   TestStorePreservesUsageCountersAndOldSnapshotsDefaultToZero
+--- PASS: TestStorePreservesUsageCountersAndOldSnapshotsDefaultToZero (0.01s)
+=== RUN   TestStoreDeleteRemovesExactSnapshot
+--- PASS: TestStoreDeleteRemovesExactSnapshot (0.01s)
+PASS
+ok  	github.com/IsLand1314/Drift/internal/conversation	0.254s
+
+--- stderr ---
+

@@ -1,0 +1,27 @@
+command: ["go", "test", "./internal/agent", "./internal/app", "-run", "Cancel|Interrupt|Rollback", "-count=1", "-v"]
+cwd: "F:\\code\\drift"
+output_encoding: utf-8
+exit_code: 0
+
+--- stdout ---
+=== RUN   TestRunReturnsCancellation
+--- PASS: TestRunReturnsCancellation (0.00s)
+=== RUN   TestRunEventsCancellationRollsBackCurrentTurn
+--- PASS: TestRunEventsCancellationRollsBackCurrentTurn (0.00s)
+=== RUN   TestRunStopsWhenToolExecutionCancelsContext
+--- PASS: TestRunStopsWhenToolExecutionCancelsContext (0.00s)
+=== RUN   TestRunEventsToolCancellationRollsBackCurrentTurn
+--- PASS: TestRunEventsToolCancellationRollsBackCurrentTurn (0.00s)
+PASS
+ok  	github.com/IsLand1314/Drift/internal/agent	0.192s
+=== RUN   TestChatCancelsCurrentTurnAndContinues
+--- PASS: TestChatCancelsCurrentTurnAndContinues (0.00s)
+=== RUN   TestChatInterruptWhileIdleExits130
+--- PASS: TestChatInterruptWhileIdleExits130 (0.00s)
+=== RUN   TestInterruptCoordinatorCancelsTurnBeforeChat
+--- PASS: TestInterruptCoordinatorCancelsTurnBeforeChat (0.00s)
+PASS
+ok  	github.com/IsLand1314/Drift/internal/app	0.161s
+
+--- stderr ---
+

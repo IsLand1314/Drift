@@ -1,0 +1,18 @@
+command: ["powershell", "-NoProfile", "-Command", "go test ./... -count=1; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; go vet ./...; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; go build -o .codex-temp\\\\drift-m17.exe ./cmd/drift; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; git diff --check"]
+cwd: "F:\\code\\drift"
+output_encoding: utf-8
+exit_code: 0
+
+--- stdout ---
+?   	github.com/IsLand1314/Drift/cmd/drift	[no test files]
+ok  	github.com/IsLand1314/Drift/internal/agent	0.230s
+ok  	github.com/IsLand1314/Drift/internal/app	1.088s
+ok  	github.com/IsLand1314/Drift/internal/config	0.521s
+ok  	github.com/IsLand1314/Drift/internal/conversation	0.725s
+?   	github.com/IsLand1314/Drift/internal/llm	[no test files]
+ok  	github.com/IsLand1314/Drift/internal/llm/openai	0.606s
+ok  	github.com/IsLand1314/Drift/internal/session	0.632s
+ok  	github.com/IsLand1314/Drift/internal/tool	1.277s
+
+--- stderr ---
+warning: in the working copy of 'doc/m1.5-runtime-hygiene.md', LF will be replaced by CRLF the next time Git touches it
