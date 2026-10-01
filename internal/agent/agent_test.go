@@ -827,6 +827,28 @@ func TestRunReturnsCancellation(t *testing.T) {
 	}
 }
 
+func TestRunEventsCancellationRollsBackCurrentTurn(t *testing.T) {
+	root := t.TempDir()
+	initial := []llm.Message{{Role: "user", Content: "old question"}, {Role: "assistant", Content: "old answer"}}
+	ctx, cancel := context.WithCancel(context.Background())
+	client := &scriptedClient{steps: []scriptedStep{{
+		events:     []llm.StreamEvent{{Text: "partial"}},
+		err:        context.Canceled,
+		beforeDone: func() { cancel() },
+	}}}
+	runner := NewRunnerWithMessages(client, root, "", tool.NewDefaultRegistry(), initial)
+	beforeBytes := runner.ContextBytes()
+	if err := runner.RunEvents(ctx, "new question", nil); !errors.Is(err, context.Canceled) {
+		t.Fatalf("RunEvents() error = %v, want context canceled", err)
+	}
+	if got := runner.Messages(); !reflect.DeepEqual(got, initial) {
+		t.Fatalf("messages after cancellation = %#v, want %#v", got, initial)
+	}
+	if runner.ContextBytes() != beforeBytes {
+		t.Fatalf("context bytes after cancellation = %d, want %d", runner.ContextBytes(), beforeBytes)
+	}
+}
+
 func TestRunStopsWhenToolExecutionCancelsContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	registry, err := tool.NewRegistry(cancelingTool{cancel: cancel})

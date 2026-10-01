@@ -169,7 +169,13 @@ func RunEventsWithRegistry(ctx context.Context, client llm.Client, root, prompt,
 }
 
 // RunEvents 执行一轮输入，并把结果追加到当前 Runner 的内存上下文。
-func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) error {
+func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) (resultErr error) {
+	originalMessages := cloneMessages(r.messages)
+	defer func() {
+		if resultErr != nil {
+			r.messages = originalMessages
+		}
+	}()
 	emit := func(event Event) error {
 		if sink == nil {
 			return nil
