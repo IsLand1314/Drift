@@ -1,6 +1,6 @@
 # Drift 架构与当前边界
 
-> 状态：已按 M1.9 对齐 ｜ 更新：2026-10-01
+> 状态：已按 M1.10 对齐 ｜ 更新：2026-10-01
 
 本文说明 Drift 的长期分层和当前安全边界，交付范围及验收标准以 [spec/current.md](../spec/current.md) 为准。运行方法见 [README](../README.md)。
 
@@ -219,10 +219,11 @@ Provider 层可以使用官方 SDK，但不要让 SDK 类型越过 `internal/llm
 
 ## 9. 交付顺序
 
-### 已完成：M0～M1.9
+### 已完成：M0～M1.10
 
 - 已完成 workspace/focus、只读多轮探索、分页读取、Trace、脱敏审计、交互式 chat、完整会话恢复、会话生命周期管理、上下文压缩和 `/status` 状态面板。
 - 当前支持 OpenAI Compatible 与可选 Anthropic Messages 两个 Provider，二者都归一化为同一套消息、事件和工具协议；工具仍固定为三个只读工具。
+- 真实 TTY 会消费 Agent 的工具事件显示安全进度摘要，完成标记使用 ASCII 英文 `Done`；非 TTY 协议不变。
 
 ### M1.5：运行时卫生与边界对齐
 

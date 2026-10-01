@@ -349,8 +349,20 @@ func TestChatDisplaysAssistantMarkerAndDuration(t *testing.T) {
 	if code := RunWithInput(context.Background(), []string{"chat", "--no-session", "-w", t.TempDir()}, getenv, strings.NewReader("hello\nexit\n"), &out, &stderr); code != 0 {
 		t.Fatalf("code=%d out=%q stderr=%q", code, out.String(), stderr.String())
 	}
-	if !strings.Contains(out.String(), "● ok\n完成 · ") || strings.Contains(out.String(), "\x1b[") {
+	if !strings.Contains(out.String(), "● ok\nDone - ") || strings.Contains(out.String(), "\x1b[") {
 		t.Fatalf("out=%q", out.String())
+	}
+}
+
+func TestChatToolProgressUsesSafeSummary(t *testing.T) {
+	var out bytes.Buffer
+	call := chatToolCallLine(&out, agent.Event{ToolName: "read_file", Arguments: `{"path":"README.md","secret":"hidden"}`})
+	result := chatToolResultLine(&out, agent.Event{ToolName: "read_file", Result: "hello"})
+	if call != "> read_file README.md" || result != "+ read_file · 5 B" {
+		t.Fatalf("call=%q result=%q", call, result)
+	}
+	if got := safeToolPath(`{"path":"F:\\secret.txt"}`); got != "" {
+		t.Fatalf("absolute path displayed: %q", got)
 	}
 }
 

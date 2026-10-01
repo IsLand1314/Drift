@@ -1,0 +1,14 @@
+M1.10 人工验收记录
+
+TTY：
+1. 运行 `go run ./cmd/drift chat -w .`。
+2. 输入“读取 README.md，并说明项目作用”。
+3. 预期先看到类似 `> read_file README.md` 和 `+ read_file · ... KB`，随后看到回答和 `Done - <seconds>s`。
+4. 确认没有显示原始 JSON arguments、文件正文或绝对路径。
+
+非 TTY：
+- 重定向输入时不显示工具进度 ANSI，仍输出最终回答和 `Done`。
+
+自动化证据：
+- 工具路径安全摘要测试通过。
+- 全量测试、vet 和构建通过。

@@ -1,0 +1,10 @@
+M1.10 全量验证
+
+go test ./... -count=1: PASS
+go vet ./...: PASS
+go build -o .codex-temp\drift-m110.exe ./cmd/drift: PASS
+git diff --check: PASS
+
+重点测试：
+- TestChatDisplaysAssistantMarkerAndDuration：PASS，完成标记为 Done
+- TestChatToolProgressUsesSafeSummary：PASS，路径和结果大小脱敏显示

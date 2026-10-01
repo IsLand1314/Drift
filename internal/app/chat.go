@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -231,6 +232,18 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 			if persistence != nil {
 				persistence.usage.add(event)
 			}
+			if interactiveInput {
+				switch event.Type {
+				case agent.EventToolCall:
+					if _, err := fmt.Fprintln(out, chatToolCallLine(out, event)); err != nil {
+						return err
+					}
+				case agent.EventToolResult:
+					if _, err := fmt.Fprintln(out, chatToolResultLine(out, event)); err != nil {
+						return err
+					}
+				}
+			}
 			if event.Type != agent.EventTextDelta {
 				return nil
 			}
@@ -277,7 +290,7 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 					return 1
 				}
 			}
-			if _, err := fmt.Fprintf(out, "%s完成 · %.1fs%s\n", chatMuted(out), time.Since(startedAt).Seconds(), chatReset(out)); err != nil {
+			if _, err := fmt.Fprintf(out, "%sDone - %.1fs%s\n", chatMuted(out), time.Since(startedAt).Seconds(), chatReset(out)); err != nil {
 				fmt.Fprintln(stderr, "错误：", err)
 				return 1
 			}
@@ -288,6 +301,43 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 			}
 		}
 	}
+}
+
+func chatToolCallLine(out io.Writer, event agent.Event) string {
+	text := "> " + event.ToolName
+	if path := safeToolPath(event.Arguments); path != "" {
+		text += " " + path
+	}
+	return chatMuted(out) + text + chatReset(out)
+}
+
+func chatToolResultLine(out io.Writer, event agent.Event) string {
+	return chatMuted(out) + "+ " + event.ToolName + " · " + formatToolBytes(len([]byte(event.Result))) + chatReset(out)
+}
+
+func safeToolPath(arguments string) string {
+	var input struct {
+		Path string `json:"path"`
+	}
+	if json.Unmarshal([]byte(arguments), &input) != nil || input.Path == "" || len(input.Path) > 256 {
+		return ""
+	}
+	if strings.HasPrefix(input.Path, "/") || strings.HasPrefix(input.Path, "\\") || strings.Contains(input.Path, ":") {
+		return ""
+	}
+	for _, part := range strings.FieldsFunc(input.Path, func(r rune) bool { return r == '/' || r == '\\' }) {
+		if part == ".." || part == "." {
+			return ""
+		}
+	}
+	return input.Path
+}
+
+func formatToolBytes(size int) string {
+	if size < 1000 {
+		return fmt.Sprintf("%d B", size)
+	}
+	return fmt.Sprintf("%.1f KB", float64(size)/1000)
 }
 
 func writeChatStatus(out io.Writer, runner *agent.Runner, persistence *chatPersistence, status chatStatus) {

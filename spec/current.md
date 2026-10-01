@@ -1,6 +1,26 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 `doc/architecture.md`。当前版本为 M1.9。下面的 M1.8、M1.7、M1.6、M1.5、M1.4、M1.3、M1.2、M1.1、M1.0、M0.9、M0.8、M0.7、M0.6、M0.5、M0.4、M0.3、M0.2.2 和 M0.2.1 章节是已完成阶段的历史记录，不覆盖当前 M1.9 的运行边界。
+本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 `doc/architecture.md`。当前版本为 M1.10。下面的 M1.9、M1.8、M1.7、M1.6、M1.5、M1.4、M1.3、M1.2、M1.1、M1.0、M0.9、M0.8、M0.7、M0.6、M0.5、M0.4、M0.3、M0.2.2 和 M0.2.1 章节是已完成阶段的历史记录，不覆盖当前 M1.10 的运行边界。
+
+## M1.10：运行过程反馈
+
+M1.10 在真实 TTY 中显示只读工具调用的安全进度摘要，并将本轮完成标记统一为 ASCII 英文 `Done`，降低终端编码差异影响。
+
+### 当前范围
+
+- `tool_call` 显示工具名和经过校验的相对路径，`tool_result` 显示工具名和结果字节数。
+- 进度行不显示原始 arguments、模型思维链、文件内容、密钥或绝对路径。
+- 完成标记为 `Done - <seconds>s`；非 TTY 保持无 ANSI 的纯文本输出。
+- Agent、Provider、Session、trace、取消和 `/status` 的语义不改变。
+
+### M1.10 验收
+
+| ID | 验证方法 | 通过阈值 | 证据路径 |
+| --- | --- | --- | --- |
+| AC-M110-001 | TTY 直接回答 | 显示助手标记、正文和英文 `Done` | `artifacts/verification/m1.10/manual-acceptance.txt` |
+| AC-M110-002 | TTY 读取 README.md | 按顺序显示工具名、相对路径和结果字节数，不泄露原始参数或正文 | `artifacts/verification/m1.10/manual-acceptance.txt` |
+| AC-M110-003 | 重定向输入并检查输出 | 无 ANSI，完成标记为 `Done` | `artifacts/verification/m1.10/full-check.txt` |
+| AC-M110-004 | 全量测试、vet、build、diff | 全部退出码为 0 | `artifacts/verification/m1.10/full-check.txt` |
 
 ## M1.9：Anthropic Messages Provider
 
