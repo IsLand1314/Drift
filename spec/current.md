@@ -1,6 +1,28 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 `doc/architecture.md`。当前版本为 M1.10。下面的 M1.9、M1.8、M1.7、M1.6、M1.5、M1.4、M1.3、M1.2、M1.1、M1.0、M0.9、M0.8、M0.7、M0.6、M0.5、M0.4、M0.3、M0.2.2 和 M0.2.1 章节是已完成阶段的历史记录，不覆盖当前 M1.10 的运行边界。
+本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 `doc/architecture.md`。当前版本为 M2.0。下面的 M1.10、M1.9、M1.8、M1.7、M1.6、M1.5、M1.4、M1.3、M1.2、M1.1、M1.0、M0.9、M0.8、M0.7、M0.6、M0.5、M0.4、M0.3、M0.2.2 和 M0.2.1 章节是已完成阶段的历史记录，不覆盖当前 M2.0 的运行边界。
+
+## M2.0：Workspace Skills
+
+M2.0 增加 Codex 风格的 workspace-local Skills。Skill 只作为显式选择的额外 system context，不改变三个只读工具、路径保护、模型请求预算或会话隐私边界。
+
+### 当前范围
+
+- 只从 `.drift/skills/<name>/SKILL.md` 发现；名称为 ASCII 小写字母、数字和连字符，长度 1～64。
+- `skill list` 和 `skill show` 在 Provider 创建前执行，不需要 API Key。
+- `-skill <name>` 可用于单轮 `-p` 和 `chat`；一次运行最多一个 Skill，恢复进程时需要重新选择。
+- `SKILL.md` 必须是 UTF-8、最大 64 KiB；不读取全局目录、绝对路径、符号链接、嵌套引用、脚本或网络内容。
+- Skill 文本注入 provider-neutral system context，不写入脱敏审计正文或完整会话元数据；审计最多记录 Skill 名称。
+
+### M2.0 验收
+
+| ID | 验证方法 | 通过阈值 | 证据路径 |
+| --- | --- | --- | --- |
+| AC-M20-001 | `go test ./internal/skill -count=1` | 名称、目录、大小、UTF-8 和 symlink 边界通过 | `artifacts/verification/m2.0/full-check.txt` |
+| AC-M20-002 | `drift skill list/show -w .` 无 API Key运行 | 列出和查看本地 Skill，不创建 Provider | `artifacts/verification/m2.0/manual-acceptance.txt` |
+| AC-M20-003 | `drift -skill project-overview -p "..."` | Skill 出现在 system context，工具仍只有三个只读工具 | `artifacts/verification/m2.0/manual-acceptance.txt` |
+| AC-M20-004 | 检查 Session 和完整快照 | 不出现 Skill 正文、密钥或绝对路径 | `artifacts/verification/m2.0/manual-acceptance.txt` |
+| AC-M20-005 | 全量测试、vet、build、diff | 全部退出码为 0 | `artifacts/verification/m2.0/full-check.txt` |
 
 ## M1.10：运行过程反馈
 

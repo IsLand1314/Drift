@@ -1,6 +1,6 @@
 # Drift
 
-使用 Go 构建的本地只读 Coding Agent Runtime。当前版本为 M1.9：除单次 `-p` 请求外，还支持 `drift chat` 多轮交互、默认本地完整会话保存、`--resume` 恢复、`--no-session` 临时模式、`/status` 状态面板、`/compact` 手动压缩和活动轮次 Ctrl+C 取消。模型可以在选定 workspace 内列出文件、搜索文本、分页读取大文件，并根据每轮结果继续探索后给出解释；可选 `--trace` 会把安全运行摘要写到 stderr，`session list/show` 查看脱敏审计，`conversation` 命令支持会话列表、标题、恢复、精确删除和过期清理。Provider 默认是 OpenAI Compatible，也可显式选择 Anthropic Messages。
+使用 Go 构建的本地只读 Coding Agent Runtime。当前版本为 M2.0：除单次 `-p` 请求外，还支持 `drift chat` 多轮交互、默认本地完整会话保存、`--resume` 恢复、`--no-session` 临时模式、`/status` 状态面板、`/compact` 手动压缩、活动轮次 Ctrl+C 取消和 workspace Skills。模型可以在选定 workspace 内列出文件、搜索文本、分页读取大文件，并根据每轮结果继续探索后给出解释；可选 `--trace` 会把安全运行摘要写到 stderr，`session list/show` 查看脱敏审计，`conversation` 命令支持会话列表、标题、恢复、精确删除和过期清理。Provider 默认是 OpenAI Compatible，也可显式选择 Anthropic Messages。
 
 默认提供三个工具：`list_files`、`search_text`、`read_file`。单次运行最多 4 次模型请求、6 次工具调用；成功工具结果累计最多 512 KiB，单文件最多 128 KiB。`list_files` 最多返回 200 个文件，`search_text` 最多扫描 200 个文件、返回 100 个匹配，输出最多 32 KiB。工具按顺序串行执行，达到限制后使用无工具 schema 的请求生成说明。没有写文件、删除文件、执行命令或运行程序的能力。
 
@@ -44,6 +44,21 @@ go run ./cmd/drift -w .\README.md -p "解释这个文件"
 ```powershell
 go run ./cmd/drift chat -w .
 ```
+
+可以在当前 workspace 中创建一个显式 Skill，并在一次运行或 chat 中选择它：
+
+```text
+.drift/skills/project-overview/SKILL.md
+```
+
+```powershell
+go run ./cmd/drift skill list -w .
+go run ./cmd/drift skill show -w . project-overview
+go run ./cmd/drift -skill project-overview -p "分析当前项目"
+go run ./cmd/drift chat -skill project-overview -w .
+```
+
+Skill 只提供额外的只读分析说明；一次运行最多加载一个，不能新增工具、执行命令、写文件或越出 workspace。Skill 正文不会写入脱敏审计或会话元数据。
 
 默认 chat 会显示 Session ID，并把完整上下文保存到当前 workspace 的 `.drift/conversations/`。下次可恢复最近或指定会话；不希望保存完整上下文时使用：
 
@@ -100,6 +115,7 @@ go build ./cmd/drift
 - [M1.8 终端输入层](doc/m1.8-terminal-input.md)
 - [M1.9 Anthropic Provider](doc/m1.9-anthropic-provider.md)
 - [M1.10 运行过程反馈](doc/m1.10-runtime-feedback.md)
+- [M2.0 Workspace Skills](doc/m2.0-skills.md)
 - [M1.0 交互式只读对话阶段说明](doc/m1.0-interactive-chat.md)
 - [M0.7 Provider 诊断与读取保护阶段说明](doc/m0.7-provider-reliability.md)
 - [M0.2 Read Agent 说明](doc/m0.2-read-agent.md)

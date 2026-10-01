@@ -1,0 +1,13 @@
+M2.0 全量验证
+
+go test ./... -count=1: PASS
+go vet ./...: PASS
+go build -o .codex-temp\drift-m20.exe ./cmd/drift: PASS
+git diff --check: PASS
+
+重点覆盖：
+- Workspace Skill 名称、目录、UTF-8、64 KiB 和 symlink 边界；
+- Agent system context 注入与上下文预算；
+- JSONL 只记录 Skill 名称，不记录 Skill 正文；
+- skill list/show 无 Provider 请求；
+- -skill 单轮调用保持三个只读工具。

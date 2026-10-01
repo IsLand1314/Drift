@@ -1,0 +1,10 @@
+M2.0 人工验收记录
+
+自动化验证已通过；人工联调使用开发者本机的现有 Provider 配置，真实 API Key 不记录在此文件。
+
+预期输出：
+- `skill list` 输出 Skill 名称；
+- `skill show` 输出本地 SKILL.md；
+- `-skill project-overview` 的回答遵循 Skill，但工具能力仍只有三个只读工具；
+- 缺失或非法 Skill 在 Provider 请求前失败；
+- 会话与审计不包含 Skill 正文。
