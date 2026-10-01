@@ -1,0 +1,9 @@
+M1.9 全量验证
+
+go test ./... -count=1: PASS
+go vet ./...: PASS
+go build -o .codex-temp\drift-m19.exe ./cmd/drift: PASS
+git diff --check: PASS
+
+Provider focused tests:
+go test ./internal/llm/anthropic ./internal/app -count=1: PASS

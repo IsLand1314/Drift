@@ -1,6 +1,28 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 `doc/architecture.md`。当前版本为 M1.8。下面的 M1.7、M1.6、M1.5、M1.4、M1.3、M1.2、M1.1、M1.0、M0.9、M0.8、M0.7、M0.6、M0.5、M0.4、M0.3、M0.2.2 和 M0.2.1 章节是已完成阶段的历史记录，不覆盖当前 M1.8 的运行边界。
+本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 `doc/architecture.md`。当前版本为 M1.9。下面的 M1.8、M1.7、M1.6、M1.5、M1.4、M1.3、M1.2、M1.1、M1.0、M0.9、M0.8、M0.7、M0.6、M0.5、M0.4、M0.3、M0.2.2 和 M0.2.1 章节是已完成阶段的历史记录，不覆盖当前 M1.9 的运行边界。
+
+## M1.9：Anthropic Messages Provider
+
+M1.9 增加可选的 Anthropic Messages SSE Provider，验证 Provider 协议差异止于 `internal/llm` 适配层，Agent、工具、会话和终端交互继续复用同一条运行链路。
+
+### 当前范围
+
+- `-provider openai|anthropic` 选择 Provider，默认仍为 `openai`；`DRIFT_PROVIDER` 可提供默认值。
+- Anthropic 使用 `ANTHROPIC_API_KEY`、`ANTHROPIC_BASE_URL`、`ANTHROPIC_MODEL`，请求 `/messages`，发送 `x-api-key` 与 `anthropic-version`。
+- Anthropic 文本、`tool_use`、`tool_result`、结束原因和流式 usage 映射为现有 `llm` 消息与事件；三个只读工具的 schema 由适配层转换。
+- 缺少对应 Key 或 Model、未知 Provider 在发起请求前失败；错误沿用稳定 stage，不记录密钥、Authorization、原始响应或完整请求体。
+- 不实现重试、Thinking、服务器工具、MCP、写文件、命令执行或 Provider 专用字段越过 `internal/llm`。
+
+### M1.9 验收
+
+| ID | 验证方法 | 通过阈值 | 证据路径 |
+| --- | --- | --- | --- |
+| AC-M19-001 | `go test ./internal/llm/anthropic ./internal/app -count=1` | 请求映射、SSE、工具往返、usage 和配置选择通过 | `artifacts/verification/m1.9/provider-test.txt` |
+| AC-M19-002 | 配置 Anthropic 环境变量后运行 `-provider anthropic -p ...` | 能完成文本回答和只读工具调用，Agent 无 Provider 专有分支 | 人工运行与测试日志 | `artifacts/verification/m1.9/manual-acceptance.txt` |
+| AC-M19-003 | 缺少 Key、Model 或使用未知 Provider | Provider 请求数为 0，返回可理解错误 | `artifacts/verification/m1.9/provider-test.txt` |
+| AC-M19-004 | 检查 JSONL、trace 和错误响应 | 不出现 API Key、请求头、原始响应、绝对路径或完整请求体 | `artifacts/verification/m1.9/manual-acceptance.txt` |
+| AC-M19-005 | 全量测试、vet、build、diff | 全部退出码为 0 | `artifacts/verification/m1.9/full-check.txt` |
 
 ## M1.8：最小终端输入层
 

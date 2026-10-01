@@ -1,6 +1,6 @@
 # Drift 架构与当前边界
 
-> 状态：已按 M1.5 对齐 ｜ 更新：2026-10-01
+> 状态：已按 M1.9 对齐 ｜ 更新：2026-10-01
 
 本文说明 Drift 的长期分层和当前安全边界，交付范围及验收标准以 [spec/current.md](../spec/current.md) 为准。运行方法见 [README](../README.md)。
 
@@ -10,7 +10,7 @@ Drift 建议定位为一个 **小内核、事件驱动、可嵌入的 Go Coding 
 
 - 学 Pi：把模型适配、Agent Loop、交互层拆开；默认工具少；扩展能力尽量放在核心之外。
 - 学 FoxCode：统一 Provider 事件、工具注册与权限检查、会话落盘、上下文压缩，以及 Go 下清晰的 `internal` 包边界。
-- Drift 自己的取舍：先做单进程、单 Agent、单 Go Module、单二进制；先打通 CLI 纵向链路，再逐层增加 TUI、MCP 和协作能力。
+- Drift 自己的取舍：先做单进程、单 Agent、单 Go Module、单二进制；先打通 CLI 纵向链路，再按真实需求增加交互和扩展能力。
 
 当前 M1.x 的核心链路是：
 
@@ -27,7 +27,7 @@ Drift 建议定位为一个 **小内核、事件驱动、可嵌入的 Go Coding 
 4. **默认能力最少**：当前只提供 `list_files`、`search_text`、`read_file` 三个只读工具。
 5. **当前版本只读**：M1.x 不写文件、不删除文件、不执行命令；写入或执行若未来重新提议，必须先设计独立的权限、审计和回滚边界。
 6. **状态可审计**：会话使用 append-only JSONL；即使压缩上下文，也保留原始记录。
-7. **先标准库，后依赖**：CLI 用 `flag`，日志用 `slog`，配置先用 JSON，测试用 `testing`。
+7. **先标准库，后依赖**：协议、配置和测试优先使用标准库；真实 TTY 输入只引入 Bubble Tea/Bubbles，Provider 适配仍保持轻量。
 
 ## 3. 总体分层
 
@@ -190,7 +190,7 @@ type Event struct {
 | 日志 | `log/slog` | 结构化、标准库自带 |
 | 配置 | `encoding/json` | `.drift/config.json`，避免先引入 YAML/TOML 依赖 |
 | 会话 | JSONL + 原子文件操作 | 可读、可迁移、适合 append-only |
-| TUI | Bubble Tea + Lip Gloss | 第二阶段加入，与 FoxCode 的 Go 生态选择一致 |
+| TTY 输入 | Bubble Tea + Bubbles | M1.8 已用于单行输入、占位符、光标和取消反馈 |
 | Markdown | Glamour | 只在 TUI 确实需要渲染时加入 |
 | MCP | 官方 Go SDK | 第三阶段加入，不进入第一版核心链路 |
 | 测试 | `testing` + `httptest` | Provider 用假 SSE Server，Agent 用 fake Client |
@@ -219,10 +219,10 @@ Provider 层可以使用官方 SDK，但不要让 SDK 类型越过 `internal/llm
 
 ## 9. 交付顺序
 
-### 已完成：M0～M1.4
+### 已完成：M0～M1.9
 
 - 已完成 workspace/focus、只读多轮探索、分页读取、Trace、脱敏审计、交互式 chat、完整会话恢复、会话生命周期管理、上下文压缩和 `/status` 状态面板。
-- 当前能力固定为一个 OpenAI Compatible Provider 和三个只读工具。
+- 当前支持 OpenAI Compatible 与可选 Anthropic Messages 两个 Provider，二者都归一化为同一套消息、事件和工具协议；工具仍固定为三个只读工具。
 
 ### M1.5：运行时卫生与边界对齐
 
@@ -232,10 +232,8 @@ Provider 层可以使用官方 SDK，但不要让 SDK 类型越过 `internal/llm
 
 ### 后续候选，不属于当前 M1.x
 
-- Provider 返回真实 usage 后再展示真实 Token 统计；
-- 可取消当前轮次和输入队列；
-- 第二个 Provider；
-- 完整 TUI、Skills、MCP、Project Trust、写入/命令执行能力。
+- 完整 TUI、多行编辑和输入队列；
+- Skills、MCP、Project Trust、写入/命令执行能力。
 
 ### M2：可扩展
 

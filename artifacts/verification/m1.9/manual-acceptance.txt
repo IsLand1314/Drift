@@ -1,0 +1,16 @@
+M1.9 人工验收记录
+
+日期：2026-10-01
+
+准备：
+- 配置 ANTHROPIC_API_KEY、ANTHROPIC_BASE_URL、ANTHROPIC_MODEL；真实密钥不写入此文件。
+- 使用 `go run ./cmd/drift -provider anthropic -p "介绍 README.md"`。
+
+验收项：
+- Anthropic 文本回答：待使用本机有效配置执行，stdout 只保留最终回答。
+- `read_file` 工具往返：本地 `TestAnthropicToolRoundTripAndUsage` 已通过，覆盖 tool_use、tool_result 和第二轮回答。
+- `/status`：复用现有 Model、Tokens、Tools、Workspace 展示，不增加 Provider 专有字段。
+- 缺少 Anthropic Key/Model：测试确认请求前失败。
+- 脱敏：Provider 测试确认错误和审计不包含 API Key、请求头或原始响应。
+
+说明：真实 Key 不进入仓库；需要联调时由开发者在本机临时设置环境变量。

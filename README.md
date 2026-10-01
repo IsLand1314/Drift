@@ -1,6 +1,6 @@
 # Drift
 
-使用 Go 构建的本地只读 Coding Agent Runtime。当前版本为 M1.7：除单次 `-p` 请求外，还支持 `drift chat` 多轮交互、默认本地完整会话保存、`--resume` 恢复、`--no-session` 临时模式、`/status` 状态面板、`/compact` 手动压缩和活动轮次 Ctrl+C 取消。模型可以在选定 workspace 内列出文件、搜索文本、分页读取大文件，并根据每轮结果继续探索后给出解释；可选 `--trace` 会把安全运行摘要写到 stderr，`session list/show` 查看脱敏审计，`conversation` 命令支持会话列表、标题、恢复、精确删除和过期清理。
+使用 Go 构建的本地只读 Coding Agent Runtime。当前版本为 M1.9：除单次 `-p` 请求外，还支持 `drift chat` 多轮交互、默认本地完整会话保存、`--resume` 恢复、`--no-session` 临时模式、`/status` 状态面板、`/compact` 手动压缩和活动轮次 Ctrl+C 取消。模型可以在选定 workspace 内列出文件、搜索文本、分页读取大文件，并根据每轮结果继续探索后给出解释；可选 `--trace` 会把安全运行摘要写到 stderr，`session list/show` 查看脱敏审计，`conversation` 命令支持会话列表、标题、恢复、精确删除和过期清理。Provider 默认是 OpenAI Compatible，也可显式选择 Anthropic Messages。
 
 默认提供三个工具：`list_files`、`search_text`、`read_file`。单次运行最多 4 次模型请求、6 次工具调用；成功工具结果累计最多 512 KiB，单文件最多 128 KiB。`list_files` 最多返回 200 个文件，`search_text` 最多扫描 200 个文件、返回 100 个匹配，输出最多 32 KiB。工具按顺序串行执行，达到限制后使用无工具 schema 的请求生成说明。没有写文件、删除文件、执行命令或运行程序的能力。
 
@@ -20,6 +20,17 @@ $env:OPENAI_BASE_URL = "https://你的服务地址/v1"
 $env:OPENAI_MODEL = "你的模型名称"
 go run ./cmd/drift -p "解释 README.md 的项目作用"
 ```
+
+选择 Anthropic Messages Provider 时使用独立配置，不会把 API Key 放进命令行：
+
+```powershell
+$env:ANTHROPIC_API_KEY = "你的 Anthropic API Key"
+$env:ANTHROPIC_BASE_URL = "https://api.anthropic.com/v1"
+$env:ANTHROPIC_MODEL = "你的模型名称"
+go run ./cmd/drift -provider anthropic -p "解释 README.md 的项目作用"
+```
+
+`-provider` 的优先级高于 `DRIFT_PROVIDER`；Provider 失败会在安全审计中记录稳定 stage，原始响应和密钥不会落盘。
 
 也可以用 `-w` 指定目录或文件。目录成为 workspace，文件使用其父目录作为 workspace，并只把文件名作为首轮 focus 提示：
 
@@ -58,7 +69,7 @@ go run ./cmd/drift conversation prune --before 2026-09-01T00:00:00Z --yes
 
 该示例会让模型按需探索并解释当前项目；stdout 只输出最终回答，同一次运行的安全审计事件会写入被 Git 忽略的 `.drift/sessions/`。需要观察过程时加 `--trace`，摘要会写入 stderr；需要查看历史摘要时运行 `drift session list` 或 `drift session show <path>`。新 JSONL 不保存提示词、原始工具参数、文件内容或回答正文，只保存安全的相对路径、脱敏占位符、字节数和结束原因。失败事件含稳定的 `stage`，例如 `provider_timeout`、`provider_sse_invalid_json`、`agent_empty_response` 或 `agent_context_limit`。完整对话恢复和边界见 [M1.2 阶段说明](doc/m1.2-conversation-persistence.md)，进程内上下文规则见 [M1.1 阶段说明](doc/m1.1-context-control.md) 和 [M1.0 阶段说明](doc/m1.0-interactive-chat.md)。当前范围和验收标准见 [spec/current.md](spec/current.md)。
 
-Drift 目前只接受原生 OpenAI `tool_calls` 中的三个只读工具，没有 `run_command`、shell 或 exec 工具，因此不会执行命令。若模型输出 `<｜｜DSML｜｜ calls>`（或 ASCII 变体）等文本，这不是原生 `tool_calls` 事件，而是模型生成的不兼容伪工具格式。当前兼容性守卫只检查“首轮没有原生 `tool_calls`、`finish_reason` 为 `stop`”时缓存的首轮文本；该范围内会报告错误，不会把文本打印到 stdout，也不会执行它。它不会拒绝伴随原生工具调用的 DSML 文本，也不会检查后续轮次文本。
+Drift 目前只接受原生工具调用中的三个只读工具，没有 `run_command`、shell 或 exec 工具，因此不会执行命令。OpenAI Compatible 与 Anthropic Messages 的工具调用都会归一化为同一套 Agent 事件；若模型输出 `<｜｜DSML｜｜ calls>`（或 ASCII 变体）等文本，这不是原生工具调用，而是模型生成的不兼容伪工具格式。所有无原生工具调用且以 `stop` 结束的最终文本都会经过兼容性守卫，不会把伪工具文本打印到 stdout，也不会执行它。
 
 ## 开发
 
@@ -68,7 +79,7 @@ go vet ./...
 go build ./cmd/drift
 ```
 
-仅依赖 Go 标准库。测试使用本地模拟服务，无需 API Key。
+运行时使用 Go 标准库和 Bubble Tea/Bubbles 的终端输入组件。测试使用本地模拟服务，无需 API Key。
 
 ## 文档
 
@@ -86,6 +97,8 @@ go build ./cmd/drift
 - [M1.5 运行时卫生与边界对齐](doc/m1.5-runtime-hygiene.md)
 - [M1.6 真实 Token 用量](doc/m1.6-token-usage.md)
 - [M1.7 单轮取消](doc/m1.7-turn-cancellation.md)
+- [M1.8 终端输入层](doc/m1.8-terminal-input.md)
+- [M1.9 Anthropic Provider](doc/m1.9-anthropic-provider.md)
 - [M1.0 交互式只读对话阶段说明](doc/m1.0-interactive-chat.md)
 - [M0.7 Provider 诊断与读取保护阶段说明](doc/m0.7-provider-reliability.md)
 - [M0.2 Read Agent 说明](doc/m0.2-read-agent.md)
