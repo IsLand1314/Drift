@@ -15,6 +15,7 @@ import (
 	"github.com/IsLand1314/Drift/internal/config"
 	"github.com/IsLand1314/Drift/internal/conversation"
 	"github.com/IsLand1314/Drift/internal/llm"
+	"github.com/IsLand1314/Drift/internal/llm/anthropic"
 	"github.com/IsLand1314/Drift/internal/llm/openai"
 	"github.com/IsLand1314/Drift/internal/session"
 	"github.com/IsLand1314/Drift/internal/tool"
@@ -80,15 +81,16 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 	}
 	// lookup 实现“非空进程环境变量覆盖 .env”的优先级。
 	lookup := func(key string) string { return config.MergeLookup(dotenv, getenv, key) }
-	base := lookup("OPENAI_BASE_URL")
-	if base == "" {
-		base = "https://api.openai.com/v1"
-	}
 	prompt := flags.String("p", "", "发送一次提示词并流式输出回复")
 	workspaceTarget := flags.String("w", "", "要分析的目录或文件（默认当前目录）")
 	trace := flags.Bool("trace", false, "将运行过程摘要输出到 stderr")
-	model := flags.String("model", lookup("OPENAI_MODEL"), "模型名称（默认 OPENAI_MODEL）")
-	baseURL := flags.String("base-url", base, "API 根地址，包含 /v1，不含 /chat/completions")
+	providerDefault := lookup("DRIFT_PROVIDER")
+	if providerDefault == "" {
+		providerDefault = "openai"
+	}
+	provider := flags.String("provider", providerDefault, "Provider（openai 或 anthropic）")
+	model := flags.String("model", "", "模型名称（按 Provider 读取默认值）")
+	baseURL := flags.String("base-url", "", "API 根地址（按 Provider 读取默认值）")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
@@ -101,6 +103,35 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 		} else {
 			fmt.Fprintln(stderr, "用法：drift -p \"你好\" [-w 路径] [--trace] [-model 模型名] [-base-url API根地址]")
 		}
+		return 2
+	}
+	providerName := strings.ToLower(strings.TrimSpace(*provider))
+	var key string
+	switch providerName {
+	case "openai":
+		if *model == "" {
+			*model = lookup("OPENAI_MODEL")
+		}
+		if *baseURL == "" {
+			*baseURL = lookup("OPENAI_BASE_URL")
+			if *baseURL == "" {
+				*baseURL = "https://api.openai.com/v1"
+			}
+		}
+		key = strings.TrimSpace(lookup("OPENAI_API_KEY"))
+	case "anthropic":
+		if *model == "" {
+			*model = lookup("ANTHROPIC_MODEL")
+		}
+		if *baseURL == "" {
+			*baseURL = lookup("ANTHROPIC_BASE_URL")
+			if *baseURL == "" {
+				*baseURL = "https://api.anthropic.com/v1"
+			}
+		}
+		key = strings.TrimSpace(lookup("ANTHROPIC_API_KEY"))
+	default:
+		fmt.Fprintln(stderr, "错误：不支持的 Provider，请使用 openai 或 anthropic")
 		return 2
 	}
 	launchDir, err := os.Getwd()
@@ -117,13 +148,21 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 		fmt.Fprintln(stderr, "错误：--resume 不能与文件型 -w 同时使用")
 		return 2
 	}
-	key := strings.TrimSpace(lookup("OPENAI_API_KEY"))
 	if key == "" || strings.TrimSpace(*model) == "" {
-		fmt.Fprintln(stderr, "请设置 OPENAI_API_KEY，并通过 OPENAI_MODEL 或 -model 指定模型")
+		if providerName == "anthropic" {
+			fmt.Fprintln(stderr, "请设置 ANTHROPIC_API_KEY，并通过 ANTHROPIC_MODEL 或 -model 指定模型")
+		} else {
+			fmt.Fprintln(stderr, "请设置 OPENAI_API_KEY，并通过 OPENAI_MODEL 或 -model 指定模型")
+		}
 		return 2
 	}
 	// Provider 只负责 HTTP/SSE；workspace 读取和工具循环由 Agent 层负责。
-	client, err := openai.New(*baseURL, key)
+	var client llm.Client
+	if providerName == "anthropic" {
+		client, err = anthropic.New(*baseURL, key)
+	} else {
+		client, err = openai.New(*baseURL, key)
+	}
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
