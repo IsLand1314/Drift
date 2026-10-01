@@ -1,8 +1,8 @@
-# Drift 架构草案
+# Drift 架构与当前边界
 
-> 状态：Draft ｜ 更新：2026-09-10
+> 状态：已按 M1.5 对齐 ｜ 更新：2026-10-01
 
-本文为目标架构提案，当前版本范围及验收标准以 [spec/current.md](../spec/current.md) 为准。M0 第一步运行方法见 [快速开始](getting-started.md)。
+本文说明 Drift 的长期分层和当前安全边界，交付范围及验收标准以 [spec/current.md](../spec/current.md) 为准。运行方法见 [README](../README.md)。
 
 ## 1. 结论
 
@@ -12,11 +12,11 @@ Drift 建议定位为一个 **小内核、事件驱动、可嵌入的 Go Coding 
 - 学 FoxCode：统一 Provider 事件、工具注册与权限检查、会话落盘、上下文压缩，以及 Go 下清晰的 `internal` 包边界。
 - Drift 自己的取舍：先做单进程、单 Agent、单 Go Module、单二进制；先打通 CLI 纵向链路，再逐层增加 TUI、MCP 和协作能力。
 
-第一版的核心链路应当只有：
+当前 M1.x 的核心链路是：
 
 ```text
-用户输入 -> Agent Loop -> LLM Stream -> Tool Call -> 权限检查 -> Tool Execute
-        <- Event Stream <- Tool Result <- 会话追加落盘 <-------------+
+用户输入 -> Agent Loop -> LLM Stream -> 原生只读 Tool Call -> Tool Execute
+        <- Event Stream <- Tool Result <- 会话追加落盘 <----------------+
 ```
 
 ## 2. 设计原则
@@ -24,8 +24,8 @@ Drift 建议定位为一个 **小内核、事件驱动、可嵌入的 Go Coding 
 1. **核心不依赖 UI**：TUI、print、未来 Web 都只消费同一组 Runtime Event。
 2. **协议归一化**：Provider 差异止于 `llm` 包，Agent 只认识 Drift 自己的消息和事件。
 3. **能力通过组合加入**：工具、Provider、Session Store 在启动层组装，不在 Agent Loop 里硬编码。
-4. **默认能力最少**：初始只提供 `read`、`write`、`edit`、`exec`、`search`。
-5. **安全不能后补**：写文件和执行命令从第一版就经过 policy；路径限制在 workspace 内。
+4. **默认能力最少**：当前只提供 `list_files`、`search_text`、`read_file` 三个只读工具。
+5. **当前版本只读**：M1.x 不写文件、不删除文件、不执行命令；写入或执行若未来重新提议，必须先设计独立的权限、审计和回滚边界。
 6. **状态可审计**：会话使用 append-only JSONL；即使压缩上下文，也保留原始记录。
 7. **先标准库，后依赖**：CLI 用 `flag`，日志用 `slog`，配置先用 JSON，测试用 `testing`。
 
@@ -219,22 +219,23 @@ Provider 层可以使用官方 SDK，但不要让 SDK 类型越过 `internal/llm
 
 ## 9. 交付顺序
 
-### M0：可运行的最小闭环
+### 已完成：M0～M1.4
 
-- `drift -p "列出当前目录"` 可运行；
-- 支持一个 OpenAI Compatible Provider；
-- 支持五个基础工具和 workspace 路径保护；
-- 流式输出文本、工具调用和错误；
-- 会话以 JSONL 追加保存；
-- Agent Loop、Provider、工具各有一条关键路径测试。
+- 已完成 workspace/focus、只读多轮探索、分页读取、Trace、脱敏审计、交互式 chat、完整会话恢复、会话生命周期管理、上下文压缩和 `/status` 状态面板。
+- 当前能力固定为一个 OpenAI Compatible Provider 和三个只读工具。
 
-### M1：可日常使用
+### M1.5：运行时卫生与边界对齐
 
-- Bubble Tea TUI；
-- Anthropic Provider；
-- 会话恢复、取消、输入队列；
-- 上下文预算和压缩；
-- `ask / allow / deny` 权限交互。
+- 发现遍历跳过 `.worktrees` 和 `.codex-temp`，避免旧 worktree 与构建缓存进入模型上下文。
+- 所有无原生工具调用的最终文本都检查 DSML/伪工具格式。
+- 架构文档与当前“只读 Runtime”身份保持一致。
+
+### 后续候选，不属于当前 M1.x
+
+- Provider 返回真实 usage 后再展示真实 Token 统计；
+- 可取消当前轮次和输入队列；
+- 第二个 Provider；
+- 完整 TUI、Skills、MCP、Project Trust、写入/命令执行能力。
 
 ### M2：可扩展
 
@@ -255,11 +256,11 @@ Provider 层可以使用官方 SDK，但不要让 SDK 类型越过 `internal/llm
 
 ## 10. 验收边界
 
-M0 完成时，至少满足：
+当前版本至少满足：
 
 - UI 不导入任何具体 Provider 包；
 - Agent 不包含 OpenAI/Anthropic 专有字段；
-- 所有写入和命令执行都经过 policy；
+- 不存在写文件、删除文件或命令执行入口；
 - Tool Result 在加入下一轮上下文前已经持久化；
 - `go test ./...` 和 `go vet ./...` 通过；
 - 断网时仍能读取历史会话和执行纯本地命令。
@@ -272,4 +273,4 @@ M0 完成时，至少满足：
 - [FoxCode](../../foxcode/README.md)：参考其 Go Provider、工具注册、上下文治理、权限和会话工程经验；不照搬其已成熟后的包数量。
 - [Go Release History](https://go.dev/doc/devel/release)：确认 Go 版本支持范围。
 
-最终建议可以概括为一句话：**先做一个 5 个工具、1 个 Provider、1 种会话格式、2 种输出模式共享同一内核的 Drift；其余都作为可插拔能力成长。**
+当前决策可以概括为一句话：**先把 Drift 做成一个安全、可审计、只读的本地 Runtime；任何有副作用的能力都不从旧草案直接继承。**

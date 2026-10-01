@@ -197,7 +197,7 @@ func TestChatPlainClearSuggestsSlashCommand(t *testing.T) {
 	}
 }
 
-func TestChatStatsDoesNotCallProvider(t *testing.T) {
+func TestChatStatusDoesNotCallProvider(t *testing.T) {
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { requests++ }))
 	defer server.Close()
@@ -205,11 +205,45 @@ func TestChatStatsDoesNotCallProvider(t *testing.T) {
 		return map[string]string{"OPENAI_API_KEY": "test-secret", "OPENAI_MODEL": "test", "OPENAI_BASE_URL": server.URL}[key]
 	}
 	var out, stderr bytes.Buffer
-	if code := RunWithInput(context.Background(), []string{"chat", "--no-session", "-w", t.TempDir()}, getenv, strings.NewReader("/stats\nexit\n"), &out, &stderr); code != 0 {
+	if code := RunWithInput(context.Background(), []string{"chat", "--no-session", "-model", "test-model", "-w", t.TempDir()}, getenv, strings.NewReader("/status\nexit\n"), &out, &stderr); code != 0 {
 		t.Fatalf("code=%d out=%q stderr=%q", code, out.String(), stderr.String())
 	}
-	if requests != 0 || !strings.Contains(out.String(), "上下文：") || !strings.Contains(out.String(), "剩余：") {
+	if requests != 0 || !strings.Contains(out.String(), "Drift Status") || !strings.Contains(out.String(), "Session ID: temporary (not saved)") || !strings.Contains(out.String(), "Model: test-model") || !strings.Contains(out.String(), "Tokens: unavailable") || !strings.Contains(out.String(), "Tools: 3 enabled") || !strings.Contains(out.String(), "Workspace:") || !strings.Contains(out.String(), "KB") {
 		t.Fatalf("requests=%d out=%q", requests, out.String())
+	}
+}
+
+func TestChatPlainStatusSuggestsSlashCommand(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { requests++ }))
+	defer server.Close()
+	getenv := func(key string) string {
+		return map[string]string{"OPENAI_API_KEY": "test-secret", "OPENAI_MODEL": "test", "OPENAI_BASE_URL": server.URL}[key]
+	}
+	var out, stderr bytes.Buffer
+	if code := RunWithInput(context.Background(), []string{"chat", "--no-session", "-w", t.TempDir()}, getenv, strings.NewReader("status\nexit\n"), &out, &stderr); code != 0 {
+		t.Fatalf("code=%d out=%q stderr=%q", code, out.String(), stderr.String())
+	}
+	if requests != 0 || !strings.Contains(out.String(), "如需查看状态，请输入 /status") {
+		t.Fatalf("requests=%d out=%q", requests, out.String())
+	}
+}
+
+func TestChatDisplaysAssistantMarkerAndDuration(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	defer server.Close()
+	getenv := func(key string) string {
+		return map[string]string{"OPENAI_API_KEY": "test-secret", "OPENAI_MODEL": "test", "OPENAI_BASE_URL": server.URL}[key]
+	}
+	var out, stderr bytes.Buffer
+	if code := RunWithInput(context.Background(), []string{"chat", "--no-session", "-w", t.TempDir()}, getenv, strings.NewReader("hello\nexit\n"), &out, &stderr); code != 0 {
+		t.Fatalf("code=%d out=%q stderr=%q", code, out.String(), stderr.String())
+	}
+	if !strings.Contains(out.String(), "● ok\n完成 · ") || strings.Contains(out.String(), "\x1b[") {
+		t.Fatalf("out=%q", out.String())
 	}
 }
 

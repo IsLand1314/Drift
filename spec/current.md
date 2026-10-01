@@ -1,31 +1,50 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构演进建议见 `doc/architecture.md`。当前版本为 M1.4。下面的 M1.3、M1.2、M1.1、M1.0、M0.9、M0.8、M0.7、M0.6、M0.5、M0.4、M0.3、M0.2.2 和 M0.2.1 章节是已完成阶段的历史记录，不覆盖当前 M1.4 的运行边界。
+本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 `doc/architecture.md`。当前版本为 M1.5。下面的 M1.4、M1.3、M1.2、M1.1、M1.0、M0.9、M0.8、M0.7、M0.6、M0.5、M0.4、M0.3、M0.2.2 和 M0.2.1 章节是已完成阶段的历史记录，不覆盖当前 M1.5 的运行边界。
 
-## M1.4：手动上下文压缩
+## M1.5：运行时卫生与边界对齐
 
-M1.4 为 `drift chat` 增加 `/stats` 和手动 `/compact`，让用户在 1 MiB 上下文上限前压缩旧消息，而不必完全 `/clear`。压缩请求不带工具，失败时保留旧上下文。
+M1.5 修复 Discovery 目录污染和 DSML 守卫覆盖范围，并把架构文档对齐到当前只读 Runtime 身份。
 
 ### 当前范围
 
-- `/stats` 只读取 Runner 内存，显示当前 bytes、上限、剩余 bytes 和消息数，不请求 Provider、不写审计、不修改快照。
+- `list_files` 与 `search_text` 遍历时跳过 `.worktrees` 和 `.codex-temp`。
+- 所有无原生 `tool_calls` 且以 `stop` 结束的模型最终文本都拒绝 DSML/伪工具格式。
+- 不增加写文件、删除文件、命令执行或新的 Provider。
+
+### M1.5 验收
+
+| ID | 验证方法 | 通过阈值 | 证据类型 | 证据路径 | 失败判定 |
+| --- | --- | --- | --- | --- | --- |
+| AC-M15-001 | Discovery 测试包含 `.worktrees`、`.codex-temp` | 两个目录及其文件不会进入遍历结果 | 测试日志 | `artifacts/verification/m1.5/discovery-test.txt` | 临时目录进入模型上下文 |
+| AC-M15-002 | 模拟原生工具调用后返回 DSML 文本 | 运行失败并报告伪工具格式，不输出伪工具文本 | 测试日志 | `artifacts/verification/m1.5/dsml-test.txt` | DSML 文本被当作回答输出 |
+| AC-M15-003 | 检查架构与当前范围文档 | 工具、只读边界和后续候选与代码一致 | 文件检查 | `artifacts/verification/m1.5/docs.txt` | 文档继续承诺 write/edit/exec |
+
+## M1.4：手动上下文压缩
+
+M1.4 为 `drift chat` 增加 `/status` 和手动 `/compact`，让用户在 1 MiB 上下文上限前压缩旧消息，而不必完全 `/clear`。压缩请求不带工具，失败时保留旧上下文。
+
+### 当前范围
+
+- `/status` 只读取 Runner 内存和启动元数据，显示 Session ID、Model、Context、Tokens、Tools 和 Workspace，不请求 Provider、不写审计、不修改快照；Context 使用十进制 KB 估算，Tokens 在 Provider 未返回 usage 时为 `unavailable`。
 - `/compact` 使用当前 Provider 发起一次无 tools 请求，生成摘要并保留最近一组完整消息；成功后原子替换 Runner 上下文。
 - Provider 错误、空摘要、DSML 伪工具文本、取消或持久化保存失败时，Runner 消息保持不变，chat 继续运行。
 - 持久 chat 压缩成功后更新完整快照；`--resume` 恢复压缩后的摘要上下文。临时模式不写完整快照。
 - 新增压缩事件只记录前后字节数、消息数、保留数和错误 stage；Session/Trace 不记录摘要正文。
-- `clear` 仍是普通文本提示；`/clear` 才执行完全清空。压缩不增加文件写入、删除或命令执行能力。
+- `clear`、`status`、`compact` 仍是普通文本提示；`/clear`、`/status`、`/compact` 才执行对应命令。真实终端用分隔线、彩色提示符、助手标记和完成耗时区分交互，非终端输出保持纯文本；压缩不增加文件写入、删除或命令执行能力。
 - 摘要可能包含用户输入或文件内容，不是安全擦除证明；不实现自动压缩、后台压缩、摘要树、fork、`/undo`、摘要编辑、加密、云同步或正文搜索。
 
 ### M1.4 验收
 
 | ID | 验证方法 | 通过阈值 | 证据类型 | 证据路径 | 失败判定 |
 | --- | --- | --- | --- | --- | --- |
-| AC-M14-001 | chat 输入 `/stats` | Provider 请求数为 0，只输出安全计数 | 测试日志 | `artifacts/verification/m1.4/stats-test.txt` | 输出正文或请求模型 |
+| AC-M14-001 | chat 输入 `/status` | Provider 请求数为 0，只输出英文状态字段与安全上下文估算 | 测试日志 | `artifacts/verification/m1.4/status-test.txt` | 输出正文或请求模型 |
 | AC-M14-002 | chat 输入 `/compact`，检查本地模拟 Provider 请求 | 请求不包含 tools；成功后保留摘要和最近消息 | 测试日志 | `artifacts/verification/m1.4/compact-test.txt` | 执行工具或未替换上下文 |
 | AC-M14-003 | 模拟 Provider 超时、空响应、DSML 或取消 | 原上下文不变，chat 可继续，审计只有计数和 stage | 测试日志 | `artifacts/verification/m1.4/compact-error-test.txt` | 失败破坏上下文或泄露摘要 |
 | AC-M14-004 | 持久 chat 压缩后退出并 `--resume` | 恢复摘要后的快照，不保存 Provider 配置字段 | 人工运行与文件检查 | `artifacts/verification/m1.4/resume.txt` | 恢复旧正文或快照未更新 |
 | AC-M14-005 | 查看压缩后的 Session/Trace | 只出现安全计数、事件名和 stage，不出现摘要正文 | 文件检查 | `artifacts/verification/m1.4/audit.txt` | 审计或 trace 泄露正文 |
 | AC-M14-006 | `go test ./... -count=1`、`go vet ./...`、`go build -o .codex-temp\\drift-m14.exe ./cmd/drift`、`git diff --check` | 四条命令退出码均为 0 | 命令日志 | `artifacts/verification/m1.4/` | 任一命令非 0 |
+| AC-M14-007 | chat 输入普通 `status`、`compact`，`/status`，并完成一次普通提问 | 普通文本只提示斜杠命令；`/status` 不请求 Provider；终端有分隔线、提示符、助手标记和耗时；非终端输出无 ANSI 控制符 | 测试日志与人工运行 | `artifacts/verification/m1.4/chat-feedback.txt` | 请求模型或输出格式不符合约定 |
 
 ## M1.3：会话索引与生命周期管理
 
@@ -59,7 +78,7 @@ M1.2 让 `drift chat` 默认保存本地完整上下文，并通过显式 `--res
 
 - 完整快照保存到 workspace 内 `.drift/conversations/<id>.json`；创建目录/文件使用 `0700`/`0600` 目标权限，并通过临时文件替换保存。
 - `chat --resume` 恢复当前 workspace 最近快照，`chat --resume <id>` 恢复指定快照；文件型 `-w`、跨 workspace 和 `--no-session` 组合均拒绝。
-- 默认 chat 启动显示会话 ID和完整上下文提示；每轮成功后保存 Runner 消息，Provider 或工具失败的半轮不保存。
+- 默认 chat 启动显示 Session ID 和完整上下文提示；每轮成功后保存 Runner 消息，Provider 或工具失败的半轮不保存。
 - `/clear` 在持久模式先写空快照，成功后才清理 Runner；保存失败时不清理当前内存上下文。临时模式仍只保留脱敏审计。
 - `conversation list/show/delete <id> --yes` 只查看/删除元数据与指定快照，不请求 Provider；`show` 不回显正文。
 - 快照可能包含提示词、回答和工具结果，不承诺脱敏，不应上传或共享；不保存 API Key、Authorization、Provider URL、模型名或 workspace 绝对路径。

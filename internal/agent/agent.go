@@ -235,7 +235,7 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) e
 				return failWithFinishReason(errUnexpectedSecondCompletion, completion.FinishReason)
 			}
 			text := strings.Join(chunks, "")
-			if requestIndex == 0 && (strings.Contains(text, "<｜｜DSML｜｜") || strings.Contains(text, "<|DSML|>")) {
+			if strings.Contains(text, "<｜｜DSML｜｜") || strings.Contains(text, "<|DSML|>") {
 				return fail(errIncompatiblePseudoToolCall)
 			}
 			if strings.TrimSpace(text) == "" {

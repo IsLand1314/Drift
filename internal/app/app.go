@@ -127,6 +127,7 @@ func RunWithInput(ctx context.Context, args []string, getenv func(string) string
 	}
 	var persistence *chatPersistence
 	var runner *agent.Runner
+	registry := tool.NewDefaultRegistry()
 	if chat {
 		store := conversation.NewStore(selection.Root)
 		if persistenceOptions.resume {
@@ -146,27 +147,28 @@ func RunWithInput(ctx context.Context, args []string, getenv func(string) string
 					return 2
 				}
 			}
-			runner = agent.NewRunnerWithMessages(modelClient{Client: client, model: *model}, selection.Root, snapshot.Focus, tool.NewDefaultRegistry(), snapshot.Messages)
+			runner = agent.NewRunnerWithMessages(modelClient{Client: client, model: *model}, selection.Root, snapshot.Focus, registry, snapshot.Messages)
 			persistence = &chatPersistence{store: store, snapshot: snapshot, persistent: true}
-			fmt.Fprintf(stderr, "会话 ID：%s\n注意：此会话会保存完整本地上下文，可能包含用户输入和读取结果；使用 --no-session 可关闭\n", snapshot.ID)
+			fmt.Fprintf(stderr, "Session ID: %s\n注意：此会话会保存完整本地上下文，可能包含用户输入和读取结果；使用 --no-session 可关闭\n", snapshot.ID)
 		} else if !persistenceOptions.noSession {
 			snapshot, createErr := store.Create(selection.Focus)
 			if createErr != nil {
 				fmt.Fprintln(stderr, "错误：无法创建完整会话：", createErr)
 				return 1
 			}
-			runner = agent.NewRunner(modelClient{Client: client, model: *model}, selection.Root, selection.Focus, tool.NewDefaultRegistry())
+			runner = agent.NewRunner(modelClient{Client: client, model: *model}, selection.Root, selection.Focus, registry)
 			persistence = &chatPersistence{store: store, snapshot: snapshot, persistent: true}
-			fmt.Fprintf(stderr, "会话 ID：%s\n注意：此会话会保存完整本地上下文，可能包含用户输入和读取结果；使用 --no-session 可关闭\n", snapshot.ID)
+			fmt.Fprintf(stderr, "Session ID: %s\n注意：此会话会保存完整本地上下文，可能包含用户输入和读取结果；使用 --no-session 可关闭\n", snapshot.ID)
 		} else {
-			runner = agent.NewRunner(modelClient{Client: client, model: *model}, selection.Root, selection.Focus, tool.NewDefaultRegistry())
+			runner = agent.NewRunner(modelClient{Client: client, model: *model}, selection.Root, selection.Focus, registry)
 			fmt.Fprintln(stderr, "已禁用完整会话保存（--no-session）；仍保留脱敏审计")
 		}
 	} else {
-		runner = agent.NewRunner(modelClient{Client: client, model: *model}, selection.Root, selection.Focus, tool.NewDefaultRegistry())
+		runner = agent.NewRunner(modelClient{Client: client, model: *model}, selection.Root, selection.Focus, registry)
 	}
 	if chat {
-		code := runChatLoopWithPersistence(ctx, runner, sessionWriter, traceSink, persistence, in, out, stderr)
+		status := chatStatus{Model: *model, Workspace: selection.Root, ToolCount: len(registry.Definitions())}
+		code := runChatLoopWithPersistence(ctx, runner, sessionWriter, traceSink, persistence, status, in, out, stderr)
 		if closeErr := sessionWriter.Close(); closeErr != nil && code == 0 {
 			fmt.Fprintln(stderr, "错误：", closeErr)
 			return 1

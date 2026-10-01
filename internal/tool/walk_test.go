@@ -129,7 +129,7 @@ func TestWalkRegularFiles(t *testing.T) {
 
 func TestWalkRegularFilesSkipsDiscoveryDirectories(t *testing.T) {
 	root := t.TempDir()
-	for _, dir := range []string{".git", ".foxcode", ".codex", ".claude", ".drift", "node_modules", ".venv", "__pycache__", ".tox", ".mypy_cache"} {
+	for _, dir := range []string{".git", ".foxcode", ".codex", ".codex-temp", ".claude", ".drift", ".worktrees", "node_modules", ".venv", "__pycache__", ".tox", ".mypy_cache"} {
 		path := filepath.Join(root, dir)
 		if err := os.MkdirAll(path, 0o755); err != nil {
 			t.Fatal(err)

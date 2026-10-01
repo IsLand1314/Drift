@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 
@@ -16,7 +17,13 @@ import (
 )
 
 func runChatLoop(ctx context.Context, runner *agent.Runner, audit session.Writer, traceSink agent.EventSink, in io.Reader, out, stderr io.Writer) int {
-	return runChatLoopWithPersistence(ctx, runner, audit, traceSink, nil, in, out, stderr)
+	return runChatLoopWithPersistence(ctx, runner, audit, traceSink, nil, chatStatus{}, in, out, stderr)
+}
+
+type chatStatus struct {
+	Model     string
+	Workspace string
+	ToolCount int
 }
 
 type chatPersistence struct {
@@ -52,12 +59,18 @@ func (p *chatPersistence) clearRunner(runner *agent.Runner) error {
 	return nil
 }
 
-func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit session.Writer, traceSink agent.EventSink, persistence *chatPersistence, in io.Reader, out, stderr io.Writer) int {
+func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit session.Writer, traceSink agent.EventSink, persistence *chatPersistence, status chatStatus, in io.Reader, out, stderr io.Writer) int {
 	scanner := bufio.NewScanner(in)
 	scanner.Buffer(make([]byte, 4096), 1<<20)
 	for {
 		// 每次只读取一行；退出命令不会进入 Agent，也不会产生 Provider 请求。
-		if _, err := fmt.Fprint(out, "> "); err != nil {
+		if separator := chatSeparator(out); separator != "" {
+			if _, err := fmt.Fprintln(out, separator); err != nil {
+				fmt.Fprintln(stderr, "错误：", err)
+				return 1
+			}
+		}
+		if _, err := fmt.Fprint(out, chatPrompt(out)); err != nil {
 			fmt.Fprintln(stderr, "错误：", err)
 			return 1
 		}
@@ -79,13 +92,16 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 			fmt.Fprintln(out, "如需清空上下文，请输入 /clear")
 			continue
 		}
-		if prompt == "/stats" {
-			contextBytes := runner.ContextBytes()
-			remaining := agent.MaxConversationBytes - contextBytes
-			if remaining < 0 {
-				remaining = 0
-			}
-			fmt.Fprintf(out, "上下文：%d / %d bytes\n消息：%d\n剩余：%d bytes\n", contextBytes, agent.MaxConversationBytes, len(runner.Messages()), remaining)
+		if prompt == "status" {
+			fmt.Fprintln(out, "如需查看状态，请输入 /status")
+			continue
+		}
+		if prompt == "compact" {
+			fmt.Fprintln(out, "如需压缩上下文，请输入 /compact")
+			continue
+		}
+		if prompt == "/status" {
+			writeChatStatus(out, runner, persistence, status)
 			continue
 		}
 		if prompt == "/compact" {
@@ -146,7 +162,9 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 			}
 			continue
 		}
+		startedAt := time.Now()
 		var lastText string
+		wroteAssistantPrefix := false
 		err := runner.RunEvents(ctx, prompt, func(event agent.Event) error {
 			// 同一事件先写脱敏审计，再按需转发 trace 和 stdout。
 			if err := audit.Append(event); err != nil {
@@ -157,6 +175,12 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 			}
 			if event.Type != agent.EventTextDelta {
 				return nil
+			}
+			if !wroteAssistantPrefix {
+				if _, err := fmt.Fprint(out, chatAssistantPrefix(out)); err != nil {
+					return err
+				}
+				wroteAssistantPrefix = true
 			}
 			lastText = event.Text
 			_, err := io.WriteString(out, event.Text)
@@ -174,8 +198,14 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 			fmt.Fprintln(stderr, "错误：", err)
 			return 1
 		}
-		if lastText != "" && !strings.HasSuffix(lastText, "\n") {
-			if _, err := io.WriteString(out, "\n"); err != nil {
+		if wroteAssistantPrefix {
+			if !strings.HasSuffix(lastText, "\n") {
+				if _, err := io.WriteString(out, "\n"); err != nil {
+					fmt.Fprintln(stderr, "错误：", err)
+					return 1
+				}
+			}
+			if _, err := fmt.Fprintf(out, "%s完成 · %.1fs%s\n", chatMuted(out), time.Since(startedAt).Seconds(), chatReset(out)); err != nil {
 				fmt.Fprintln(stderr, "错误：", err)
 				return 1
 			}
@@ -186,6 +216,73 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 			}
 		}
 	}
+}
+
+func writeChatStatus(out io.Writer, runner *agent.Runner, persistence *chatPersistence, status chatStatus) {
+	conversationID := "temporary (not saved)"
+	if persistence != nil && persistence.persistent {
+		conversationID = persistence.snapshot.ID
+	}
+	contextBytes := runner.ContextBytes()
+	remaining := agent.MaxConversationBytes - contextBytes
+	if remaining < 0 {
+		remaining = 0
+	}
+	remainingPercent := int(float64(remaining)*100/float64(agent.MaxConversationBytes) + 0.5)
+	totalKB := float64(agent.MaxConversationBytes) / 1000
+	usedKB := float64(contextBytes) / 1000
+	fmt.Fprintf(out, "%sDrift Status%s\n%s────────────────────────%s\n", chatStatusAccent(out), chatReset(out), chatMuted(out), chatReset(out))
+	fmt.Fprintf(out, "Session ID: %s\nModel: %s\nContext: %d%% remaining\n         %.1f KB used / %.1f KB total\nTokens: unavailable\nTools: %d enabled\nWorkspace: %s\n", conversationID, status.Model, remainingPercent, usedKB, totalKB, status.ToolCount, status.Workspace)
+}
+
+func chatPrompt(out io.Writer) string {
+	if chatUsesColor(out) {
+		return "\x1b[36m❯ \x1b[0m"
+	}
+	return "> "
+}
+
+func chatSeparator(out io.Writer) string {
+	if chatUsesColor(out) {
+		return chatMuted(out) + "────────────────────────" + chatReset(out)
+	}
+	return ""
+}
+
+func chatAssistantPrefix(out io.Writer) string {
+	if chatUsesColor(out) {
+		return "\x1b[35m●\x1b[0m "
+	}
+	return "● "
+}
+
+func chatMuted(out io.Writer) string {
+	if chatUsesColor(out) {
+		return "\x1b[2m"
+	}
+	return ""
+}
+
+func chatStatusAccent(out io.Writer) string {
+	if chatUsesColor(out) {
+		return "\x1b[36m"
+	}
+	return ""
+}
+
+func chatReset(out io.Writer) string {
+	if chatUsesColor(out) {
+		return "\x1b[0m"
+	}
+	return ""
+}
+
+func chatUsesColor(out io.Writer) bool {
+	if out != os.Stdout {
+		return false
+	}
+	info, err := os.Stdout.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }
 
 func appendChatEvent(audit session.Writer, traceSink agent.EventSink, event agent.Event) error {
