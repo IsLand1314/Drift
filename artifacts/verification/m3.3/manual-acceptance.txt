@@ -1,0 +1,13 @@
+M3.3 manual acceptance checklist
+Date: 2026-10-01
+
+Run each supplied chat scenario in F:\code\drift-m33-manual. Verify:
+  - create/edit/delete approval outcomes and filesystem side effects;
+  - expected read-before-create misses are not displayed as red failures;
+  - tool start lines and approved option rows disappear after completion;
+  - the submitted user prompt remains visible while a model turn runs;
+  - one multi-file turn produces one change-* directory with two manifest files,
+    aggregated diff.patch content, and both files under work/;
+  - deleted files have a .before copy under work/.
+
+Automated checks in full-check.txt cover the same file-operation boundaries.

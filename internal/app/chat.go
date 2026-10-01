@@ -380,16 +380,15 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 				case agent.EventToolCall:
 					currentActivity.Stop()
 					toolStarted[event.ToolCallID] = toolProgress{started: time.Now(), path: safeToolPath(event.Arguments)}
-					if _, err := fmt.Fprintln(out, chatToolCallLine(out, event)); err != nil {
-						return err
-					}
 					currentActivity.Start()
 				case agent.EventToolResult:
 					currentActivity.Stop()
 					progress := toolStarted[event.ToolCallID]
 					delete(toolStarted, event.ToolCallID)
-					if _, err := fmt.Fprintln(out, chatToolResultLine(out, event, progress.path, time.Since(progress.started))); err != nil {
-						return err
+					if shouldRenderToolResult(event) {
+						if _, err := fmt.Fprintln(out, chatToolResultLine(out, event, progress.path, time.Since(progress.started))); err != nil {
+							return err
+						}
 					}
 					currentActivity.Start()
 				}
@@ -472,15 +471,6 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 	}
 }
 
-func chatToolCallLine(out io.Writer, event agent.Event) string {
-	text := "● " + toolLabel(event.ToolName)
-	if path := safeToolPath(event.Arguments); path != "" {
-		text += " " + path
-	}
-	text += " ..."
-	return chatMuted(out) + text + chatReset(out)
-}
-
 type toolProgress struct {
 	started time.Time
 	path    string
@@ -495,6 +485,12 @@ func chatToolResultLine(out io.Writer, event agent.Event, path string, elapsed t
 		bytes = event.NewBytes
 	}
 	return chatSuccess(out) + "✓ " + toolLabel(event.ToolName) + formatToolPath(path) + " · " + formatToolBytes(bytes) + " · " + formatDuration(elapsed) + chatReset(out)
+}
+
+func shouldRenderToolResult(event agent.Event) bool {
+	// A read-before-create miss is normal discovery work. The model still receives
+	// its redacted failure, but the user only sees the eventual write result.
+	return !(event.ToolName == "read_file" && event.ErrorSummary == "tool execution failed")
 }
 
 func formatToolPath(path string) string {

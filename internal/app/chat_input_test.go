@@ -60,3 +60,16 @@ func TestChatInputModelFooterShowsModel(t *testing.T) {
 		t.Fatalf("footer missing from %q", view)
 	}
 }
+
+func TestChatInputModelSubmittedViewDoesNotLeaveFooter(t *testing.T) {
+	model := newChatInputModel("test-model", "separator")
+	model.editor.SetValue("create file")
+	model.submitted = true
+	view := model.View()
+	if strings.Contains(view, "Enter 发送") || strings.Contains(view, "test-model") || strings.Contains(view, "separator") {
+		t.Fatalf("submitted input left stale footer: %q", view)
+	}
+	if !strings.Contains(view, "create file") {
+		t.Fatalf("submitted input lost prompt: %q", view)
+	}
+}

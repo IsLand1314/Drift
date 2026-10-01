@@ -1,0 +1,19 @@
+M3.3 verification
+Date: 2026-10-01
+Branch: codex/m33-persistent-tui
+
+Passed commands:
+  go test ./... -count=1
+  go vet ./...
+  go build -o .codex-temp\drift-m33-tui.exe ./cmd/drift
+  git diff --check
+
+Focused checks passed:
+  go test ./internal/tool -run 'TestWriteAllowsMissingParentAndRejectsUnknownFields|TestEditRequiresUniqueMatchAndCommits|TestDeleteRequiresApprovalAndRemovesRegularFile|TestDeleteRejectsDirectory' -count=1
+  go test ./internal/changes -run TestChangeSetAggregatesFiles -count=1
+  go test ./internal/agent -run TestRunDeniedPreviewDoesNotExecuteWrite -count=1
+  go test ./internal/app -run 'TestChat.*|TestApproval.*|TestFixedFooter.*' -count=1
+
+The `-p` command was invoked against F:\code\drift-m33-manual without an API
+key in this environment. Startup correctly stopped with configuration exit code
+2, and Test-Path F:\code\drift-m33-manual\p-mode.txt returned False.

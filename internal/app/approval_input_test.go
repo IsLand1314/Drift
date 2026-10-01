@@ -40,3 +40,10 @@ func TestApprovalInputModelEscapeDenies(t *testing.T) {
 		t.Fatalf("cancelled=%v choice=%v", model.cancelled, model.choice())
 	}
 }
+
+func TestApprovalCleanupSequenceClearsTransientPanel(t *testing.T) {
+	sequence := approvalCleanupSequence(9)
+	if strings.Count(sequence, "\x1b[2K") != 9 || !strings.Contains(sequence, "\x1b[1A") {
+		t.Fatalf("cleanup=%q", sequence)
+	}
+}

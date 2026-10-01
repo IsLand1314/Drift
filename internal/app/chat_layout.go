@@ -57,11 +57,11 @@ func fixedFooterBeginSequence(width, height, contentBottom int, modelName string
 	reset := "\x1b[0m"
 	separator := "────────────────────────"
 	footer := muted + separator + reset + "\x1b[" + fmt.Sprint(height-1) + ";1H" + muted + left + spacesString(spaces) + right + reset + "\x1b[" + fmt.Sprint(height) + ";1H" + muted + separator + reset
-	return "\x1b[?25l\x1b[1;" + fmt.Sprint(contentBottom) + "r\x1b[" + fmt.Sprint(contentBottom) + ";1H\x1b[" + fmt.Sprint(contentBottom+1) + ";1H\x1b[0J" + footer + "\x1b[" + fmt.Sprint(contentBottom) + ";1H"
+	return "\x1b7\x1b[1;" + fmt.Sprint(contentBottom) + "r\x1b[" + fmt.Sprint(contentBottom+1) + ";1H\x1b[0J" + footer + "\x1b8\r\n"
 }
 
 func fixedFooterEndSequence(contentBottom int) string {
-	return "\x1b[r\x1b[" + fmt.Sprint(contentBottom+1) + ";1H\x1b[0J\x1b[?25h\x1b[" + fmt.Sprint(contentBottom+1) + ";1H"
+	return "\x1b7\x1b[r\x1b[" + fmt.Sprint(contentBottom+1) + ";1H\x1b[0J\x1b8"
 }
 
 func spacesString(n int) string {

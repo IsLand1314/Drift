@@ -162,6 +162,9 @@ func (m chatInputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m chatInputModel) View() string {
+	if m.submitted {
+		return m.editor.View()
+	}
 	left := "  Enter 发送 · Ctrl+C 取消"
 	right := m.modelName
 	spaces := m.width - lipgloss.Width(left) - lipgloss.Width(right)

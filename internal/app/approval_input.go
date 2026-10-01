@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/IsLand1314/Drift/internal/agent"
@@ -94,6 +95,21 @@ func (m approvalInputModel) choice() approvalChoice {
 	return approvalChoice(m.selected)
 }
 
+func (m approvalInputModel) renderedLines() int {
+	return strings.Count(m.View(), "\n")
+}
+
+func approvalCleanupSequence(lines int) string {
+	if lines < 1 {
+		return ""
+	}
+	var text strings.Builder
+	for range lines {
+		text.WriteString("\r\x1b[1A\x1b[2K")
+	}
+	return text.String()
+}
+
 func readApprovalChoice(ctx context.Context, input chatInput, request agent.PermissionRequest) (approvalChoice, error) {
 	if tty, ok := input.(*ttyChatInput); ok {
 		model := newApprovalInputModel(request)
@@ -112,6 +128,9 @@ func readApprovalChoice(ctx context.Context, input chatInput, request agent.Perm
 			} else {
 				return deny, fmt.Errorf("approval input returned an invalid model")
 			}
+		}
+		if chatUsesColor(tty.out) {
+			_, _ = io.WriteString(tty.out, approvalCleanupSequence(finalModel.renderedLines()))
 		}
 		return finalModel.choice(), nil
 	}

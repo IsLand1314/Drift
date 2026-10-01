@@ -499,15 +499,23 @@ func TestChatDisplaysAssistantMarkerAndDuration(t *testing.T) {
 	}
 }
 
-func TestChatToolProgressUsesSafeSummary(t *testing.T) {
+func TestChatToolResultUsesSafeSummary(t *testing.T) {
 	var out bytes.Buffer
-	call := chatToolCallLine(&out, agent.Event{ToolName: "read_file", Arguments: `{"path":"README.md","secret":"hidden"}`})
 	result := chatToolResultLine(&out, agent.Event{ToolName: "read_file", Result: "hello"}, "README.md", 200*time.Millisecond)
-	if call != "● Read README.md ..." || result != "✓ Read README.md · 5 B · 0.2s" {
-		t.Fatalf("call=%q result=%q", call, result)
+	if result != "✓ Read README.md · 5 B · 0.2s" {
+		t.Fatalf("result=%q", result)
 	}
 	if got := safeToolPath(`{"path":"F:\\secret.txt"}`); got != "" {
 		t.Fatalf("absolute path displayed: %q", got)
+	}
+}
+
+func TestChatSuppressesExpectedReadMissFromTranscript(t *testing.T) {
+	if shouldRenderToolResult(agent.Event{ToolName: "read_file", ErrorSummary: "tool execution failed"}) {
+		t.Fatal("read-before-create miss should not become a red transcript error")
+	}
+	if !shouldRenderToolResult(agent.Event{ToolName: "write_file", ErrorSummary: "tool execution failed"}) {
+		t.Fatal("write failure must remain visible")
 	}
 }
 
