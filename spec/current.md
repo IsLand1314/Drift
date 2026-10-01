@@ -9,6 +9,7 @@ M1.8 为真实 TTY 的 `drift chat` 增加单行输入组件，提供占位文�
 ### 当前范围
 
 - TTY 输入区显示暗色上下分隔线、青色 `❯` 和灰色 `Send a message...` 占位文本；输入后由组件显示单行文本和光标。
+- 输入框页脚左侧显示灰色 `Enter 发送 · Ctrl+C 取消`，右侧按终端宽度对齐当前模型名；非 TTY 不显示页脚。
 - Enter 提交非空文本；空文本继续等待；`exit`、`/exit`、`quit` 语义保持不变。
 - 活动模型/工具轮按 Ctrl+C 时显示 `✖ 当前轮已取消；会话仍可继续`，不显示原始 `context canceled`；Agent 消息、Token 和完整快照继续回滚半轮。
 - 空闲输入按 Ctrl+C 仍以退出码 130 结束；非 TTY 使用现有 `bufio.Scanner` 路径，不输出 ANSI 控制符。

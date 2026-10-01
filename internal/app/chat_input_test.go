@@ -10,7 +10,7 @@ import (
 )
 
 func TestChatInputScannerReadsLines(t *testing.T) {
-	input := newChatInput(strings.NewReader("hello\n\n"), &strings.Builder{})
+	input := newChatInput(strings.NewReader("hello\n\n"), &strings.Builder{}, "test-model")
 	if _, ok := input.(*scannerChatInput); !ok {
 		t.Fatalf("expected scanner input, got %T", input)
 	}
@@ -28,7 +28,7 @@ func TestChatInputScannerReadsLines(t *testing.T) {
 }
 
 func TestChatInputModelPlaceholderAndSubmit(t *testing.T) {
-	model := newChatInputModel()
+	model := newChatInputModel("test-model")
 	if !strings.Contains(model.View(), "Send a message...") {
 		t.Fatalf("placeholder missing from %q", model.View())
 	}
@@ -45,10 +45,18 @@ func TestChatInputModelPlaceholderAndSubmit(t *testing.T) {
 }
 
 func TestChatInputModelCtrlC(t *testing.T) {
-	model := newChatInputModel()
+	model := newChatInputModel("test-model")
 	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
 	model = updated.(chatInputModel)
 	if !model.cancelled || cmd == nil {
 		t.Fatalf("cancel state = %+v, cmd=%v", model, cmd)
+	}
+}
+
+func TestChatInputModelFooterShowsModel(t *testing.T) {
+	model := newChatInputModel("deepseek-v4-flash")
+	view := model.View()
+	if !strings.Contains(view, "Enter 发送 · Ctrl+C 取消") || !strings.Contains(view, "deepseek-v4-flash") {
+		t.Fatalf("footer missing from %q", view)
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
@@ -19,10 +20,10 @@ type chatInput interface {
 	Read(context.Context) (string, error)
 }
 
-func newChatInput(in io.Reader, out io.Writer) chatInput {
+func newChatInput(in io.Reader, out io.Writer, modelName string) chatInput {
 	if inputFile, ok := in.(*os.File); ok {
 		if outputFile, ok := out.(*os.File); ok && isTTY(inputFile) && isTTY(outputFile) {
-			return &ttyChatInput{in: inputFile, out: outputFile}
+			return &ttyChatInput{in: inputFile, out: outputFile, modelName: modelName}
 		}
 	}
 	return newScannerChatInput(in)
@@ -54,8 +55,9 @@ func (s *scannerChatInput) Read(context.Context) (string, error) {
 }
 
 type ttyChatInput struct {
-	in  io.Reader
-	out io.Writer
+	in        io.Reader
+	out       io.Writer
+	modelName string
 }
 
 func (t *ttyChatInput) Read(ctx context.Context) (string, error) {
@@ -64,7 +66,7 @@ func (t *ttyChatInput) Read(ctx context.Context) (string, error) {
 			return "", err
 		}
 	}
-	model := newChatInputModel()
+	model := newChatInputModel(t.modelName)
 	program := tea.NewProgram(
 		&model,
 		tea.WithContext(ctx),
@@ -111,11 +113,13 @@ func (t *ttyChatInput) Read(ctx context.Context) (string, error) {
 
 type chatInputModel struct {
 	editor    textarea.Model
+	modelName string
+	width     int
 	submitted bool
 	cancelled bool
 }
 
-func newChatInputModel() chatInputModel {
+func newChatInputModel(modelName string) chatInputModel {
 	editor := textarea.New()
 	editor.Placeholder = "Send a message..."
 	editor.Prompt = "❯ "
@@ -128,7 +132,7 @@ func newChatInputModel() chatInputModel {
 	editor.FocusedStyle.Placeholder = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	editor.BlurredStyle = editor.FocusedStyle
 	editor.Focus()
-	return chatInputModel{editor: editor}
+	return chatInputModel{editor: editor, modelName: modelName, width: 80}
 }
 
 func (m chatInputModel) Init() tea.Cmd {
@@ -136,6 +140,11 @@ func (m chatInputModel) Init() tea.Cmd {
 }
 
 func (m chatInputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if size, ok := msg.(tea.WindowSizeMsg); ok {
+		m.width = size.Width
+		m.editor.SetWidth(size.Width)
+		return m, nil
+	}
 	if key, ok := msg.(tea.KeyMsg); ok {
 		switch key.Type {
 		case tea.KeyEnter:
@@ -152,5 +161,13 @@ func (m chatInputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m chatInputModel) View() string {
-	return m.editor.View()
+	left := "  Enter 发送 · Ctrl+C 取消"
+	right := m.modelName
+	spaces := m.width - lipgloss.Width(left) - lipgloss.Width(right)
+	if right == "" || spaces < 1 {
+		right = ""
+		spaces = 1
+	}
+	footer := lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(left + strings.Repeat(" ", spaces) + right)
+	return m.editor.View() + "\n" + footer
 }
