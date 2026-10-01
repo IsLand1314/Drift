@@ -448,3 +448,22 @@ func TestJSONLWriterStoresNumericUsageOnly(t *testing.T) {
 		t.Fatalf("usage=%+v", entries[0])
 	}
 }
+
+func TestJSONLWriterStoresCancellationStageWithoutBody(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.jsonl")
+	writer, err := NewJSONLWriter(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Close()
+	if err := writer.Append(agent.Event{Type: agent.EventError, Stage: "agent_cancelled"}); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := ReadEntries(path)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("entries=%v err=%v", entries, err)
+	}
+	if entries[0].Stage != "agent_cancelled" || entries[0].Text != "" || entries[0].Error != "" || entries[0].Arguments != "" || entries[0].Result != "" {
+		t.Fatalf("entry=%+v", entries[0])
+	}
+}

@@ -1,6 +1,6 @@
 # Drift
 
-使用 Go 构建的本地只读 Coding Agent Runtime。当前版本为 M1.6：除单次 `-p` 请求外，还支持 `drift chat` 多轮交互、默认本地完整会话保存、`--resume` 恢复、`--no-session` 临时模式、`/status` 状态面板和 `/compact` 手动压缩。模型可以在选定 workspace 内列出文件、搜索文本、分页读取大文件，并根据每轮结果继续探索后给出解释；可选 `--trace` 会把安全运行摘要写到 stderr，`session list/show` 查看脱敏审计，`conversation` 命令支持会话列表、标题、恢复、精确删除和过期清理。
+使用 Go 构建的本地只读 Coding Agent Runtime。当前版本为 M1.7：除单次 `-p` 请求外，还支持 `drift chat` 多轮交互、默认本地完整会话保存、`--resume` 恢复、`--no-session` 临时模式、`/status` 状态面板、`/compact` 手动压缩和活动轮次 Ctrl+C 取消。模型可以在选定 workspace 内列出文件、搜索文本、分页读取大文件，并根据每轮结果继续探索后给出解释；可选 `--trace` 会把安全运行摘要写到 stderr，`session list/show` 查看脱敏审计，`conversation` 命令支持会话列表、标题、恢复、精确删除和过期清理。
 
 默认提供三个工具：`list_files`、`search_text`、`read_file`。单次运行最多 4 次模型请求、6 次工具调用；成功工具结果累计最多 512 KiB，单文件最多 128 KiB。`list_files` 最多返回 200 个文件，`search_text` 最多扫描 200 个文件、返回 100 个匹配，输出最多 32 KiB。工具按顺序串行执行，达到限制后使用无工具 schema 的请求生成说明。没有写文件、删除文件、执行命令或运行程序的能力。
 
@@ -50,6 +50,7 @@ go run ./cmd/drift conversation prune --before 2026-09-01T00:00:00Z --yes
 ```
 
 进入 chat 后可用 `/status` 查看 Session ID、Model、Context、Tokens、Tools 和 Workspace；Context 使用十进制 KB 估算，Tokens 使用 Provider 返回的真实 usage，未返回时显示 `unavailable`，混合状态显示 `(partial)`。用 `/compact` 请求模型生成摘要并保留最近消息；`/compact` 不提供文件工具，失败时保留原上下文。`/clear` 才是完全清空；普通 `clear`、`status`、`compact` 只会提示使用对应的斜杠命令。真实终端会以分隔线、彩色提示符、助手标记和本轮完成耗时区分交互；非终端输出保持纯文本。
+模型流或只读工具执行期间按 Ctrl+C 只取消当前轮，chat 继续等待下一条输入；空闲等待输入时按 Ctrl+C 以退出码 130 结束。取消轮不会写入半轮完整会话，只在脱敏审计中记录 `agent_cancelled`。
 
 长对话达到上下文上限时，输入 `/clear` 可清空当前上下文；持久会话会先保存空快照，保存成功后才清理。普通文本 `clear` 不会清理上下文，只会提示使用 `/clear`。完整快照可能包含提示词、回答和工具结果，不是脱敏日志，不应上传或分享；`.drift/sessions/` 仍只保存脱敏审计，永远不作为恢复来源。M1.3 的 `conversation prune` 不带 `--yes` 时只预览，不会删除文件。
 
@@ -84,6 +85,7 @@ go build ./cmd/drift
 - [M1.4 手动上下文压缩阶段说明](doc/m1.4-context-compaction.md)
 - [M1.5 运行时卫生与边界对齐](doc/m1.5-runtime-hygiene.md)
 - [M1.6 真实 Token 用量](doc/m1.6-token-usage.md)
+- [M1.7 单轮取消](doc/m1.7-turn-cancellation.md)
 - [M1.0 交互式只读对话阶段说明](doc/m1.0-interactive-chat.md)
 - [M0.7 Provider 诊断与读取保护阶段说明](doc/m0.7-provider-reliability.md)
 - [M0.2 Read Agent 说明](doc/m0.2-read-agent.md)

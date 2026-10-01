@@ -1,6 +1,30 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 `doc/architecture.md`。当前版本为 M1.6。下面的 M1.5、M1.4、M1.3、M1.2、M1.1、M1.0、M0.9、M0.8、M0.7、M0.6、M0.5、M0.4、M0.3、M0.2.2 和 M0.2.1 章节是已完成阶段的历史记录，不覆盖当前 M1.6 的运行边界。
+本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 `doc/architecture.md`。当前版本为 M1.7。下面的 M1.6、M1.5、M1.4、M1.3、M1.2、M1.1、M1.0、M0.9、M0.8、M0.7、M0.6、M0.5、M0.4、M0.3、M0.2.2 和 M0.2.1 章节是已完成阶段的历史记录，不覆盖当前 M1.7 的运行边界。
+
+## M1.7：单轮取消
+
+M1.7 将进程生命周期 Context 与每轮请求 Context 分离，使 Ctrl+C 在模型流或只读工具执行期间只取消当前轮。
+
+### 当前范围
+
+- 活动轮次收到 Ctrl+C 时取消 Provider/工具共享的 child Context，chat 继续显示输入提示。
+- Agent 对取消轮次做事务式回滚，不保留 user、assistant 或 tool 半轮消息；旧上下文和 Token 统计保持不变。
+- 空闲等待输入时 Ctrl+C 结束 chat，退出码为 130。
+- 脱敏 Session 只记录 `agent_cancelled` stage，不记录正文、原始参数或文件内容。
+- 不实现 TUI、行编辑、多行输入、输入队列、后台任务、暂停/恢复和自动重试。
+
+### M1.7 验收
+
+| ID | 验证方法 | 通过阈值 | 证据路径 |
+| --- | --- | --- | --- |
+| AC-M17-001 | Provider 流式输出期间按 Ctrl+C | 当前轮结束，chat 返回新提示符，进程不退出 | `artifacts/verification/m1.7/cancel-test.txt` |
+| AC-M17-002 | 只读工具执行期间按 Ctrl+C | 工具收到取消，后续工具不再执行 | `artifacts/verification/m1.7/cancel-test.txt` |
+| AC-M17-003 | 取消后检查 Runner/快照 | 半轮消息不保留，旧 Context 可恢复 | `artifacts/verification/m1.7/audit-test.txt` |
+| AC-M17-004 | 取消后查看 `/status` | 历史 Context 和 Token 统计不被取消轮污染 | `artifacts/verification/m1.7/cancel-test.txt` |
+| AC-M17-005 | 检查 JSONL | 有 `agent_cancelled`，没有正文和原始参数 | `artifacts/verification/m1.7/audit-test.txt` |
+| AC-M17-006 | 空闲时按 Ctrl+C | chat 以退出码 130 结束 | `artifacts/verification/m1.7/cancel-test.txt` |
+| AC-M17-007 | 全量测试、vet、build、diff | 全部退出码为 0 | `artifacts/verification/m1.7/full-check.txt` |
 
 ## M1.6：真实 Token 用量
 

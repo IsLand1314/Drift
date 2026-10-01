@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/IsLand1314/Drift/internal/agent"
 	"github.com/IsLand1314/Drift/internal/conversation"
@@ -23,6 +24,21 @@ import (
 type cancelThenAnswerClient struct {
 	signals chan os.Signal
 	calls   int
+}
+
+type blockingReader struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (r *blockingReader) Read([]byte) (int, error) {
+	select {
+	case <-r.started:
+	default:
+		close(r.started)
+	}
+	<-r.release
+	return 0, io.EOF
 }
 
 func (c *cancelThenAnswerClient) Stream(ctx context.Context, _ llm.Request, emit func(llm.StreamEvent) error) (llm.Completion, error) {
@@ -255,6 +271,36 @@ func TestChatCancelsCurrentTurnAndContinues(t *testing.T) {
 	}
 	if client.calls != 2 || !strings.Contains(out.String(), "已取消当前轮；会话仍可继续") || !strings.Contains(out.String(), "continued answer") {
 		t.Fatalf("calls=%d out=%q stderr=%q", client.calls, out.String(), stderr.String())
+	}
+}
+
+func TestChatInterruptWhileIdleExits130(t *testing.T) {
+	signals := make(chan os.Signal, 1)
+	chatCtx, cancelChat := context.WithCancel(context.Background())
+	coordinator := newInterruptCoordinator(signals, cancelChat)
+	stop := coordinator.start()
+	defer stop()
+	reader := &blockingReader{started: make(chan struct{}), release: make(chan struct{})}
+	var out, stderr bytes.Buffer
+	done := make(chan int, 1)
+	go func() {
+		done <- runChatLoopWithPersistence(chatCtx, nil, nil, nil, nil, chatStatus{}, coordinator, reader, &out, &stderr)
+	}()
+	<-reader.started
+	signals <- os.Interrupt
+	select {
+	case <-chatCtx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("idle interrupt did not cancel chat context")
+	}
+	close(reader.release)
+	select {
+	case code := <-done:
+		if code != 130 {
+			t.Fatalf("code=%d out=%q stderr=%q", code, out.String(), stderr.String())
+		}
+	case <-time.After(time.Second):
+		t.Fatal("chat did not exit after idle interrupt")
 	}
 }
 
