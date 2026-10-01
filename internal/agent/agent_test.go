@@ -868,6 +868,26 @@ func TestRunStopsWhenToolExecutionCancelsContext(t *testing.T) {
 	}
 }
 
+func TestRunEventsToolCancellationRollsBackCurrentTurn(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	registry, err := tool.NewRegistry(cancelingTool{cancel: cancel})
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := llm.ToolCall{ID: "cancel", Type: "function", Name: "cancel_tool", Arguments: `{}`}
+	client := &scriptedClient{steps: []scriptedStep{{
+		completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{call}}, FinishReason: "tool_calls"},
+	}}}
+	initial := []llm.Message{{Role: "assistant", Content: "before cancellation"}}
+	runner := NewRunnerWithMessages(client, t.TempDir(), "", registry, initial)
+	if err := runner.RunEvents(ctx, "cancel this", nil); !errors.Is(err, context.Canceled) {
+		t.Fatalf("RunEvents() error = %v, want context canceled", err)
+	}
+	if got := runner.Messages(); !reflect.DeepEqual(got, initial) {
+		t.Fatalf("messages after tool cancellation = %#v, want %#v", got, initial)
+	}
+}
+
 func TestRunPreservesReasoningContentForSecondRequest(t *testing.T) {
 	call := llm.ToolCall{ID: "call-1", Type: "function", Name: "read_file", Arguments: `{"path":"README.md"}`}
 	client := &scriptedClient{steps: []scriptedStep{
