@@ -212,6 +212,9 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 	var runner *agent.Runner
 	registry := tool.NewDefaultRegistry()
 	if chat {
+		registry = tool.NewChatRegistry()
+	}
+	if chat {
 		store := conversation.NewStore(selection.Root)
 		if persistenceOptions.resume {
 			var snapshot conversation.Snapshot

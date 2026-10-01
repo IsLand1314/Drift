@@ -113,6 +113,9 @@ func formatSessionEntry(entry session.Entry) string {
 	if entry.Tool != "" {
 		line += " tool=" + entry.Tool
 	}
+	if entry.Operation != "" {
+		line += " operation=" + entry.Operation
+	}
 	if entry.Path != "" {
 		line += " path=" + entry.Path
 	}
@@ -124,6 +127,9 @@ func formatSessionEntry(entry session.Entry) string {
 	}
 	if entry.ResultBytes > 0 {
 		line += fmt.Sprintf(" result_bytes=%d", entry.ResultBytes)
+	}
+	if entry.NewBytes > 0 {
+		line += fmt.Sprintf(" new_bytes=%d", entry.NewBytes)
 	}
 	if entry.Stage != "" {
 		line += " stage=" + entry.Stage

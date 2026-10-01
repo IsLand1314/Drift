@@ -24,6 +24,19 @@ func TestMaxToolCallsSupportsProjectExploration(t *testing.T) {
 	}
 }
 
+func TestChatRegistrySystemInstructionAllowsConfirmedWrite(t *testing.T) {
+	client := &scriptedClient{steps: []scriptedStep{{events: []llm.StreamEvent{{Text: "ok"}}, completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "ok"}, FinishReason: "stop"}}}}
+	if err := RunEventsWithRegistry(context.Background(), client, t.TempDir(), "describe", "", tool.NewChatRegistry(), nil); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(client.requests[0].Messages[0].Content, "write_file") || strings.Contains(client.requests[0].Messages[0].Content, "read-only tools. run_command") {
+		t.Fatalf("system instruction=%q", client.requests[0].Messages[0].Content)
+	}
+	if len(client.requests[0].Tools) != 4 {
+		t.Fatalf("tools=%d, want 4", len(client.requests[0].Tools))
+	}
+}
+
 type scriptedStep struct {
 	events     []llm.StreamEvent
 	completion llm.Completion
@@ -1162,8 +1175,52 @@ func TestRunWithRegistryUsesRegisteredTool(t *testing.T) {
 	}
 }
 
+func TestRunDeniedPreviewDoesNotExecuteWrite(t *testing.T) {
+	call := llm.ToolCall{ID: "call-write", Type: "function", Name: "write_file", Arguments: `{}`}
+	client := &scriptedClient{steps: []scriptedStep{
+		{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{call}}, FinishReason: "tool_calls"}},
+		{events: []llm.StreamEvent{{Text: "write denied"}}, completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "write denied"}, FinishReason: "stop"}},
+	}}
+	writer := &permissionTestTool{}
+	registry, err := tool.NewRegistry(writer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := NewRunner(client, t.TempDir(), "", registry)
+	runner.SetPermissionPrompt(func(context.Context, PermissionRequest) (PermissionDecision, error) {
+		return PermissionDecision{Reason: "user denied"}, nil
+	})
+	if err := runner.RunEvents(context.Background(), "change a file", nil); err != nil {
+		t.Fatal(err)
+	}
+	if writer.executed {
+		t.Fatal("denied preview executed write")
+	}
+}
+
 type registryTestTool struct {
 	called bool
+}
+
+type permissionTestTool struct{ executed bool }
+
+func (t *permissionTestTool) Name() string { return "write_file" }
+
+func (t *permissionTestTool) Definition() llm.ToolDefinition {
+	return llm.ToolDefinition{Type: "function", Function: []byte(`{"name":"write_file"}`)}
+}
+
+func (t *permissionTestTool) Execute(context.Context, string, string) (string, error) {
+	return "", errors.New("direct execution is not allowed")
+}
+
+func (t *permissionTestTool) Preview(context.Context, string, string) (tool.Preview, error) {
+	return tool.Preview{Operation: "create_file", Path: "new.txt", NewBytes: 3, Content: []byte("new")}, nil
+}
+
+func (t *permissionTestTool) ExecutePreview(context.Context, string, tool.Preview) (string, error) {
+	t.executed = true
+	return "created", nil
 }
 
 type cancelingTool struct {

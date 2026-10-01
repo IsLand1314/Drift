@@ -135,6 +135,11 @@ func (p *chatPersistence) clearRunner(runner *agent.Runner) error {
 
 func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit session.Writer, traceSink agent.EventSink, persistence *chatPersistence, status chatStatus, interrupt *interruptCoordinator, in io.Reader, out, stderr io.Writer) int {
 	input := newChatInput(in, out, status.Model)
+	if runner != nil {
+		runner.SetPermissionPrompt(func(promptCtx context.Context, request agent.PermissionRequest) (agent.PermissionDecision, error) {
+			return confirmWrite(promptCtx, input, out, request)
+		})
+	}
 	interactiveInput := false
 	if _, ok := input.(*ttyChatInput); ok {
 		interactiveInput = true
@@ -420,6 +425,22 @@ func chatToolCallLine(out io.Writer, event agent.Event) string {
 
 func chatToolResultLine(out io.Writer, event agent.Event) string {
 	return chatMuted(out) + "+ " + event.ToolName + " · " + formatToolBytes(len([]byte(event.Result))) + chatReset(out)
+}
+
+func confirmWrite(ctx context.Context, input chatInput, out io.Writer, request agent.PermissionRequest) (agent.PermissionDecision, error) {
+	fmt.Fprintf(out, "\nWrite request: %s %s (%d -> %d bytes)\n", request.Operation, request.Path, request.OldBytes, request.NewBytes)
+	if request.Diff != "" {
+		fmt.Fprintln(out, request.Diff)
+	}
+	fmt.Fprint(out, "Allow this change? [y/N] ")
+	answer, err := input.Read(ctx)
+	if err != nil {
+		return agent.PermissionDecision{Reason: "confirmation input unavailable"}, err
+	}
+	if strings.EqualFold(strings.TrimSpace(answer), "y") || strings.EqualFold(strings.TrimSpace(answer), "yes") {
+		return agent.PermissionDecision{Allow: true, Reason: "user approved"}, nil
+	}
+	return agent.PermissionDecision{Reason: "user denied"}, nil
 }
 
 func safeToolPath(arguments string) string {

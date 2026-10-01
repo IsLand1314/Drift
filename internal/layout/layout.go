@@ -11,6 +11,7 @@ type Layout struct {
 	Root     string
 	Sessions string
 	Audits   string
+	Changes  string
 	Skills   string
 }
 
@@ -20,12 +21,13 @@ func ForWorkspace(workspace string) Layout {
 		Root:     drift,
 		Sessions: filepath.Join(drift, "sessions"),
 		Audits:   filepath.Join(drift, "audits"),
+		Changes:  filepath.Join(drift, "changes"),
 		Skills:   filepath.Join(drift, "skills"),
 	}
 }
 
 func (l Layout) Prepare() error {
-	for _, path := range []string{l.Sessions, l.Audits, l.Skills} {
+	for _, path := range []string{l.Sessions, l.Audits, l.Changes, l.Skills} {
 		if err := os.MkdirAll(path, 0o700); err != nil {
 			return err
 		}
