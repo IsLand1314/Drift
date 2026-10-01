@@ -446,10 +446,12 @@ func safeToolError(root, message string) string {
 		"permission denied",
 		"requires permission confirmation",
 		"edit_file target does not exist",
+		"edit_file path is invalid",
 		"edit_file old_text must match exactly once",
 		"edit_file target is not a regular file",
 		"edit_file target is binary",
 		"delete_file target does not exist",
+		"delete_file path is invalid",
 		"delete_file target is not a regular file",
 		"delete_file target is binary",
 	} {
