@@ -18,6 +18,7 @@ import (
 	"github.com/IsLand1314/Drift/internal/llm/anthropic"
 	"github.com/IsLand1314/Drift/internal/llm/openai"
 	"github.com/IsLand1314/Drift/internal/session"
+	"github.com/IsLand1314/Drift/internal/skill"
 	"github.com/IsLand1314/Drift/internal/tool"
 )
 
@@ -60,6 +61,9 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 	if len(args) > 0 && args[0] == "conversation" {
 		return runConversationCommand(args[1:], out, stderr)
 	}
+	if len(args) > 0 && args[0] == "skill" {
+		return runSkillCommand(args[1:], out, stderr)
+	}
 	chat := len(args) > 0 && args[0] == "chat"
 	var persistenceOptions chatPersistenceOptions
 	if chat {
@@ -83,6 +87,7 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 	lookup := func(key string) string { return config.MergeLookup(dotenv, getenv, key) }
 	prompt := flags.String("p", "", "发送一次提示词并流式输出回复")
 	workspaceTarget := flags.String("w", "", "要分析的目录或文件（默认当前目录）")
+	skillName := flags.String("skill", "", "显式选择 workspace Skill")
 	trace := flags.Bool("trace", false, "将运行过程摘要输出到 stderr")
 	providerDefault := lookup("DRIFT_PROVIDER")
 	if providerDefault == "" {
@@ -99,9 +104,9 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 	}
 	if flags.NArg() != 0 || (!chat && strings.TrimSpace(*prompt) == "") || (chat && strings.TrimSpace(*prompt) != "") {
 		if chat {
-			fmt.Fprintln(stderr, "用法：drift chat [-w 路径] [--trace] [-model 模型名] [-base-url API根地址]")
+			fmt.Fprintln(stderr, "用法：drift chat [-w 路径] [-skill 名称] [--trace] [-model 模型名] [-base-url API根地址]")
 		} else {
-			fmt.Fprintln(stderr, "用法：drift -p \"你好\" [-w 路径] [--trace] [-model 模型名] [-base-url API根地址]")
+			fmt.Fprintln(stderr, "用法：drift -p \"你好\" [-w 路径] [-skill 名称] [--trace] [-model 模型名] [-base-url API根地址]")
 		}
 		return 2
 	}
@@ -147,6 +152,14 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 	if chat && persistenceOptions.resume && selection.Focus != "" {
 		fmt.Fprintln(stderr, "错误：--resume 不能与文件型 -w 同时使用")
 		return 2
+	}
+	selectedSkill := skill.Skill{}
+	if strings.TrimSpace(*skillName) != "" {
+		selectedSkill, err = skill.Load(selection.Root, strings.TrimSpace(*skillName))
+		if err != nil {
+			fmt.Fprintln(stderr, "错误：Skill 不可用")
+			return 2
+		}
 	}
 	if key == "" || strings.TrimSpace(*model) == "" {
 		if providerName == "anthropic" {
@@ -199,7 +212,7 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 					return 2
 				}
 			}
-			runner = agent.NewRunnerWithMessages(modelClient{Client: client, model: *model}, selection.Root, snapshot.Focus, registry, snapshot.Messages)
+			runner = agent.NewRunnerWithMessagesAndSystemContext(modelClient{Client: client, model: *model}, selection.Root, snapshot.Focus, selectedSkill.Name, selectedSkill.Content, registry, snapshot.Messages)
 			persistence = &chatPersistence{store: store, snapshot: snapshot, persistent: true}
 			persistence.usage = usageTotals{InputTokens: snapshot.InputTokens, OutputTokens: snapshot.OutputTokens, ReportedRequests: snapshot.ReportedRequests, UnreportedRequests: snapshot.UnreportedRequests}
 			fmt.Fprintf(stderr, "Session ID: %s\n注意：此会话会保存完整本地上下文，可能包含用户输入和读取结果；使用 --no-session 可关闭\n", snapshot.ID)
@@ -209,16 +222,16 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 				fmt.Fprintln(stderr, "错误：无法创建完整会话：", createErr)
 				return 1
 			}
-			runner = agent.NewRunner(modelClient{Client: client, model: *model}, selection.Root, selection.Focus, registry)
+			runner = agent.NewRunnerWithSystemContext(modelClient{Client: client, model: *model}, selection.Root, selection.Focus, selectedSkill.Name, selectedSkill.Content, registry)
 			persistence = &chatPersistence{store: store, snapshot: snapshot, persistent: true}
 			fmt.Fprintf(stderr, "Session ID: %s\n注意：此会话会保存完整本地上下文，可能包含用户输入和读取结果；使用 --no-session 可关闭\n", snapshot.ID)
 		} else {
-			runner = agent.NewRunner(modelClient{Client: client, model: *model}, selection.Root, selection.Focus, registry)
+			runner = agent.NewRunnerWithSystemContext(modelClient{Client: client, model: *model}, selection.Root, selection.Focus, selectedSkill.Name, selectedSkill.Content, registry)
 			persistence = &chatPersistence{persistent: false}
 			fmt.Fprintln(stderr, "已禁用完整会话保存（--no-session）；仍保留脱敏审计")
 		}
 	} else {
-		runner = agent.NewRunner(modelClient{Client: client, model: *model}, selection.Root, selection.Focus, registry)
+		runner = agent.NewRunnerWithSystemContext(modelClient{Client: client, model: *model}, selection.Root, selection.Focus, selectedSkill.Name, selectedSkill.Content, registry)
 	}
 	if chat {
 		status := chatStatus{Model: *model, Workspace: selection.Root, ToolCount: len(registry.Definitions())}

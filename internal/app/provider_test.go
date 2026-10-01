@@ -60,6 +60,64 @@ func TestRunRejectsMissingAnthropicKeyBeforeRequest(t *testing.T) {
 	}
 }
 
+func TestSkillCommandsRunWithoutProvider(t *testing.T) {
+	workspace := t.TempDir()
+	path := filepath.Join(workspace, ".drift", "skills", "project-overview", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("Use a concise project map."), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out, stderr strings.Builder
+	if code := RunWithInput(context.Background(), []string{"skill", "list", "-w", workspace}, func(string) string { return "" }, strings.NewReader(""), &out, &stderr); code != 0 {
+		t.Fatalf("list code=%d out=%q stderr=%q", code, out.String(), stderr.String())
+	}
+	if out.String() != "project-overview\n" {
+		t.Fatalf("list out=%q", out.String())
+	}
+	out.Reset()
+	if code := RunWithInput(context.Background(), []string{"skill", "show", "project-overview", "-w", workspace}, func(string) string { return "" }, strings.NewReader(""), &out, &stderr); code != 0 || out.String() != "Use a concise project map." {
+		t.Fatalf("show code=%d out=%q stderr=%q", code, out.String(), stderr.String())
+	}
+}
+
+func TestRunInjectsSelectedSkill(t *testing.T) {
+	workspace := t.TempDir()
+	path := filepath.Join(workspace, ".drift", "skills", "project-overview", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("Prefer a concise project map."), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var request struct {
+		Messages []struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		} `json:"messages"`
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	defer server.Close()
+	getenv := func(key string) string {
+		return map[string]string{"OPENAI_API_KEY": "test-key", "OPENAI_MODEL": "test-model", "OPENAI_BASE_URL": server.URL}[key]
+	}
+	var out, stderr strings.Builder
+	code := RunWithInput(context.Background(), []string{"-skill", "project-overview", "-w", workspace, "-p", "hello"}, getenv, strings.NewReader(""), &out, &stderr)
+	if code != 0 || out.String() != "ok\n" {
+		t.Fatalf("code=%d out=%q stderr=%q", code, out.String(), stderr.String())
+	}
+	if len(request.Messages) < 2 || !strings.Contains(request.Messages[0].Content, "Prefer a concise project map.") || request.Messages[1].Content != "hello" {
+		t.Fatalf("messages=%#v", request.Messages)
+	}
+}
+
 func TestAnthropicToolRoundTripAndUsage(t *testing.T) {
 	workspace := t.TempDir()
 	if err := os.WriteFile(filepath.Join(workspace, "README.md"), []byte("Drift README"), 0600); err != nil {
