@@ -2,4 +2,6 @@
 
 package tool
 
-func detectWindowsSandbox(string) SandboxCapabilities { return SandboxCapabilities{} }
+func detectWindowsSandbox(string) SandboxCapabilities {
+	return SandboxCapabilities{Probe: "unavailable"}
+}

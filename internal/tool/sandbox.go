@@ -23,6 +23,7 @@ type SandboxCapabilities struct {
 	Backend      string
 	Reliable     bool
 	Capabilities []string
+	Probe        string
 }
 
 type SandboxDecision struct {
@@ -30,6 +31,7 @@ type SandboxDecision struct {
 	Backend      string
 	Available    bool
 	Capabilities []string
+	Probe        string
 }
 
 func ParseSandboxMode(value string) (SandboxMode, error) {
@@ -67,10 +69,10 @@ func DetectSandboxForWorkspace(root string) SandboxCapabilities {
 		err := probe.Run()
 		probeTimeout.Stop()
 		if err == nil {
-			return SandboxCapabilities{Backend: backend, Reliable: true, Capabilities: []string{"workspace-write", "network-isolated", "process-tree"}}
+			return SandboxCapabilities{Backend: backend, Reliable: true, Probe: "passed", Capabilities: []string{"workspace-write", "network-isolated", "process-tree"}}
 		}
 	}
-	return SandboxCapabilities{Backend: backend, Reliable: false}
+	return SandboxCapabilities{Backend: backend, Reliable: false, Probe: "failed"}
 }
 
 func bwrapArguments(root, cwd, command string) []string {
@@ -114,11 +116,12 @@ func SelectSandbox(mode SandboxMode, capabilities SandboxCapabilities) (SandboxD
 	if mode != SandboxOff && mode != SandboxAuto && mode != SandboxRequired {
 		return SandboxDecision{Mode: mode}, fmt.Errorf("unknown sandbox mode %q", mode)
 	}
-	decision := SandboxDecision{Mode: mode, Backend: capabilities.Backend, Available: capabilities.Reliable, Capabilities: append([]string(nil), capabilities.Capabilities...)}
+	decision := SandboxDecision{Mode: mode, Backend: capabilities.Backend, Available: capabilities.Reliable, Capabilities: append([]string(nil), capabilities.Capabilities...), Probe: capabilities.Probe}
 	if mode == SandboxOff {
 		decision.Backend = ""
 		decision.Available = false
 		decision.Capabilities = nil
+		decision.Probe = "off"
 		return decision, nil
 	}
 	if mode == SandboxRequired && !decision.Available {

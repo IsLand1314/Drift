@@ -88,7 +88,7 @@ func TestRunCommandSandboxModeIsRecorded(t *testing.T) {
 		t.Fatalf("preview sandbox=%+v", preview)
 	}
 	result, err := ExecuteCommand(context.Background(), root, preview)
-	if err != nil || !strings.Contains(result, "sandbox_mode=auto") || !strings.Contains(result, "sandboxed=false") {
+	if err != nil || !strings.Contains(result, "sandbox_mode=auto") || !strings.Contains(result, "sandboxed=false") || !strings.Contains(result, "sandbox_probe=") {
 		t.Fatalf("result=%q err=%v", result, err)
 	}
 }

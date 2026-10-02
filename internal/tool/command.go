@@ -191,7 +191,11 @@ func ExecuteCommand(parent context.Context, root string, preview Preview) (strin
 	if output == "" {
 		output = "<no output>"
 	}
-	return fmt.Sprintf("run_command status=%s exit_code=%d duration=%s sandbox_mode=%s sandbox_backend=%s sandboxed=%t stdout_bytes=%d stderr_bytes=%d truncated=%t\n%s", status, exitCode, duration, preview.SandboxMode, preview.Sandbox.Backend, preview.Sandbox.Available, stdout.n, stderr.n, stdout.truncated || stderr.truncated, output), nil
+	probe := preview.Sandbox.Probe
+	if probe == "" {
+		probe = "unavailable"
+	}
+	return fmt.Sprintf("run_command status=%s exit_code=%d duration=%s sandbox_mode=%s sandbox_backend=%s sandboxed=%t sandbox_probe=%s stdout_bytes=%d stderr_bytes=%d truncated=%t\n%s", status, exitCode, duration, preview.SandboxMode, preview.Sandbox.Backend, preview.Sandbox.Available, probe, stdout.n, stderr.n, stdout.truncated || stderr.truncated, output), nil
 }
 
 type limitedBuffer struct {

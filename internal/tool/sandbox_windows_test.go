@@ -6,7 +6,7 @@ import "testing"
 
 func TestProbeWindowsSandboxDefaultsToUnavailable(t *testing.T) {
 	got := probeWindowsSandbox(t.TempDir())
-	if got.Reliable || got.Backend != "" || len(got.Capabilities) != 0 {
+	if got.Reliable || got.Backend != "" || len(got.Capabilities) != 0 || got.Probe != "unavailable:appcontainer-native-probe-not-implemented" {
 		t.Fatalf("probe=%+v, want unavailable", got)
 	}
 }
