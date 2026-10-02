@@ -31,6 +31,7 @@ type ttyChatModel struct {
 	status           chatStatus
 	interrupt        *interruptCoordinator
 	permissionMemory *permissionMemory
+	permissionPolicy *permissionPolicy
 
 	textarea      textarea.Model
 	viewport      viewport.Model
@@ -94,7 +95,14 @@ func newTTYChatModel(ctx context.Context, runner *agent.Runner, audit session.Wr
 	ta.FocusedStyle.Prompt = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
 	ta.FocusedStyle.Placeholder = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	ta.Focus()
-	m := ttyChatModel{ctx: ctx, runner: runner, audit: audit, trace: trace, persistence: persistence, status: status, interrupt: interrupt, permissionMemory: newPermissionMemory(), textarea: ta, toolStarted: make(map[string]toolProgressTUI), events: make(chan tea.Msg, 32), followBottom: true, width: 80, height: 24}
+	policy := (*permissionPolicy)(nil)
+	if status.Workspace != "" {
+		policy, _ = loadPermissionPolicy(status.Workspace)
+		if policy == nil {
+			policy = newPermissionPolicy(status.Workspace)
+		}
+	}
+	m := ttyChatModel{ctx: ctx, runner: runner, audit: audit, trace: trace, persistence: persistence, status: status, interrupt: interrupt, permissionMemory: newPermissionMemory(), permissionPolicy: policy, textarea: ta, toolStarted: make(map[string]toolProgressTUI), events: make(chan tea.Msg, 32), followBottom: true, width: 80, height: 24}
 	if persistence != nil && persistence.persistent {
 		m.lines = append(m.lines, ttySessionHeader(persistence)...)
 		m.lines = append(m.lines, transcriptFromLLMMessages(persistence.snapshot.Messages)...)
@@ -103,7 +111,7 @@ func newTTYChatModel(ctx context.Context, runner *agent.Runner, audit session.Wr
 	}
 	if runner != nil {
 		runner.SetPermissionPrompt(func(promptCtx context.Context, request agent.PermissionRequest) (agent.PermissionDecision, error) {
-			if m.permissionMemory.Allow(request) {
+			if permissionAlreadyAllowed(m.permissionMemory, m.permissionPolicy, request) {
 				return agent.PermissionDecision{Allow: true, Reason: "session_pattern_approved"}, nil
 			}
 			reply := make(chan agent.PermissionDecision, 1)

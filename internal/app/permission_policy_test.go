@@ -105,3 +105,18 @@ func TestPermissionPolicyDeduplicatesRulesAndClears(t *testing.T) {
 		t.Fatal("cleared policy still allowed request")
 	}
 }
+
+func TestPermissionApprovalChecksPersistentPolicyAfterSessionMemory(t *testing.T) {
+	root := t.TempDir()
+	request := agent.PermissionRequest{ToolName: "write_file", Operation: "create_file", Path: "tmp/hello.txt"}
+	policy := newPermissionPolicy(root)
+	if err := policy.remember(request); err != nil {
+		t.Fatal(err)
+	}
+	if !permissionAlreadyAllowed(newPermissionMemory(), policy, request) {
+		t.Fatal("persistent exact request was not recognized")
+	}
+	if permissionAlreadyAllowed(newPermissionMemory(), policy, agent.PermissionRequest{ToolName: "write_file", Operation: "create_file", Path: "tmp/other.txt"}) {
+		t.Fatal("different path unexpectedly matched persistent policy")
+	}
+}

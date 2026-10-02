@@ -140,6 +140,15 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 		return runTTYChatLoop(ctx, runner, audit, traceSink, persistence, status, interrupt, in, out)
 	}
 	permissionMemory := newPermissionMemory()
+	var permissionPolicyStore *permissionPolicy
+	if status.Workspace != "" {
+		var policyErr error
+		permissionPolicyStore, policyErr = loadPermissionPolicy(status.Workspace)
+		if policyErr != nil {
+			fmt.Fprintln(out, "⚠ 权限策略加载失败，已恢复为每次询问")
+			permissionPolicyStore = newPermissionPolicy(status.Workspace)
+		}
+	}
 	var currentActivity *chatActivity
 	if runner != nil {
 		runner.SetPermissionPrompt(func(promptCtx context.Context, request agent.PermissionRequest) (agent.PermissionDecision, error) {
@@ -151,7 +160,7 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 					currentActivity.Start()
 				}
 			}()
-			return confirmWrite(promptCtx, input, out, permissionMemory, request)
+			return confirmWrite(promptCtx, input, out, permissionMemory, permissionPolicyStore, request)
 		})
 	}
 	interactiveInput := false
@@ -531,8 +540,12 @@ func formatDuration(elapsed time.Duration) string {
 	return fmt.Sprintf("%.1fs", elapsed.Seconds())
 }
 
-func confirmWrite(ctx context.Context, input chatInput, out io.Writer, memory *permissionMemory, request agent.PermissionRequest) (agent.PermissionDecision, error) {
-	if memory.Allow(request) {
+func permissionAlreadyAllowed(memory *permissionMemory, policy *permissionPolicy, request agent.PermissionRequest) bool {
+	return memory.Allow(request) || policy.allows(request)
+}
+
+func confirmWrite(ctx context.Context, input chatInput, out io.Writer, memory *permissionMemory, policy *permissionPolicy, request agent.PermissionRequest) (agent.PermissionDecision, error) {
+	if permissionAlreadyAllowed(memory, policy, request) {
 		return agent.PermissionDecision{Allow: true, Reason: "session_pattern_approved"}, nil
 	}
 	if _, ok := input.(*ttyChatInput); ok {
