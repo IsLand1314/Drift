@@ -21,7 +21,7 @@
 
 ---
 
-### Task 1: Make platform detection explicit and testable
+### Task 1: Make platform detection explicit and testable — completed in `5a6f51a`
 
 **Files:**
 - Modify: `internal/tool/sandbox.go`
@@ -70,7 +70,7 @@ git add internal/tool/sandbox.go internal/tool/sandbox_platform_windows.go inter
 git commit -m "refactor: make sandbox platform detection explicit"
 ```
 
-### Task 2: Add the Windows AppContainer probe boundary
+### Task 2: Add the Windows AppContainer probe boundary — deferred to M3.15-B
 
 **Files:**
 - Create: `internal/tool/sandbox_windows.go`
@@ -113,7 +113,7 @@ git add internal/tool/sandbox_windows.go internal/tool/sandbox_windows_test.go i
 git commit -m "feat: add Windows AppContainer sandbox probe"
 ```
 
-### Task 3: Add runtime acceptance and documentation synchronization
+### Task 3: Add runtime acceptance and documentation synchronization — M3.15-C
 
 **Files:**
 - Create: `internal/tool/sandbox_runtime_windows_test.go`

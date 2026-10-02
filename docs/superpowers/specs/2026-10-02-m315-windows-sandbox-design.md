@@ -120,3 +120,7 @@ macOS 使用 `sandbox_backend=`、`sandboxed=false`、`sandbox_probe=unavailable
 3. M3.15-C：补 Windows 集成测试、审计和清理失败语义。
 
 只有 M3.15-C 全部通过后，Windows 后端才可在 `required` 模式下报告可靠。
+
+## 10. M3.15-A 交付状态
+
+M3.15-A 已交付：平台检测边界已显式化，Windows 和 macOS 在没有完整后端时均 fail-closed，Linux `bwrap` 行为保持不变。AppContainer token、workspace ACL、网络隔离和 Windows runtime 验收均明确留到 M3.15-B/C。

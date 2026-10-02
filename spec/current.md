@@ -1,6 +1,25 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M3.14。M3.13 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M3.15-A。M3.14 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+
+## M3.15-A：跨平台沙箱能力检测契约
+
+M3.15-A 只交付平台能力检测和 fail-closed 契约，不把 Windows Job Object 冒充完整文件/网络沙箱。
+
+### 当前范围
+
+- Linux 继续使用已通过 M3.13/M3.14 runtime 验收的 `bwrap`。
+- Windows 明确返回无可靠 OS 沙箱；`auto` 可继续执行并记录 `sandboxed=false`，`required` 拒绝执行。
+- macOS 明确返回空能力，不调用 `sandbox-exec`；`auto` 记录未启用，`required` 拒绝执行。
+- Windows AppContainer、workspace ACL 和网络隔离进入 M3.15-B，未在本阶段伪造完成。
+
+### 验收
+
+| ID | 验证方法 | 通过阈值 | 证据类型 | 失败判定 |
+| --- | --- | --- | --- | --- |
+| AC-M315A-001 | Windows: `go test ./internal/tool -run TestWindowsSandboxBackendIsUnavailableBeforeAppContainerProbe -count=1` | Windows 后端为空且 `Reliable=false` | TDD 测试日志 | 错误报告 Windows 沙箱可靠 |
+| AC-M315A-002 | Windows/macOS: `GOOS=windows/darwin GOARCH=amd64 go test -c ./internal/tool` | 两个平台目标均可编译，macOS 测试断言无后端 | 交叉编译日志 | 任一目标编译失败 |
+| AC-M315A-003 | `go test ./... -count=1`、`go vet ./...`、`go build ./cmd/drift`、`git diff --check` | 全部退出码为 0 | 命令日志 | 任一命令失败 |
 
 ## M3.14：沙箱进程树取消与超时
 

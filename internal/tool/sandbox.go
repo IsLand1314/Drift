@@ -42,12 +42,15 @@ func ParseSandboxMode(value string) (SandboxMode, error) {
 }
 
 func DetectSandbox() SandboxCapabilities {
+	if runtime.GOOS == "windows" {
+		return detectWindowsSandbox()
+	}
 	var backend string
 	switch runtime.GOOS {
 	case "linux":
 		backend = "bwrap"
 	case "darwin":
-		backend = "sandbox-exec"
+		return SandboxCapabilities{}
 	default:
 		return SandboxCapabilities{}
 	}
