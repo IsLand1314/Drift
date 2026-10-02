@@ -1,0 +1,10 @@
+command: ["git", "diff", "--check"]
+cwd: "F:\\code\\drift"
+output_encoding: utf-8
+exit_code: 0
+
+--- stdout ---
+
+
+--- stderr ---
+warning: in the working copy of 'doc/Process/代码理解.md', LF will be replaced by CRLF the next time Git touches it

@@ -1,0 +1,13 @@
+command: ["go", "test", "./internal/tool", "./internal/changes", "./internal/agent", "./internal/app", "-run", "(TestWrite|TestEdit|TestDelete|TestChangeSet|TestPermissionMemory|TestApproval|TestChat|TestTTY)", "-count=1"]
+cwd: "F:\\code\\drift"
+output_encoding: utf-8
+exit_code: 0
+
+--- stdout ---
+ok  	github.com/IsLand1314/Drift/internal/tool	0.308s
+ok  	github.com/IsLand1314/Drift/internal/changes	0.272s
+ok  	github.com/IsLand1314/Drift/internal/agent	0.273s
+ok  	github.com/IsLand1314/Drift/internal/app	0.624s
+
+--- stderr ---
+

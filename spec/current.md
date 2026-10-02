@@ -21,11 +21,11 @@ M3.3 不提供 `run_command`、测试执行、OS 沙箱、永久权限配置或 
 
 ### 验收
 
-| ID | 验证方法 | 通过阈值 |
-| --- | --- | --- |
-| AC-M33-001 | `go test ./internal/tool ./internal/changes -count=1` | 嵌套创建、精确编辑、删除边界和 change set 聚合通过 |
-| AC-M33-002 | `go test ./internal/agent ./internal/app -count=1` | 三类工具只在 chat 暴露，审批与安全错误摘要通过 |
-| AC-M33-003 | `go test ./... -count=1`、`go vet ./...`、build、diff 检查 | 全部退出码为 0 |
+| ID | 验证方法 | 通过阈值 | 证据类型 | 证据路径 | 失败判定 |
+| --- | --- | --- | --- | --- | --- |
+| AC-M33-001 | `go test ./internal/tool ./internal/changes -count=1` | 嵌套创建、精确编辑、删除边界和 change set 聚合通过 | 测试日志 | `artifacts/verification/m3.3/final-focused-tests.txt` | 任一文件工具或 change set 测试失败 |
+| AC-M33-002 | `go test ./internal/agent ./internal/app -count=1` | 三类工具只在 chat 暴露，审批与安全错误摘要通过 | 测试日志、人工记录 | `artifacts/verification/m3.3/acceptance-2026-10-02.md` | 写入工具出现在 `-p` 或审批边界失败 |
+| AC-M33-003 | `go test ./... -count=1`、`go vet ./...`、build、diff 检查 | 全部退出码为 0 | 命令日志 | `artifacts/verification/m3.3/final-go-test.txt` | 任一命令退出码非 0 |
 
 ## M3.1：安全文件写入
 

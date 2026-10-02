@@ -1,0 +1,10 @@
+command: ["powershell.exe", "-NoProfile", "-Command", "$line = Get-Content -LiteralPath 'E:\\DeepSeek.txt' | Where-Object { $_ -match 'API-Key' } | Select-Object -First 1; $key = [regex]::Match($line, 'sk-[A-Za-z0-9]+').Value; if ([string]::IsNullOrWhiteSpace($key)) { exit 2 }; $env:OPENAI_API_KEY = $key; $env:OPENAI_MODEL = 'deepseek-flash'; & go run ./cmd/drift -w F:\\code\\drift-m33-manual -p '只回答 DS-M33-READ-OK，不要调用任何工具。' -base-url 'https://api.deepseek.com' -model 'deepseek-flash'"]
+cwd: "F:\\code\\drift"
+output_encoding: utf-8
+exit_code: 0
+
+--- stdout ---
+DS-M33-READ-OK
+
+--- stderr ---
+

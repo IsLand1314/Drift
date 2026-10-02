@@ -128,6 +128,8 @@ go build ./cmd/drift
 - [M2.5 消息完整性与会话时间线](doc/m2.5-message-integrity.md)
 - [M3.1 安全文件写入](doc/m3.1-safe-file-write.md)
 - [M3.2 审批选择器与运行反馈](doc/m3.2-approval-tui.md)
+- [M3.3 安全文件编辑与变更集合](doc/m3.3-safe-file-edit.md)
+- [M3.4 受控命令执行设计（后续阶段）](doc/m3.4-command-execution.md)
 - [M1.0 交互式只读对话阶段说明](doc/m1.0-interactive-chat.md)
 - [M0.7 Provider 诊断与读取保护阶段说明](doc/m0.7-provider-reliability.md)
 - [M0.2 Read Agent 说明](doc/m0.2-read-agent.md)

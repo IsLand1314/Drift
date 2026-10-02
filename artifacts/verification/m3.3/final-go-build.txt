@@ -1,0 +1,10 @@
+command: ["go", "build", "-o", ".codex-temp\\drift-m33-final.exe", "./cmd/drift"]
+cwd: "F:\\code\\drift"
+output_encoding: utf-8
+exit_code: 0
+
+--- stdout ---
+
+
+--- stderr ---
+
