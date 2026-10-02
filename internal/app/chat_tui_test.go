@@ -93,6 +93,18 @@ func TestTTYChatLayoutKeepsLongModelName(t *testing.T) {
 	}
 }
 
+func TestTTYFooterLeavesRightMarginForModelName(t *testing.T) {
+	footer := tuiFooter("deepseek-v4-flash", 40)
+	lines := strings.Split(footer, "\n")
+	last := lines[len(lines)-1]
+	if !strings.Contains(footer, "deepseek-v4-flash") {
+		t.Fatalf("model name missing: %q", footer)
+	}
+	if lipgloss.Width(last) >= 40 {
+		t.Fatalf("footer touches terminal edge: %q", footer)
+	}
+}
+
 func TestStyleTranscriptPreservesUnicodeAfterMarker(t *testing.T) {
 	view := styleTranscript("❯ 你好\n● Drift 回复")
 	if !utf8.ValidString(view) || strings.Contains(view, "�") {

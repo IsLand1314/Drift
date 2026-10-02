@@ -528,10 +528,10 @@ func tuiFooter(model string, width int) string {
 	if model == "" {
 		return tuiMuted.Render(left)
 	}
-	if lipgloss.Width(left)+lipgloss.Width(model)+1 <= width {
-		return tuiMuted.Render(left) + strings.Repeat(" ", width-lipgloss.Width(left)-lipgloss.Width(model)) + tuiMuted.Render(model)
+	if lipgloss.Width(left)+lipgloss.Width(model)+2 <= width {
+		return tuiMuted.Render(left) + strings.Repeat(" ", width-lipgloss.Width(left)-lipgloss.Width(model)-1) + tuiMuted.Render(model)
 	}
-	return tuiMuted.Render(left) + "\n" + strings.Repeat(" ", maxTUI(1, width-lipgloss.Width(model))) + tuiMuted.Render(model)
+	return tuiMuted.Render(left) + "\n" + strings.Repeat(" ", maxTUI(1, width-lipgloss.Width(model)-1)) + tuiMuted.Render(model)
 }
 
 func wrapTUIText(content string, width int) string {
