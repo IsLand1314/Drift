@@ -18,7 +18,7 @@ const (
 	MaxConversationBytes = 1 << 20
 	finalResponseReserve = 2
 
-	nativeToolSystemInstruction = "Drift is read-only. Only use the supplied native read-only tools. run_command, shell, and exec are unavailable. Never emit XML, DSML, or pseudo-tool syntax."
+	nativeToolSystemInstruction = "Drift is read-only. Only use the supplied native read-only tools. Bash, shell, and exec are unavailable. Never emit XML, DSML, or pseudo-tool syntax."
 )
 
 var (
@@ -354,7 +354,7 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) (
 				} else {
 					result, toolErr = registeredTool.Execute(ctx, r.root, call.Arguments)
 				}
-				if toolErr == nil && call.Name == "run_command" {
+				if toolErr == nil && call.Name == "Bash" {
 					if status := commandStatus(result); status != "" && status != "success" {
 						errorSummary = "command " + status
 					}
@@ -366,7 +366,7 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) (
 				case toolErr != nil:
 					errorSummary = safeToolError(r.root, toolErr.Error())
 					content = toolFailure(call.Name)
-					if call.Name == "write_file" {
+					if call.Name == "WriteFile" {
 						content = call.Name + " failed: " + errorSummary
 					}
 				case resultBytes+len(result) > MaxTotalReadBytes:
@@ -427,13 +427,13 @@ func systemInstruction(focus string) string {
 	}
 	return nativeToolSystemInstruction +
 		"\n\nThe user-selected initial focus target is " + strconv.Quote(focus) +
-		". Prioritize answering about it; use read_file only when needed."
+		". Prioritize answering about it; use ReadFile only when needed."
 }
 
 func (r *Runner) systemInstruction() string {
 	base := systemInstruction(r.focus)
-	if _, writable := r.registry.Lookup("write_file"); writable {
-		base = strings.Replace(base, nativeToolSystemInstruction, "Drift is workspace-scoped. Use the supplied tools to inspect and modify files only after the user explicitly approves each preview. The native write_file, edit_file, delete_file, and run_command tools are available only in chat. When the user explicitly asks to create, write, edit, or delete, call the corresponding native tool instead of only suggesting code; when the user explicitly asks to run a command, call run_command. Never claim a change succeeded unless the tool result says it succeeded. If a mutation or command tool fails, explain its safe error summary and do not read Drift's implementation files to diagnose the runtime. Never emit XML, DSML, or pseudo-tool syntax.", 1)
+	if _, writable := r.registry.Lookup("WriteFile"); writable {
+		base = strings.Replace(base, nativeToolSystemInstruction, "Drift is workspace-scoped. Use the supplied tools to inspect and modify files only after the user explicitly approves each preview. The native WriteFile, EditFile, DeleteFile, and Bash tools are available only in chat. When the user explicitly asks to create, write, edit, or delete, call the corresponding native tool instead of only suggesting code; when the user explicitly asks to run a command, call Bash. Never claim a change succeeded unless the tool result says it succeeded. If a mutation or command tool fails, explain its safe error summary and do not read Drift's implementation files to diagnose the runtime. Never emit XML, DSML, or pseudo-tool syntax.", 1)
 	}
 	if r.skillContent == "" {
 		return base
@@ -443,8 +443,8 @@ func (r *Runner) systemInstruction() string {
 }
 
 func toolFailure(name string) string {
-	if name == "read_file" {
-		return "read_file failed: unable to read requested file"
+	if name == "ReadFile" {
+		return "ReadFile failed: unable to read requested file"
 	}
 	return name + " failed: unable to execute requested tool"
 }
@@ -452,23 +452,23 @@ func toolFailure(name string) string {
 func safeToolError(root, message string) string {
 	message = sanitizeError(root, message)
 	for _, known := range []string{
-		"write_file parent directory does not exist",
-		"write_file create parent directory",
-		"write_file path is invalid",
-		"write_file target is not a regular file",
-		"write_file target is binary",
-		"write_file content exceeds",
+		"WriteFile parent directory does not exist",
+		"WriteFile create parent directory",
+		"WriteFile path is invalid",
+		"WriteFile target is not a regular file",
+		"WriteFile target is binary",
+		"WriteFile content exceeds",
 		"permission denied",
 		"requires permission confirmation",
-		"edit_file target does not exist",
-		"edit_file path is invalid",
-		"edit_file old_text must match exactly once",
-		"edit_file target is not a regular file",
-		"edit_file target is binary",
-		"delete_file target does not exist",
-		"delete_file path is invalid",
-		"delete_file target is not a regular file",
-		"delete_file target is binary",
+		"EditFile target does not exist",
+		"EditFile path is invalid",
+		"EditFile old_text must match exactly once",
+		"EditFile target is not a regular file",
+		"EditFile target is binary",
+		"DeleteFile target does not exist",
+		"DeleteFile path is invalid",
+		"DeleteFile target is not a regular file",
+		"DeleteFile target is binary",
 	} {
 		if strings.Contains(message, known) {
 			return known

@@ -128,7 +128,7 @@ func TestJSONLWriterRedactsSecretsAndAbsolutePaths(t *testing.T) {
 	if err := writer.Append(agent.Event{
 		Type:       agent.EventToolCall,
 		ToolCallID: "call-1",
-		ToolName:   "read_file",
+		ToolName:   "ReadFile",
 		Arguments:  `{"path":"C:\\\\workspace\\\\secret.txt"}`,
 	}); err != nil {
 		t.Fatalf("Append(tool) error = %v", err)
@@ -173,7 +173,7 @@ func TestJSONLWriterRedactsQuotedAndJSONSecrets(t *testing.T) {
 	}
 	if err := writer.Append(agent.Event{
 		Type:      agent.EventToolCall,
-		ToolName:  "read_file",
+		ToolName:  "ReadFile",
 		Arguments: `{"OPENAI_API_KEY":"` + secret + `","password":"demo-password","path":"README.md"}`,
 	}); err != nil {
 		t.Fatalf("Append(tool) error = %v", err)

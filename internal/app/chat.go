@@ -533,7 +533,7 @@ func chatToolResultLine(out io.Writer, event agent.Event, path string, elapsed t
 		return chatError(out) + "✖ " + toolLabel(event.ToolName) + formatToolPath(path) + " · " + event.ErrorSummary + chatReset(out)
 	}
 	bytes := len([]byte(event.Result))
-	if event.ToolName == "write_file" && event.NewBytes > 0 {
+	if event.ToolName == "WriteFile" && event.NewBytes > 0 {
 		bytes = event.NewBytes
 	}
 	return chatSuccess(out) + "✓ " + toolLabel(event.ToolName) + formatToolPath(path) + " · " + formatToolBytes(bytes) + " · " + formatDuration(elapsed) + chatReset(out)
@@ -542,7 +542,7 @@ func chatToolResultLine(out io.Writer, event agent.Event, path string, elapsed t
 func shouldRenderToolResult(event agent.Event) bool {
 	// A read-before-create miss is normal discovery work. The model still receives
 	// its redacted failure, but the user only sees the eventual write result.
-	return !(event.ToolName == "read_file" && event.ErrorSummary == "tool execution failed")
+	return !(event.ToolName == "ReadFile" && event.ErrorSummary == "tool execution failed")
 }
 
 func formatToolPath(path string) string {
@@ -554,16 +554,20 @@ func formatToolPath(path string) string {
 
 func toolLabel(name string) string {
 	switch strings.TrimSpace(name) {
-	case "read_file":
+	case "ReadFile":
 		return "Read"
-	case "list_files":
-		return "List"
-	case "search_text":
-		return "Search"
-	case "write_file":
+	case "Glob":
+		return "Glob"
+	case "Grep":
+		return "Grep"
+	case "WriteFile":
 		return "Write"
-	case "run_command":
-		return "Run"
+	case "EditFile":
+		return "Edit"
+	case "DeleteFile":
+		return "Delete"
+	case "Bash":
+		return "Bash"
 	default:
 		name = strings.TrimSpace(name)
 		if name == "" {
@@ -605,7 +609,7 @@ func confirmWrite(ctx context.Context, input chatInput, out io.Writer, mode perm
 			return agent.PermissionDecision{Reason: "user_denied"}, nil
 		}
 	}
-	if request.ToolName == "run_command" {
+	if request.ToolName == "Bash" {
 		fmt.Fprintf(out, "\nRun command: %s (cwd %s)\n", request.Command, request.CWD)
 	} else {
 		fmt.Fprintf(out, "\nWrite request: %s %s (%d -> %d bytes)\n", request.Operation, request.Path, request.OldBytes, request.NewBytes)
@@ -643,7 +647,7 @@ func safeToolPath(arguments string) string {
 }
 
 func safeToolPathForTool(name, arguments string) string {
-	if name != "run_command" {
+	if name != "Bash" {
 		return safeToolPath(arguments)
 	}
 	var input struct {

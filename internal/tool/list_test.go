@@ -90,7 +90,7 @@ func TestList(t *testing.T) {
 			t.Fatal(err)
 		}
 		lines := strings.Split(got, "\n")
-		if len(lines) != MaxListEntries+1 || lines[len(lines)-1] != "list_files: results truncated at 200 entries" {
+		if len(lines) != MaxListEntries+1 || lines[len(lines)-1] != "Glob: results truncated at 200 entries" {
 			t.Fatalf("line count/marker: %d %q", len(lines), lines[len(lines)-1])
 		}
 	})
@@ -103,7 +103,7 @@ func TestList(t *testing.T) {
 	}
 	t.Run("tool delegates", func(t *testing.T) {
 		var tool Tool = listFilesTool{}
-		if tool.Name() != "list_files" {
+		if tool.Name() != "Glob" {
 			t.Fatal(tool.Name())
 		}
 		if _, err := tool.Execute(context.Background(), root, `{}`); err != nil {
@@ -128,7 +128,7 @@ func TestListDefinition(t *testing.T) {
 	if err := json.Unmarshal(definition.Function, &function); err != nil {
 		t.Fatal(err)
 	}
-	if function.Name != "list_files" || function.Parameters.Type != "object" || function.Parameters.Properties["path"] == nil || function.Parameters.AdditionalProperties {
+	if function.Name != "Glob" || function.Parameters.Type != "object" || function.Parameters.Properties["path"] == nil || function.Parameters.AdditionalProperties {
 		t.Fatalf("schema = %s", definition.Function)
 	}
 }

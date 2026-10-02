@@ -15,10 +15,10 @@ import (
 
 type deleteFileTool struct{}
 
-func (deleteFileTool) Name() string                   { return "delete_file" }
+func (deleteFileTool) Name() string                   { return "DeleteFile" }
 func (deleteFileTool) Definition() llm.ToolDefinition { return DeleteDefinition() }
 func (deleteFileTool) Execute(context.Context, string, string) (string, error) {
-	return "", fmt.Errorf("delete_file requires permission confirmation")
+	return "", fmt.Errorf("DeleteFile requires permission confirmation")
 }
 func (deleteFileTool) Preview(ctx context.Context, root, raw string) (Preview, error) {
 	return Delete(root, raw)
@@ -28,7 +28,7 @@ func (deleteFileTool) ExecutePreview(ctx context.Context, root string, preview P
 }
 
 func DeleteDefinition() llm.ToolDefinition {
-	definition := map[string]any{"name": "delete_file", "description": "Delete one regular file below the workspace after user confirmation.", "parameters": map[string]any{"type": "object", "properties": map[string]any{"path": map[string]any{"type": "string"}}, "required": []string{"path"}, "additionalProperties": false}}
+	definition := map[string]any{"name": "DeleteFile", "description": "Delete one regular file below the workspace after user confirmation.", "parameters": map[string]any{"type": "object", "properties": map[string]any{"path": map[string]any{"type": "string"}}, "required": []string{"path"}, "additionalProperties": false}}
 	raw, err := json.Marshal(definition)
 	if err != nil {
 		panic(err)
@@ -43,37 +43,37 @@ func Delete(root, raw string) (Preview, error) {
 	decoder := json.NewDecoder(strings.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&args); err != nil {
-		return Preview{}, fmt.Errorf("decode delete_file arguments: %w", err)
+		return Preview{}, fmt.Errorf("decode DeleteFile arguments: %w", err)
 	}
 	var extra any
 	if err := decoder.Decode(&extra); err != io.EOF {
-		return Preview{}, fmt.Errorf("decode delete_file arguments: multiple JSON values")
+		return Preview{}, fmt.Errorf("decode DeleteFile arguments: multiple JSON values")
 	}
 	args.Path = strings.TrimSpace(args.Path)
 	if err := validateWritePath(args.Path); err != nil {
-		return Preview{}, fmt.Errorf("delete_file path is invalid: %w", err)
+		return Preview{}, fmt.Errorf("DeleteFile path is invalid: %w", err)
 	}
 	workspace, err := os.OpenRoot(root)
 	if err != nil {
-		return Preview{}, fmt.Errorf("open delete_file root: %w", err)
+		return Preview{}, fmt.Errorf("open DeleteFile root: %w", err)
 	}
 	defer workspace.Close()
 	info, err := workspace.Lstat(args.Path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return Preview{}, fmt.Errorf("delete_file target does not exist")
+			return Preview{}, fmt.Errorf("DeleteFile target does not exist")
 		}
-		return Preview{}, fmt.Errorf("stat delete_file target: %w", err)
+		return Preview{}, fmt.Errorf("stat DeleteFile target: %w", err)
 	}
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-		return Preview{}, fmt.Errorf("delete_file target is not a regular file")
+		return Preview{}, fmt.Errorf("DeleteFile target is not a regular file")
 	}
 	old, err := workspace.ReadFile(args.Path)
 	if err != nil {
-		return Preview{}, fmt.Errorf("read delete_file target: %w", err)
+		return Preview{}, fmt.Errorf("read DeleteFile target: %w", err)
 	}
 	if bytesContainNUL(old) {
-		return Preview{}, fmt.Errorf("delete_file target is binary")
+		return Preview{}, fmt.Errorf("DeleteFile target is binary")
 	}
 	return Preview{Operation: "delete_file", Content: old, Before: append([]byte(nil), old...), BeforeExists: true, Path: args.Path, OldBytes: len(old), NewBytes: 0, Diff: writeDiff(args.Path, old, nil)}, nil
 }
@@ -84,19 +84,19 @@ func CommitDelete(ctx context.Context, root string, preview Preview) (string, er
 	}
 	workspace, err := os.OpenRoot(root)
 	if err != nil {
-		return "", fmt.Errorf("open delete_file root: %w", err)
+		return "", fmt.Errorf("open DeleteFile root: %w", err)
 	}
 	defer workspace.Close()
 	info, err := workspace.Lstat(preview.Path)
 	if err != nil {
-		return "", fmt.Errorf("delete_file target changed: %w", err)
+		return "", fmt.Errorf("DeleteFile target changed: %w", err)
 	}
 	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-		return "", fmt.Errorf("delete_file target changed")
+		return "", fmt.Errorf("DeleteFile target changed")
 	}
 	id, err := changes.NewID()
 	if err != nil {
-		return "", fmt.Errorf("delete_file operation id: %w", err)
+		return "", fmt.Errorf("DeleteFile operation id: %w", err)
 	}
 	manifest := changes.Manifest{Operation: preview.Operation, Path: preview.Path, OldBytes: preview.OldBytes, NewBytes: 0, Decision: "allow"}
 	if set := changes.FromContext(ctx); set != nil {
@@ -107,7 +107,7 @@ func CommitDelete(ctx context.Context, root string, preview Preview) (string, er
 		return "", err
 	}
 	if err := workspace.Remove(preview.Path); err != nil {
-		return "", fmt.Errorf("delete_file remove target: %w", err)
+		return "", fmt.Errorf("DeleteFile remove target: %w", err)
 	}
-	return "delete_file: deleted " + preview.Path, nil
+	return "DeleteFile: deleted " + preview.Path, nil
 }

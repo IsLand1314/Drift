@@ -22,10 +22,10 @@ func TestJSONLWriterStoresAuditMetadataOnly(t *testing.T) {
 	if err := writer.Append(agent.Event{Type: agent.EventRunStarted, Text: prompt}); err != nil {
 		t.Fatal(err)
 	}
-	if err := writer.Append(agent.Event{Type: agent.EventToolCall, ToolName: "read_file", Arguments: arguments}); err != nil {
+	if err := writer.Append(agent.Event{Type: agent.EventToolCall, ToolName: "ReadFile", Arguments: arguments}); err != nil {
 		t.Fatal(err)
 	}
-	if err := writer.Append(agent.Event{Type: agent.EventToolResult, ToolName: "read_file", Result: result}); err != nil {
+	if err := writer.Append(agent.Event{Type: agent.EventToolResult, ToolName: "ReadFile", Result: result}); err != nil {
 		t.Fatal(err)
 	}
 	if err := writer.Append(agent.Event{Type: agent.EventRunFinished, FinishReason: "stop"}); err != nil {
@@ -63,10 +63,10 @@ func TestJSONLWriterStoresCommandMetadataWithoutCommandBody(t *testing.T) {
 		t.Fatal(err)
 	}
 	command := "echo private-command-output"
-	if err := writer.Append(agent.Event{Type: agent.EventPermissionRequest, ToolName: "run_command", Command: command, CWD: "."}); err != nil {
+	if err := writer.Append(agent.Event{Type: agent.EventPermissionRequest, ToolName: "Bash", Command: command, CWD: "."}); err != nil {
 		t.Fatal(err)
 	}
-	if err := writer.Append(agent.Event{Type: agent.EventToolResult, ToolName: "run_command", Result: "private-command-output"}); err != nil {
+	if err := writer.Append(agent.Event{Type: agent.EventToolResult, ToolName: "Bash", Result: "private-command-output"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := writer.Close(); err != nil {
@@ -100,7 +100,7 @@ func TestJSONLWriterRecordsOnlySafeRelativeToolPath(t *testing.T) {
 		`{"path":"../secret.txt"}`,
 		`{"path":".env"}`,
 	} {
-		if err := writer.Append(agent.Event{Type: agent.EventToolCall, ToolName: "read_file", Arguments: raw}); err != nil {
+		if err := writer.Append(agent.Event{Type: agent.EventToolCall, ToolName: "ReadFile", Arguments: raw}); err != nil {
 			t.Fatal(err)
 		}
 	}

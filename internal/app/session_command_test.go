@@ -45,8 +45,8 @@ func TestSessionShowDoesNotPrintLegacyContent(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "run-1.jsonl")
 	content := strings.Join([]string{
 		`{"version":1,"type":"run_started","text":"secret prompt","text_bytes":13}`,
-		`{"version":1,"type":"tool_call","tool":"read_file","path":"README.md","arguments":"secret args","argument_bytes":11}`,
-		`{"version":1,"type":"tool_result","tool":"read_file","result":"private file contents","result_bytes":20}`,
+		`{"version":1,"type":"tool_call","tool":"ReadFile","path":"README.md","arguments":"secret args","argument_bytes":11}`,
+		`{"version":1,"type":"tool_result","tool":"ReadFile","result":"private file contents","result_bytes":20}`,
 		`{"version":1,"type":"text_delta","text":"<redacted>","text_bytes":4}`,
 		`{"version":1,"type":"text_delta","text":"<redacted>","text_bytes":5}`,
 		`{"version":1,"type":"error","error":"模型连接失败","stage":"provider_transport","finish_reason":"length"}`,
@@ -64,7 +64,7 @@ func TestSessionShowDoesNotPrintLegacyContent(t *testing.T) {
 			t.Fatalf("show leaked %q: %q", value, text)
 		}
 	}
-	if !strings.Contains(text, "tool_call tool=read_file path=README.md argument_bytes=11") || !strings.Contains(text, "tool_result tool=read_file result_bytes=20") || !strings.Contains(text, "error stage=provider_transport finish_reason=length") {
+	if !strings.Contains(text, "tool_call tool=ReadFile path=README.md argument_bytes=11") || !strings.Contains(text, "tool_result tool=ReadFile result_bytes=20") || !strings.Contains(text, "error stage=provider_transport finish_reason=length") {
 		t.Fatalf("show = %q", text)
 	}
 	if !strings.Contains(text, "text_delta events=2 text_bytes=9") {

@@ -8,7 +8,7 @@ import (
 
 func TestPermissionMemoryMatchesOnlySameWritePattern(t *testing.T) {
 	memory := newPermissionMemory()
-	request := agent.PermissionRequest{ToolName: "write_file", Operation: "create_file", Path: "tmp/hello.txt"}
+	request := agent.PermissionRequest{ToolName: "WriteFile", Operation: "create_file", Path: "tmp/hello.txt"}
 	if memory.Allow(request) {
 		t.Fatal("empty permission memory allowed request")
 	}
@@ -16,16 +16,16 @@ func TestPermissionMemoryMatchesOnlySameWritePattern(t *testing.T) {
 	if !memory.Allow(request) {
 		t.Fatal("remembered request was not allowed")
 	}
-	if memory.Allow(agent.PermissionRequest{ToolName: "write_file", Operation: "overwrite_file", Path: request.Path}) {
+	if memory.Allow(agent.PermissionRequest{ToolName: "WriteFile", Operation: "overwrite_file", Path: request.Path}) {
 		t.Fatal("different operation matched")
 	}
-	if memory.Allow(agent.PermissionRequest{ToolName: "write_file", Operation: request.Operation, Path: "tmp/other.txt"}) {
+	if memory.Allow(agent.PermissionRequest{ToolName: "WriteFile", Operation: request.Operation, Path: "tmp/other.txt"}) {
 		t.Fatal("different path matched")
 	}
 }
 
 func TestPermissionMemoryIsProcessLocal(t *testing.T) {
-	request := agent.PermissionRequest{ToolName: "write_file", Operation: "create_file", Path: "tmp/hello.txt"}
+	request := agent.PermissionRequest{ToolName: "WriteFile", Operation: "create_file", Path: "tmp/hello.txt"}
 	first := newPermissionMemory()
 	first.Remember(request)
 	second := newPermissionMemory()
@@ -36,14 +36,14 @@ func TestPermissionMemoryIsProcessLocal(t *testing.T) {
 
 func TestPermissionMemoryMatchesExactCommandAndCWD(t *testing.T) {
 	memory := newPermissionMemory()
-	request := agent.PermissionRequest{ToolName: "run_command", Operation: "run_command", Command: "go test ./...", CWD: "."}
+	request := agent.PermissionRequest{ToolName: "Bash", Operation: "run_command", Command: "go test ./...", CWD: "."}
 	memory.Remember(request)
 	if !memory.Allow(request) {
 		t.Fatal("remembered command was not allowed")
 	}
 	for _, different := range []agent.PermissionRequest{
-		{ToolName: "run_command", Operation: "run_command", Command: "go test ./internal/tool", CWD: "."},
-		{ToolName: "run_command", Operation: "run_command", Command: request.Command, CWD: "internal"},
+		{ToolName: "Bash", Operation: "run_command", Command: "go test ./internal/tool", CWD: "."},
+		{ToolName: "Bash", Operation: "run_command", Command: request.Command, CWD: "internal"},
 	} {
 		if memory.Allow(different) {
 			t.Fatalf("different command pattern matched: %+v", different)

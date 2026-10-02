@@ -86,7 +86,7 @@ func TestStreamMapsToolsAndResults(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Fatal(err)
 		}
-		if len(body.Tools) != 1 || body.Tools[0].Name != "read_file" || body.Tools[0].InputSchema["type"] != "object" {
+		if len(body.Tools) != 1 || body.Tools[0].Name != "ReadFile" || body.Tools[0].InputSchema["type"] != "object" {
 			t.Fatalf("tools = %+v", body.Tools)
 		}
 		if len(body.Messages) != 3 || body.Messages[1].Role != "assistant" || body.Messages[2].Role != "user" {
@@ -100,7 +100,7 @@ func TestStreamMapsToolsAndResults(t *testing.T) {
 		if err := json.Unmarshal(body.Messages[1].Content, &assistant); err != nil {
 			t.Fatal(err)
 		}
-		if len(assistant) != 1 || assistant[0].Type != "tool_use" || assistant[0].ID != "call-1" || assistant[0].Name != "read_file" {
+		if len(assistant) != 1 || assistant[0].Type != "tool_use" || assistant[0].ID != "call-1" || assistant[0].Name != "ReadFile" {
 			t.Fatalf("assistant blocks = %+v", assistant)
 		}
 		var results []struct {
@@ -116,7 +116,7 @@ func TestStreamMapsToolsAndResults(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		writeAnthropicEvent(w, `{"type":"message_start","message":{"usage":{"input_tokens":1}}}`)
-		writeAnthropicEvent(w, `{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"call-2","name":"read_file"}}`)
+		writeAnthropicEvent(w, `{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"call-2","name":"ReadFile"}}`)
 		writeAnthropicEvent(w, `{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"path\":\"README.md\"}"}}`)
 		writeAnthropicEvent(w, `{"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":2}}`)
 		writeAnthropicEvent(w, `{"type":"message_stop"}`)
@@ -131,10 +131,10 @@ func TestStreamMapsToolsAndResults(t *testing.T) {
 		Messages: []llm.Message{
 			{Role: "system", Content: "system"},
 			{Role: "user", Content: "read README"},
-			{Role: "assistant", ToolCalls: []llm.ToolCall{{ID: "call-1", Type: "function", Name: "read_file", Arguments: `{"path":"README.md"}`}}},
+			{Role: "assistant", ToolCalls: []llm.ToolCall{{ID: "call-1", Type: "function", Name: "ReadFile", Arguments: `{"path":"README.md"}`}}},
 			{Role: "tool", ToolCallID: "call-1", Content: "file text"},
 		},
-		Tools: []llm.ToolDefinition{{Type: "function", Function: json.RawMessage(`{"name":"read_file","description":"read","parameters":{"type":"object"}}`)}},
+		Tools: []llm.ToolDefinition{{Type: "function", Function: json.RawMessage(`{"name":"ReadFile","description":"read","parameters":{"type":"object"}}`)}},
 	}, func(llm.StreamEvent) error { return nil })
 	if err != nil {
 		t.Fatal(err)

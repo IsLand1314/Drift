@@ -38,7 +38,7 @@ func decidePermission(mode permissionMode, request agent.PermissionRequest) agen
 	case permissionModeBypass:
 		return agent.PermissionDecision{Allow: true, Reason: "mode_bypass"}
 	case permissionModeAcceptEdits:
-		if request.ToolName == "write_file" || request.ToolName == "edit_file" {
+		if request.ToolName == "WriteFile" || request.ToolName == "EditFile" {
 			return agent.PermissionDecision{Allow: true, Reason: "mode_accept_edits"}
 		}
 	}

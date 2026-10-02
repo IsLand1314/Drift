@@ -18,12 +18,12 @@ const MaxWriteBytes = 128 << 10
 
 type writeFileTool struct{}
 
-func (writeFileTool) Name() string { return "write_file" }
+func (writeFileTool) Name() string { return "WriteFile" }
 
 func (writeFileTool) Definition() llm.ToolDefinition { return WriteDefinition() }
 
 func (writeFileTool) Execute(ctx context.Context, root, rawArguments string) (string, error) {
-	return "", fmt.Errorf("write_file requires permission confirmation")
+	return "", fmt.Errorf("WriteFile requires permission confirmation")
 }
 
 func (writeFileTool) Preview(ctx context.Context, root, rawArguments string) (Preview, error) {
@@ -39,7 +39,7 @@ func (writeFileTool) ExecutePreview(ctx context.Context, root string, preview Pr
 
 func WriteDefinition() llm.ToolDefinition {
 	function := map[string]any{
-		"name":        "write_file",
+		"name":        "WriteFile",
 		"description": "Create or overwrite a regular text file below the workspace root after user confirmation.",
 		"parameters": map[string]any{
 			"type": "object",
@@ -53,7 +53,7 @@ func WriteDefinition() llm.ToolDefinition {
 	}
 	raw, err := json.Marshal(function)
 	if err != nil {
-		panic("tool: marshal write_file definition: " + err.Error())
+		panic("tool: marshal WriteFile definition: " + err.Error())
 	}
 	return llm.ToolDefinition{Type: "function", Function: raw}
 }
@@ -68,23 +68,23 @@ func Write(root, rawArguments string) (Preview, error) {
 	decoder := json.NewDecoder(strings.NewReader(rawArguments))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&args); err != nil {
-		return Preview{}, fmt.Errorf("decode write_file arguments: %w", err)
+		return Preview{}, fmt.Errorf("decode WriteFile arguments: %w", err)
 	}
 	var extra any
 	if err := decoder.Decode(&extra); err != io.EOF {
-		return Preview{}, fmt.Errorf("decode write_file arguments: multiple JSON values")
+		return Preview{}, fmt.Errorf("decode WriteFile arguments: multiple JSON values")
 	}
 	args.Path = filepath.ToSlash(strings.TrimSpace(args.Path))
 	if err := validateWritePath(args.Path); err != nil {
-		return Preview{}, fmt.Errorf("write_file path is invalid: %w", err)
+		return Preview{}, fmt.Errorf("WriteFile path is invalid: %w", err)
 	}
 	content := []byte(args.Content)
 	if len(content) > MaxWriteBytes {
-		return Preview{}, fmt.Errorf("write_file content exceeds %d bytes", MaxWriteBytes)
+		return Preview{}, fmt.Errorf("WriteFile content exceeds %d bytes", MaxWriteBytes)
 	}
 	workspace, err := os.OpenRoot(root)
 	if err != nil {
-		return Preview{}, fmt.Errorf("open write_file root: %w", err)
+		return Preview{}, fmt.Errorf("open WriteFile root: %w", err)
 	}
 	defer workspace.Close()
 	parent := filepath.ToSlash(filepath.Dir(args.Path))
@@ -98,18 +98,18 @@ func Write(root, rawArguments string) (Preview, error) {
 	info, statErr := workspace.Lstat(args.Path)
 	if statErr == nil {
 		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-			return Preview{}, fmt.Errorf("write_file target is not a regular file")
+			return Preview{}, fmt.Errorf("WriteFile target is not a regular file")
 		}
 		old, err = workspace.ReadFile(args.Path)
 		if err != nil {
-			return Preview{}, fmt.Errorf("read write_file target: %w", err)
+			return Preview{}, fmt.Errorf("read WriteFile target: %w", err)
 		}
 		if bytesContainNUL(old) {
-			return Preview{}, fmt.Errorf("write_file target is binary")
+			return Preview{}, fmt.Errorf("WriteFile target is binary")
 		}
 		operation = "overwrite_file"
 	} else if !os.IsNotExist(statErr) {
-		return Preview{}, fmt.Errorf("stat write_file target: %w", statErr)
+		return Preview{}, fmt.Errorf("stat WriteFile target: %w", statErr)
 	}
 	return Preview{Operation: operation, Path: args.Path, Content: append([]byte(nil), content...), Before: append([]byte(nil), old...), BeforeExists: statErr == nil, OldBytes: len(old), NewBytes: len(content), Diff: writeDiff(args.Path, old, content)}, nil
 }
@@ -138,7 +138,7 @@ func commitTextPreview(ctx context.Context, root string, preview Preview) (strin
 	}
 	workspace, err := os.OpenRoot(root)
 	if err != nil {
-		return "", fmt.Errorf("open write_file root: %w", err)
+		return "", fmt.Errorf("open WriteFile root: %w", err)
 	}
 	defer workspace.Close()
 	if err := ctx.Err(); err != nil {
@@ -147,12 +147,12 @@ func commitTextPreview(ctx context.Context, root string, preview Preview) (strin
 	parent := filepath.ToSlash(filepath.Dir(preview.Path))
 	if parent != "." {
 		if err := workspace.MkdirAll(parent, 0o755); err != nil {
-			return "", fmt.Errorf("write_file create parent directory: %w", err)
+			return "", fmt.Errorf("WriteFile create parent directory: %w", err)
 		}
 	}
 	id, err := changes.NewID()
 	if err != nil {
-		return "", fmt.Errorf("write_file operation id: %w", err)
+		return "", fmt.Errorf("WriteFile operation id: %w", err)
 	}
 	started := time.Now().UTC()
 	manifest := changes.Manifest{Operation: preview.Operation, Path: preview.Path, OldBytes: preview.OldBytes, NewBytes: preview.NewBytes, Decision: "allow"}
@@ -166,22 +166,22 @@ func commitTextPreview(ctx context.Context, root string, preview Preview) (strin
 	tempPath := filepath.Join(filepath.Dir(preview.Path), ".drift-write-"+id)
 	temp, err := workspace.OpenFile(tempPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
-		return "", fmt.Errorf("write_file temporary target: %w", err)
+		return "", fmt.Errorf("WriteFile temporary target: %w", err)
 	}
 	defer func() { _ = workspace.Remove(tempPath) }()
 	if _, err := temp.Write(preview.Content); err != nil {
 		_ = temp.Close()
-		return "", fmt.Errorf("write_file temporary content: %w", err)
+		return "", fmt.Errorf("WriteFile temporary content: %w", err)
 	}
 	if err := temp.Sync(); err != nil {
 		_ = temp.Close()
-		return "", fmt.Errorf("write_file temporary flush: %w", err)
+		return "", fmt.Errorf("WriteFile temporary flush: %w", err)
 	}
 	if err := temp.Close(); err != nil {
-		return "", fmt.Errorf("write_file temporary close: %w", err)
+		return "", fmt.Errorf("WriteFile temporary close: %w", err)
 	}
 	if err := workspace.Rename(tempPath, preview.Path); err != nil {
-		return "", fmt.Errorf("write_file replace target: %w", err)
+		return "", fmt.Errorf("WriteFile replace target: %w", err)
 	}
 	return preview.Operation + ": " + preview.Path, nil
 }
@@ -205,10 +205,10 @@ func validateParentForCreation(workspace *os.Root, parent string) error {
 			break
 		}
 		if err != nil {
-			return fmt.Errorf("stat write_file parent: %w", err)
+			return fmt.Errorf("stat WriteFile parent: %w", err)
 		}
 		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
-			return fmt.Errorf("write_file parent is not a regular directory")
+			return fmt.Errorf("WriteFile parent is not a regular directory")
 		}
 	}
 	return nil

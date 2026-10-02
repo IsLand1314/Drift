@@ -13,7 +13,7 @@ import (
 	"github.com/IsLand1314/Drift/internal/tool"
 )
 
-const wantNativeToolSystemInstruction = "Drift is read-only. Only use the supplied native read-only tools. run_command, shell, and exec are unavailable. Never emit XML, DSML, or pseudo-tool syntax."
+const wantNativeToolSystemInstruction = "Drift is read-only. Only use the supplied native read-only tools. Bash, shell, and exec are unavailable. Never emit XML, DSML, or pseudo-tool syntax."
 
 func TestMaxToolCallsSupportsProjectExploration(t *testing.T) {
 	if MaxToolCalls != 12 {
@@ -41,7 +41,7 @@ func TestChatRegistrySystemInstructionAllowsConfirmedWrite(t *testing.T) {
 	if err := RunEventsWithRegistry(context.Background(), client, t.TempDir(), "describe", "", tool.NewChatRegistry(), nil); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(client.requests[0].Messages[0].Content, "write_file") || !strings.Contains(client.requests[0].Messages[0].Content, "create, write, edit, or delete") {
+	if !strings.Contains(client.requests[0].Messages[0].Content, "WriteFile") || !strings.Contains(client.requests[0].Messages[0].Content, "create, write, edit, or delete") {
 		t.Fatalf("system instruction=%q", client.requests[0].Messages[0].Content)
 	}
 	if len(client.requests[0].Tools) != 7 {
@@ -198,7 +198,7 @@ func TestRunnerContextBytesIncludesMessageParts(t *testing.T) {
 	base := runner.ContextBytes()
 	runner.messages = append(runner.messages,
 		llm.Message{Role: "user", Content: "question"},
-		llm.Message{Role: "assistant", ReasoningContent: "reasoning", ToolCalls: []llm.ToolCall{{ID: "call-1", Type: "function", Name: "read_file", Arguments: `{"path":"README.md"}`}}},
+		llm.Message{Role: "assistant", ReasoningContent: "reasoning", ToolCalls: []llm.ToolCall{{ID: "call-1", Type: "function", Name: "ReadFile", Arguments: `{"path":"README.md"}`}}},
 		llm.Message{Role: "tool", Content: "tool result", ToolCallID: "call-1"},
 	)
 	if got := runner.ContextBytes(); got <= base {
@@ -207,10 +207,10 @@ func TestRunnerContextBytesIncludesMessageParts(t *testing.T) {
 }
 
 func TestRunnerRestoresCopiedMessages(t *testing.T) {
-	original := []llm.Message{{Role: "assistant", ToolCalls: []llm.ToolCall{{ID: "call-1", Name: "read_file"}}}}
+	original := []llm.Message{{Role: "assistant", ToolCalls: []llm.ToolCall{{ID: "call-1", Name: "ReadFile"}}}}
 	runner := NewRunnerWithMessages(nil, t.TempDir(), "", tool.NewDefaultRegistry(), original)
 	original[0].ToolCalls[0].Name = "mutated"
-	if got := runner.Messages()[0].ToolCalls[0].Name; got != "read_file" {
+	if got := runner.Messages()[0].ToolCalls[0].Name; got != "ReadFile" {
 		t.Fatalf("restored tool name = %q", got)
 	}
 }
@@ -348,7 +348,7 @@ func TestRunRejectsASCIIDSMLText(t *testing.T) {
 }
 
 func TestRunRejectsDSMLTextAfterNativeToolCall(t *testing.T) {
-	call := llm.ToolCall{ID: "call-list", Type: "function", Name: "list_files", Arguments: `{}`}
+	call := llm.ToolCall{ID: "call-list", Type: "function", Name: "Glob", Arguments: `{}`}
 	client := &scriptedClient{steps: []scriptedStep{
 		{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{call}}, FinishReason: "tool_calls"}},
 		{events: []llm.StreamEvent{{Text: "<｜｜DSML｜｜ calls>"}}, completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "<｜｜DSML｜｜ calls>"}, FinishReason: "stop"}},
@@ -368,7 +368,7 @@ func TestRunRejectsDSMLTextAfterNativeToolCall(t *testing.T) {
 }
 
 func TestRunRetriesDSMLAfterNativeToolCallWithPlainFinal(t *testing.T) {
-	call := llm.ToolCall{ID: "call-list", Type: "function", Name: "list_files", Arguments: `{}`}
+	call := llm.ToolCall{ID: "call-list", Type: "function", Name: "Glob", Arguments: `{}`}
 	client := &scriptedClient{steps: []scriptedStep{
 		{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{call}}, FinishReason: "tool_calls"}},
 		{events: []llm.StreamEvent{{Text: "<｜｜DSML｜｜ calls>"}}, completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "<｜｜DSML｜｜ calls>"}, FinishReason: "stop"}},
@@ -406,13 +406,13 @@ func TestRunUsesNativeToolSystemInstruction(t *testing.T) {
 	if system.Role != "system" {
 		t.Fatalf("first message role = %q, want system", system.Role)
 	}
-	for _, required := range []string{"native read-only tools", "run_command", "DSML", "pseudo-tool"} {
+	for _, required := range []string{"native read-only tools", "Bash", "DSML", "pseudo-tool"} {
 		if !strings.Contains(system.Content, required) {
 			t.Fatalf("system instruction = %q, want %q", system.Content, required)
 		}
 	}
-	if strings.Contains(system.Content, "read_file") {
-		t.Fatalf("system instruction hardcodes read_file: %q", system.Content)
+	if strings.Contains(system.Content, "ReadFile") {
+		t.Fatalf("system instruction hardcodes ReadFile: %q", system.Content)
 	}
 }
 
@@ -421,7 +421,7 @@ func TestRunFocusOnlyAppearsInFirstSystemMessage(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("focus content\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	call := llm.ToolCall{ID: "focus-read", Type: "function", Name: "read_file", Arguments: `{"path":"README.md"}`}
+	call := llm.ToolCall{ID: "focus-read", Type: "function", Name: "ReadFile", Arguments: `{"path":"README.md"}`}
 	client := &scriptedClient{steps: []scriptedStep{
 		{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{call}}, FinishReason: "tool_calls"}},
 		{events: []llm.StreamEvent{{Text: "done"}}, completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "done"}, FinishReason: "stop"}},
@@ -451,9 +451,9 @@ func TestRunMultiTurnExplorationPreservesContextAndTools(t *testing.T) {
 		t.Fatal(err)
 	}
 	calls := []llm.ToolCall{
-		{ID: "call-list", Type: "function", Name: "list_files", Arguments: `{}`},
-		{ID: "call-search", Type: "function", Name: "search_text", Arguments: `{"query":"needle"}`},
-		{ID: "call-read", Type: "function", Name: "read_file", Arguments: `{"path":"README.md"}`},
+		{ID: "call-list", Type: "function", Name: "Glob", Arguments: `{}`},
+		{ID: "call-search", Type: "function", Name: "Grep", Arguments: `{"query":"needle"}`},
+		{ID: "call-read", Type: "function", Name: "ReadFile", Arguments: `{"path":"README.md"}`},
 	}
 	client := &scriptedClient{steps: []scriptedStep{
 		{events: []llm.StreamEvent{{Text: "listing"}}, completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "listing", ToolCalls: calls[:1]}, FinishReason: "tool_calls"}},
@@ -494,7 +494,7 @@ func TestRunMultiTurnExplorationPreservesContextAndTools(t *testing.T) {
 }
 
 func TestRunRequestBudgetStopsAfterFourthToolCompletion(t *testing.T) {
-	call := llm.ToolCall{ID: "call-list", Type: "function", Name: "list_files", Arguments: `{}`}
+	call := llm.ToolCall{ID: "call-list", Type: "function", Name: "Glob", Arguments: `{}`}
 	steps := make([]scriptedStep, MaxModelRequests)
 	for i := range steps {
 		steps[i] = scriptedStep{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{call}}, FinishReason: "tool_calls"}}
@@ -512,7 +512,7 @@ func TestRunRequestBudgetStopsAfterFourthToolCompletion(t *testing.T) {
 func TestRunToolBudgetUsesToolFreeFinalRequest(t *testing.T) {
 	calls := make([]llm.ToolCall, MaxToolCalls+1)
 	for i := range calls {
-		calls[i] = llm.ToolCall{ID: string(rune('a' + i)), Type: "function", Name: "list_files", Arguments: `{}`}
+		calls[i] = llm.ToolCall{ID: string(rune('a' + i)), Type: "function", Name: "Glob", Arguments: `{}`}
 	}
 	client := &scriptedClient{steps: []scriptedStep{
 		{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: calls}, FinishReason: "tool_calls"}},
@@ -555,9 +555,9 @@ func TestRunToolBudgetUsesToolFreeFinalRequest(t *testing.T) {
 func TestRunRetriesToolFreeFinalResponseAfterModelRequestsTool(t *testing.T) {
 	calls := make([]llm.ToolCall, MaxToolCalls)
 	for i := range calls {
-		calls[i] = llm.ToolCall{ID: string(rune('a' + i)), Type: "function", Name: "list_files", Arguments: `{}`}
+		calls[i] = llm.ToolCall{ID: string(rune('a' + i)), Type: "function", Name: "Glob", Arguments: `{}`}
 	}
-	ignoredCall := llm.ToolCall{ID: "ignored", Type: "function", Name: "read_file", Arguments: `{"path":"README.md"}`}
+	ignoredCall := llm.ToolCall{ID: "ignored", Type: "function", Name: "ReadFile", Arguments: `{"path":"README.md"}`}
 	client := &scriptedClient{steps: []scriptedStep{
 		{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: calls}, FinishReason: "tool_calls"}},
 		{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{ignoredCall}}, FinishReason: "tool_calls"}},
@@ -579,7 +579,7 @@ func TestRunRetriesToolFreeFinalResponseAfterModelRequestsTool(t *testing.T) {
 }
 
 func TestRunReservesFinalResponseAttempts(t *testing.T) {
-	toolCall := llm.ToolCall{ID: "list", Type: "function", Name: "list_files", Arguments: `{}`}
+	toolCall := llm.ToolCall{ID: "list", Type: "function", Name: "Glob", Arguments: `{}`}
 	steps := make([]scriptedStep, MaxModelRequests)
 	for i := 0; i < MaxModelRequests-2; i++ {
 		steps[i] = scriptedStep{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{toolCall}}, FinishReason: "tool_calls"}}
@@ -608,7 +608,7 @@ func TestRunReservesFinalResponseAttempts(t *testing.T) {
 }
 
 func TestRunRetriesPseudoToolTextDuringReservedFinalResponse(t *testing.T) {
-	toolCall := llm.ToolCall{ID: "list", Type: "function", Name: "list_files", Arguments: `{}`}
+	toolCall := llm.ToolCall{ID: "list", Type: "function", Name: "Glob", Arguments: `{}`}
 	steps := make([]scriptedStep, MaxModelRequests)
 	for i := 0; i < MaxModelRequests-finalResponseReserve; i++ {
 		steps[i] = scriptedStep{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{toolCall}}, FinishReason: "tool_calls"}}
@@ -629,7 +629,7 @@ func TestRunRetriesPseudoToolTextDuringReservedFinalResponse(t *testing.T) {
 }
 
 func TestRunIncludesSystemContextOnEveryRequest(t *testing.T) {
-	call := llm.ToolCall{ID: "list", Type: "function", Name: "list_files", Arguments: `{}`}
+	call := llm.ToolCall{ID: "list", Type: "function", Name: "Glob", Arguments: `{}`}
 	steps := make([]scriptedStep, MaxModelRequests)
 	for i := 0; i < MaxModelRequests-finalResponseReserve; i++ {
 		steps[i] = scriptedStep{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{call}}, FinishReason: "tool_calls"}}
@@ -654,7 +654,7 @@ func TestRunIncludesSystemContextOnEveryRequest(t *testing.T) {
 func TestRunExactToolBudgetAddsLimitInstruction(t *testing.T) {
 	calls := make([]llm.ToolCall, MaxToolCalls)
 	for i := range calls {
-		calls[i] = llm.ToolCall{ID: string(rune('a' + i)), Type: "function", Name: "list_files", Arguments: `{}`}
+		calls[i] = llm.ToolCall{ID: string(rune('a' + i)), Type: "function", Name: "Glob", Arguments: `{}`}
 	}
 	client := &scriptedClient{steps: []scriptedStep{
 		{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: calls}, FinishReason: "tool_calls"}},
@@ -694,7 +694,7 @@ func TestRunReadRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	var output []string
-	readCall := llm.ToolCall{ID: "call-1", Type: "function", Name: "read_file", Arguments: `{"path":"README.md"}`}
+	readCall := llm.ToolCall{ID: "call-1", Type: "function", Name: "ReadFile", Arguments: `{"path":"README.md"}`}
 	client := &scriptedClient{steps: []scriptedStep{
 		{
 			events: []llm.StreamEvent{{Text: "I will inspect it."}},
@@ -752,9 +752,9 @@ func TestRunMultipleReadRoundTrip(t *testing.T) {
 		}
 	}
 	calls := []llm.ToolCall{
-		{ID: "call-readme", Type: "function", Name: "read_file", Arguments: `{"path":"README.md"}`},
-		{ID: "call-module", Type: "function", Name: "read_file", Arguments: `{"path":"go.mod"}`},
-		{ID: "call-spec", Type: "function", Name: "read_file", Arguments: `{"path":"spec/current.md"}`},
+		{ID: "call-readme", Type: "function", Name: "ReadFile", Arguments: `{"path":"README.md"}`},
+		{ID: "call-module", Type: "function", Name: "ReadFile", Arguments: `{"path":"go.mod"}`},
+		{ID: "call-spec", Type: "function", Name: "ReadFile", Arguments: `{"path":"spec/current.md"}`},
 	}
 	first := llm.Message{Role: "assistant", Content: "I will inspect the files.", ToolCalls: calls}
 	client := &scriptedClient{steps: []scriptedStep{
@@ -799,7 +799,7 @@ func TestRunEnforcesAggregateReadBudget(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(root, path), []byte(content), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		calls[i] = llm.ToolCall{ID: "call-" + string(rune('a'+i)), Type: "function", Name: "read_file", Arguments: `{"path":"` + path + `"}`}
+		calls[i] = llm.ToolCall{ID: "call-" + string(rune('a'+i)), Type: "function", Name: "ReadFile", Arguments: `{"path":"` + path + `"}`}
 	}
 	client := &scriptedClient{steps: []scriptedStep{
 		{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: calls}, FinishReason: "tool_calls"}},
@@ -842,7 +842,7 @@ func TestRunFirstStopWithToolCallUsesReadRoundTrip(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("hello from readme\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	call := llm.ToolCall{ID: "call-1", Type: "function", Name: "read_file", Arguments: `{"path":"README.md"}`}
+	call := llm.ToolCall{ID: "call-1", Type: "function", Name: "ReadFile", Arguments: `{"path":"README.md"}`}
 	client := &scriptedClient{steps: []scriptedStep{
 		{
 			events:     []llm.StreamEvent{{Text: "I will inspect it."}},
@@ -877,7 +877,7 @@ func TestRunReadFailuresStillReachSecondTurn(t *testing.T) {
 		{name: "missing file", arguments: `{"path":"missing.md"}`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			call := llm.ToolCall{ID: "call-1", Type: "function", Name: "read_file", Arguments: test.arguments}
+			call := llm.ToolCall{ID: "call-1", Type: "function", Name: "ReadFile", Arguments: test.arguments}
 			client := &scriptedClient{steps: []scriptedStep{
 				{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{call}}, FinishReason: "tool_calls"}},
 				{events: []llm.StreamEvent{{Text: "done"}}, completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "done"}, FinishReason: "stop"}},
@@ -891,7 +891,7 @@ func TestRunReadFailuresStillReachSecondTurn(t *testing.T) {
 				t.Fatalf("requests = %d, want 2", len(client.requests))
 			}
 			result := client.requests[1].Messages[2]
-			if result.Role != "tool" || result.ToolCallID != "call-1" || len(result.Content) <= len("read_file failed: ") || result.Content[:len("read_file failed: ")] != "read_file failed: " {
+			if result.Role != "tool" || result.ToolCallID != "call-1" || len(result.Content) <= len("ReadFile failed: ") || result.Content[:len("ReadFile failed: ")] != "ReadFile failed: " {
 				t.Fatalf("tool result = %#v, want read error result", result)
 			}
 		})
@@ -904,7 +904,7 @@ func TestRunSanitizesDotEnvReadFailureForSecondTurn(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("OPENAI_API_KEY="+secret+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	call := llm.ToolCall{ID: "call-env", Type: "function", Name: "read_file", Arguments: `{"path":".env"}`}
+	call := llm.ToolCall{ID: "call-env", Type: "function", Name: "ReadFile", Arguments: `{"path":".env"}`}
 	client := &scriptedClient{steps: []scriptedStep{
 		{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{call}}, FinishReason: "tool_calls"}},
 		{events: []llm.StreamEvent{{Text: "done"}}, completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "done"}, FinishReason: "stop"}},
@@ -917,7 +917,7 @@ func TestRunSanitizesDotEnvReadFailureForSecondTurn(t *testing.T) {
 		t.Fatalf("requests = %d, want 2", len(client.requests))
 	}
 	result := client.requests[1].Messages[2]
-	if result.Content != "read_file failed: unable to read requested file" {
+	if result.Content != "ReadFile failed: unable to read requested file" {
 		t.Fatalf("second-turn tool result = %q, want sanitized failure", result.Content)
 	}
 	if strings.Contains(result.Content, secret) {
@@ -935,7 +935,7 @@ func TestRunRejectsUnsupportedToolCallStates(t *testing.T) {
 	}{
 		{
 			name:        "unknown tool",
-			calls:       []llm.ToolCall{{ID: "one", Type: "function", Name: "delete_file", Arguments: `{}`}},
+			calls:       []llm.ToolCall{{ID: "one", Type: "function", Name: "DeleteFile", Arguments: `{}`}},
 			finish:      "tool_calls",
 			wantError:   "unsupported tool",
 			wantRequest: 1,
@@ -1080,7 +1080,7 @@ func TestRunEventsToolCancellationRollsBackCurrentTurn(t *testing.T) {
 }
 
 func TestRunPreservesReasoningContentForSecondRequest(t *testing.T) {
-	call := llm.ToolCall{ID: "call-1", Type: "function", Name: "read_file", Arguments: `{"path":"README.md"}`}
+	call := llm.ToolCall{ID: "call-1", Type: "function", Name: "ReadFile", Arguments: `{"path":"README.md"}`}
 	client := &scriptedClient{steps: []scriptedStep{
 		{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ReasoningContent: "I need the readme", ToolCalls: []llm.ToolCall{call}}, FinishReason: "tool_calls"}},
 		{events: []llm.StreamEvent{{Text: "done"}}, completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "done"}, FinishReason: "stop"}},
@@ -1098,7 +1098,7 @@ func TestRunEventsEmitsOrderedRuntimeEvents(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("hello from readme\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	call := llm.ToolCall{ID: "call-1", Type: "function", Name: "read_file", Arguments: `{"path":"README.md"}`}
+	call := llm.ToolCall{ID: "call-1", Type: "function", Name: "ReadFile", Arguments: `{"path":"README.md"}`}
 	client := &scriptedClient{steps: []scriptedStep{
 		{
 			events:     []llm.StreamEvent{{Text: "I will inspect it."}},
@@ -1200,8 +1200,8 @@ func TestRunWithRegistryUsesRegisteredTool(t *testing.T) {
 	if len(client.requests) != 2 || client.requests[0].Tools[0].Function == nil {
 		t.Fatalf("requests = %#v, want registered tool schema and two turns", client.requests)
 	}
-	if strings.Contains(client.requests[0].Messages[0].Content, "read_file") {
-		t.Fatalf("custom registry system instruction hardcodes read_file: %q", client.requests[0].Messages[0].Content)
+	if strings.Contains(client.requests[0].Messages[0].Content, "ReadFile") {
+		t.Fatalf("custom registry system instruction hardcodes ReadFile: %q", client.requests[0].Messages[0].Content)
 	}
 	if got := client.requests[1].Messages[2].Content; got != "fake result" {
 		t.Fatalf("tool result = %q, want fake result", got)
@@ -1209,7 +1209,7 @@ func TestRunWithRegistryUsesRegisteredTool(t *testing.T) {
 }
 
 func TestRunDeniedPreviewDoesNotExecuteWrite(t *testing.T) {
-	call := llm.ToolCall{ID: "call-write", Type: "function", Name: "write_file", Arguments: `{}`}
+	call := llm.ToolCall{ID: "call-write", Type: "function", Name: "WriteFile", Arguments: `{}`}
 	client := &scriptedClient{steps: []scriptedStep{
 		{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{call}}, FinishReason: "tool_calls"}},
 		{events: []llm.StreamEvent{{Text: "write denied"}}, completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "write denied"}, FinishReason: "stop"}},
@@ -1237,10 +1237,10 @@ type registryTestTool struct {
 
 type permissionTestTool struct{ executed bool }
 
-func (t *permissionTestTool) Name() string { return "write_file" }
+func (t *permissionTestTool) Name() string { return "WriteFile" }
 
 func (t *permissionTestTool) Definition() llm.ToolDefinition {
-	return llm.ToolDefinition{Type: "function", Function: []byte(`{"name":"write_file"}`)}
+	return llm.ToolDefinition{Type: "function", Function: []byte(`{"name":"WriteFile"}`)}
 }
 
 func (t *permissionTestTool) Execute(context.Context, string, string) (string, error) {
@@ -1285,7 +1285,7 @@ func (t *registryTestTool) Execute(context.Context, string, string) (string, err
 }
 
 func TestSafeToolErrorDoesNotExposeWorkspaceOrContent(t *testing.T) {
-	if got := safeToolError(`C:\workspace`, `write_file parent directory does not exist: C:\workspace\tmp`); got != "write_file parent directory does not exist" {
+	if got := safeToolError(`C:\workspace`, `WriteFile parent directory does not exist: C:\workspace\tmp`); got != "WriteFile parent directory does not exist" {
 		t.Fatalf("safe summary = %q", got)
 	}
 	if got := safeToolError(`C:\workspace`, "secret file contents"); got != "tool execution failed" {

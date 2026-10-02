@@ -743,14 +743,14 @@ func resizeTTYTextarea(m *ttyChatModel) {
 
 func renderTUIApproval(a tuiApproval) string {
 	title := "WriteFile command"
-	if a.request.ToolName == "edit_file" {
+	if a.request.ToolName == "EditFile" {
 		title = "EditFile command"
 	}
-	if a.request.ToolName == "delete_file" {
+	if a.request.ToolName == "DeleteFile" {
 		title = "DeleteFile command"
 	}
 	detail := a.request.Path
-	if a.request.ToolName == "run_command" {
+	if a.request.ToolName == "Bash" {
 		title = "RunCommand command"
 		detail = a.request.Command + "\n\n  cwd: " + a.request.CWD
 	}

@@ -102,7 +102,7 @@ func TestSearch(t *testing.T) {
 	})
 	t.Run("tool delegates", func(t *testing.T) {
 		var tool Tool = searchTextTool{}
-		if tool.Name() != "search_text" {
+		if tool.Name() != "Grep" {
 			t.Fatal(tool.Name())
 		}
 		if _, err := tool.Execute(context.Background(), root, `{"query":"needle"}`); err != nil {
@@ -181,7 +181,7 @@ func TestSearchLimitsAndDefinition(t *testing.T) {
 	if err := json.Unmarshal(definition.Function, &fn); err != nil {
 		t.Fatal(err)
 	}
-	if definition.Type != "function" || fn.Name != "search_text" || len(fn.Parameters.Required) != 1 || fn.Parameters.Required[0] != "query" || fn.Parameters.Properties["path"] == nil || fn.Parameters.Properties["query"] == nil || fn.Parameters.AdditionalProperties {
+	if definition.Type != "function" || fn.Name != "Grep" || len(fn.Parameters.Required) != 1 || fn.Parameters.Required[0] != "query" || fn.Parameters.Properties["path"] == nil || fn.Parameters.Properties["query"] == nil || fn.Parameters.AdditionalProperties {
 		t.Fatalf("schema = %s", definition.Function)
 	}
 }

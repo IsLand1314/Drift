@@ -13,8 +13,8 @@ func TestTraceSinkWritesSafeEventSummaries(t *testing.T) {
 	sink := newTraceSink(&output)
 	for _, event := range []agent.Event{
 		{Type: agent.EventRunStarted},
-		{Type: agent.EventToolCall, ToolName: "read_file", Arguments: `{"path":"README.md","api_key":"secret"}`},
-		{Type: agent.EventToolResult, ToolName: "read_file", Result: "file contents"},
+		{Type: agent.EventToolCall, ToolName: "ReadFile", Arguments: `{"path":"README.md","api_key":"secret"}`},
+		{Type: agent.EventToolResult, ToolName: "ReadFile", Result: "file contents"},
 		{Type: agent.EventError, Error: "模型连接失败", Stage: "provider_transport"},
 		{Type: agent.EventRunFinished},
 		{Type: agent.EventCompactionFinished, Text: "secret summary", BeforeBytes: 200, AfterBytes: 80, KeptMessages: 4},
@@ -24,7 +24,7 @@ func TestTraceSinkWritesSafeEventSummaries(t *testing.T) {
 		}
 	}
 	text := output.String()
-	if !strings.Contains(text, "tool_call read_file") || !strings.Contains(text, "tool_result read_file bytes=13") || !strings.Contains(text, "error stage=provider_transport") {
+	if !strings.Contains(text, "tool_call ReadFile") || !strings.Contains(text, "tool_result ReadFile bytes=13") || !strings.Contains(text, "error stage=provider_transport") {
 		t.Fatalf("trace = %q", text)
 	}
 	if strings.Contains(text, "file contents") || strings.Contains(text, "secret") || strings.Contains(text, "README.md") || strings.Contains(text, "summary") {

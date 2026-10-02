@@ -107,7 +107,7 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 	model := flags.String("model", "", "模型名称（按 Provider 读取默认值）")
 	baseURL := flags.String("base-url", "", "API 根地址（按 Provider 读取默认值）")
 	permissionModeFlag := flags.String("permission-mode", string(permissionModeDefault), "chat 权限模式（default、acceptEdits、plan、bypassPermissions）")
-	sandboxFlag := flags.String("sandbox", string(tool.SandboxOff), "run_command 沙箱策略（off、auto、required）")
+	sandboxFlag := flags.String("sandbox", string(tool.SandboxOff), "Bash 沙箱策略（off、auto、required）")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0

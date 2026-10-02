@@ -22,7 +22,7 @@ const MaxReadBytes = 128 << 10
 type readFileTool struct{}
 
 func (readFileTool) Name() string {
-	return "read_file"
+	return "ReadFile"
 }
 
 func (readFileTool) Definition() llm.ToolDefinition {
@@ -45,7 +45,7 @@ type readArguments struct {
 // ReadDefinition 返回给模型的唯一工具 schema；它只描述“读取文件”，不包含写入或执行能力。
 func ReadDefinition() llm.ToolDefinition {
 	function := map[string]any{
-		"name":        "read_file",
+		"name":        "ReadFile",
 		"description": "Read a regular file below the workspace root.",
 		"parameters": map[string]any{
 			"type": "object",
@@ -71,7 +71,7 @@ func ReadDefinition() llm.ToolDefinition {
 	}
 	raw, err := json.Marshal(function)
 	if err != nil {
-		panic("tool: marshal read_file definition: " + err.Error())
+		panic("tool: marshal ReadFile definition: " + err.Error())
 	}
 	return llm.ToolDefinition{Type: "function", Function: raw}
 }
@@ -84,51 +84,51 @@ func Read(root, rawArguments string) (string, error) {
 	decoder := json.NewDecoder(strings.NewReader(rawArguments))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&args); err != nil {
-		return "", fmt.Errorf("decode read_file arguments: %w", err)
+		return "", fmt.Errorf("decode ReadFile arguments: %w", err)
 	}
 	var extra any
 	if err := decoder.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return "", fmt.Errorf("decode read_file arguments: multiple JSON values")
+			return "", fmt.Errorf("decode ReadFile arguments: multiple JSON values")
 		}
-		return "", fmt.Errorf("decode read_file arguments: %w", err)
+		return "", fmt.Errorf("decode ReadFile arguments: %w", err)
 	}
 	if strings.TrimSpace(args.Path) == "" {
-		return "", fmt.Errorf("read_file path is blank")
+		return "", fmt.Errorf("ReadFile path is blank")
 	}
 	if err := validateRelativePath(args.Path, false); err != nil {
-		return "", fmt.Errorf("read_file path is invalid: %w", err)
+		return "", fmt.Errorf("ReadFile path is invalid: %w", err)
 	}
 	if IsDotEnvCredentialFile(filepath.Base(args.Path)) {
 		// .env 即使被 .gitignore 忽略，也可能包含 API Key，不能进入模型上下文。
-		return "", fmt.Errorf("read_file target is restricted")
+		return "", fmt.Errorf("ReadFile target is restricted")
 	}
 
 	workspace, err := os.OpenRoot(root)
 	if err != nil {
-		return "", fmt.Errorf("open read_file root: %w", err)
+		return "", fmt.Errorf("open ReadFile root: %w", err)
 	}
 	defer workspace.Close()
 	hasSymlink, err := hasSymlinkComponent(workspace, args.Path)
 	if err != nil {
-		return "", fmt.Errorf("stat read_file target: %w", err)
+		return "", fmt.Errorf("stat ReadFile target: %w", err)
 	}
 	if hasSymlink {
 		// 禁止工作区内软链接，避免用别名绕过敏感文件名或路径边界。
-		return "", fmt.Errorf("read_file target is not a regular file")
+		return "", fmt.Errorf("ReadFile target is not a regular file")
 	}
 
 	file, err := workspace.Open(args.Path)
 	if err != nil {
-		return "", fmt.Errorf("open read_file target: %w", err)
+		return "", fmt.Errorf("open ReadFile target: %w", err)
 	}
 	defer file.Close()
 	info, err := file.Stat()
 	if err != nil {
-		return "", fmt.Errorf("stat read_file target: %w", err)
+		return "", fmt.Errorf("stat ReadFile target: %w", err)
 	}
 	if !info.Mode().IsRegular() {
-		return "", fmt.Errorf("read_file target is not a regular file")
+		return "", fmt.Errorf("ReadFile target is not a regular file")
 	}
 	if args.Offset != nil || args.Limit != nil {
 		offset, limit := 0, 2000
@@ -139,22 +139,22 @@ func Read(root, rawArguments string) (string, error) {
 			limit = *args.Limit
 		}
 		if offset < 0 {
-			return "", fmt.Errorf("read_file offset must be greater than or equal to 0")
+			return "", fmt.Errorf("ReadFile offset must be greater than or equal to 0")
 		}
 		if limit <= 0 {
-			return "", fmt.Errorf("read_file limit must be greater than 0")
+			return "", fmt.Errorf("ReadFile limit must be greater than 0")
 		}
 		return readPage(file, offset, limit)
 	}
 	content, err := io.ReadAll(io.LimitReader(file, MaxReadBytes+1))
 	if err != nil {
-		return "", fmt.Errorf("read_file target: %w", err)
+		return "", fmt.Errorf("ReadFile target: %w", err)
 	}
 	if len(content) > MaxReadBytes {
-		return "", fmt.Errorf("read_file target exceeds %d bytes; use offset and limit to read a page", MaxReadBytes)
+		return "", fmt.Errorf("ReadFile target exceeds %d bytes; use offset and limit to read a page", MaxReadBytes)
 	}
 	if bytes.IndexByte(content, 0) >= 0 {
-		return "", fmt.Errorf("read_file target is binary")
+		return "", fmt.Errorf("ReadFile target is binary")
 	}
 	return string(content), nil
 }
@@ -166,7 +166,7 @@ func readPage(file *os.File, offset, limit int) (string, error) {
 	lineNumber, selected := 0, make([]string, 0, limit)
 	for scanner.Scan() {
 		if strings.IndexByte(scanner.Text(), 0) >= 0 {
-			return "", fmt.Errorf("read_file target is binary")
+			return "", fmt.Errorf("ReadFile target is binary")
 		}
 		if lineNumber >= offset {
 			selected = append(selected, scanner.Text())
@@ -177,19 +177,19 @@ func readPage(file *os.File, offset, limit int) (string, error) {
 		lineNumber++
 	}
 	if err := scanner.Err(); err != nil {
-		return "", fmt.Errorf("read_file target: %w", err)
+		return "", fmt.Errorf("ReadFile target: %w", err)
 	}
 	if len(selected) == 0 {
 		return "", nil
 	}
-	result := "read_file: lines " + strconv.Itoa(offset+1) + "-" + strconv.Itoa(offset+len(selected)) + "\n" + strings.Join(selected, "\n")
+	result := "ReadFile: lines " + strconv.Itoa(offset+1) + "-" + strconv.Itoa(offset+len(selected)) + "\n" + strings.Join(selected, "\n")
 	if len(selected) == limit && scanner.Scan() {
 		// 多读一行只为确认是否还有下一页，不把该行放入本次结果。
 		nextOffset := offset + len(selected)
-		result += "\nread_file: more lines available; next offset: " + strconv.Itoa(nextOffset)
+		result += "\nReadFile: more lines available; next offset: " + strconv.Itoa(nextOffset)
 	}
 	if len(result) > MaxReadBytes {
-		return "", fmt.Errorf("read_file page exceeds %d bytes; reduce limit", MaxReadBytes)
+		return "", fmt.Errorf("ReadFile page exceeds %d bytes; reduce limit", MaxReadBytes)
 	}
 	return result, nil
 }

@@ -160,11 +160,11 @@ func TestStreamAggregatesToolCall(t *testing.T) {
 			t.Fatalf("unexpected tools: %+v, %v", req.Tools, err)
 		}
 		call := req.Messages[0].ToolCalls[0]
-		if call.ID != "call_1" || call.Type != "function" || call.Function.Name != "read_file" || call.Function.Arguments != `{"path":"README.md"}` {
+		if call.ID != "call_1" || call.Type != "function" || call.Function.Name != "ReadFile" || call.Function.Arguments != `{"path":"README.md"}` {
 			t.Fatalf("unexpected serialized call: %+v", call)
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
-		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"read_file\",\"arguments\":\"{\\\"path\\\":\\\"REA\"}}]}}]}\n\n")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"ReadFile\",\"arguments\":\"{\\\"path\\\":\\\"REA\"}}]}}]}\n\n")
 		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"checking file\",\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"DME.md\\\"}\"}}]}}]}\n\n")
 		fmt.Fprint(w, "data: {\"choices\":[{\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n")
 	}))
@@ -177,11 +177,11 @@ func TestStreamAggregatesToolCall(t *testing.T) {
 	completion, err := client.Stream(context.Background(), llm.Request{
 		Model: "test-model",
 		Messages: []llm.Message{{Role: "assistant", ToolCalls: []llm.ToolCall{{
-			ID: "call_1", Type: "function", Name: "read_file", Arguments: `{"path":"README.md"}`,
+			ID: "call_1", Type: "function", Name: "ReadFile", Arguments: `{"path":"README.md"}`,
 		}}}},
 		Tools: []llm.ToolDefinition{{
 			Type:     "function",
-			Function: json.RawMessage(`{"name":"read_file","parameters":{"type":"object"}}`),
+			Function: json.RawMessage(`{"name":"ReadFile","parameters":{"type":"object"}}`),
 		}},
 	}, func(llm.StreamEvent) error { return nil })
 	if err != nil {
@@ -191,7 +191,7 @@ func TestStreamAggregatesToolCall(t *testing.T) {
 		t.Fatalf("unexpected completion: %+v", completion)
 	}
 	call := completion.Assistant.ToolCalls[0]
-	if call.ID != "call_1" || call.Type != "function" || call.Name != "read_file" || call.Arguments != `{"path":"README.md"}` {
+	if call.ID != "call_1" || call.Type != "function" || call.Name != "ReadFile" || call.Arguments != `{"path":"README.md"}` {
 		t.Fatalf("unexpected call: %+v", call)
 	}
 }

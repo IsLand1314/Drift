@@ -47,7 +47,7 @@ func TestStoreSaveAndLoadPreservesToolMessages(t *testing.T) {
 		t.Fatal(err)
 	}
 	snapshot.Messages = []llm.Message{
-		{Role: "assistant", ToolCalls: []llm.ToolCall{{ID: "call-1", Type: "function", Name: "read_file", Arguments: `{"path":"README.md"}`}}},
+		{Role: "assistant", ToolCalls: []llm.ToolCall{{ID: "call-1", Type: "function", Name: "ReadFile", Arguments: `{"path":"README.md"}`}}},
 		{Role: "tool", ToolCallID: "call-1", Content: "# Drift"},
 	}
 	if err := store.Save(snapshot); err != nil {

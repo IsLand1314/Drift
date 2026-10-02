@@ -24,10 +24,10 @@ const (
 
 type runCommandTool struct{ sandboxMode SandboxMode }
 
-func (runCommandTool) Name() string                   { return "run_command" }
+func (runCommandTool) Name() string                   { return "Bash" }
 func (runCommandTool) Definition() llm.ToolDefinition { return RunCommandDefinition() }
 func (runCommandTool) Execute(context.Context, string, string) (string, error) {
-	return "", fmt.Errorf("run_command requires permission confirmation")
+	return "", fmt.Errorf("Bash requires permission confirmation")
 }
 func (t runCommandTool) Preview(ctx context.Context, root, raw string) (Preview, error) {
 	if err := ctx.Err(); err != nil {
@@ -52,7 +52,7 @@ type commandArguments struct {
 
 func RunCommandDefinition() llm.ToolDefinition {
 	function := map[string]any{
-		"name":        "run_command",
+		"name":        "Bash",
 		"description": "Run one user-approved command in the workspace. Output is limited and the command may not use a cwd outside the workspace.",
 		"parameters": map[string]any{
 			"type": "object",
@@ -68,7 +68,7 @@ func RunCommandDefinition() llm.ToolDefinition {
 	}
 	raw, err := json.Marshal(function)
 	if err != nil {
-		panic("tool: marshal run_command definition: " + err.Error())
+		panic("tool: marshal Bash definition: " + err.Error())
 	}
 	return llm.ToolDefinition{Type: "function", Function: raw}
 }
@@ -82,64 +82,64 @@ func RunCommandPreviewWithSandbox(root, raw string, sandboxMode SandboxMode) (Pr
 	decoder := json.NewDecoder(strings.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&args); err != nil {
-		return Preview{}, fmt.Errorf("decode run_command arguments: %w", err)
+		return Preview{}, fmt.Errorf("decode Bash arguments: %w", err)
 	}
 	var extra any
 	if err := decoder.Decode(&extra); err != io.EOF {
-		return Preview{}, fmt.Errorf("decode run_command arguments: multiple JSON values")
+		return Preview{}, fmt.Errorf("decode Bash arguments: multiple JSON values")
 	}
 	args.Command = strings.TrimSpace(args.Command)
 	if args.Command == "" {
-		return Preview{}, fmt.Errorf("run_command command is blank")
+		return Preview{}, fmt.Errorf("Bash command is blank")
 	}
 	if len(args.Command) > MaxCommandBytes {
-		return Preview{}, fmt.Errorf("run_command command exceeds %d bytes", MaxCommandBytes)
+		return Preview{}, fmt.Errorf("Bash command exceeds %d bytes", MaxCommandBytes)
 	}
 	args.CWD = filepath.ToSlash(strings.TrimSpace(args.CWD))
 	if args.CWD == "" {
 		args.CWD = "."
 	}
 	if err := validateRelativePath(args.CWD, false); err != nil {
-		return Preview{}, fmt.Errorf("run_command cwd is invalid: %w", err)
+		return Preview{}, fmt.Errorf("Bash cwd is invalid: %w", err)
 	}
 	for _, part := range strings.Split(args.CWD, "/") {
 		switch strings.ToLower(part) {
 		case ".git", ".drift", ".codex-temp", ".worktrees":
-			return Preview{}, fmt.Errorf("run_command cwd is protected")
+			return Preview{}, fmt.Errorf("Bash cwd is protected")
 		}
 	}
 	info, err := os.Stat(filepath.Join(root, filepath.FromSlash(args.CWD)))
 	if err != nil {
-		return Preview{}, fmt.Errorf("run_command cwd: %w", err)
+		return Preview{}, fmt.Errorf("Bash cwd: %w", err)
 	}
 	if !info.IsDir() {
-		return Preview{}, fmt.Errorf("run_command cwd is not a directory")
+		return Preview{}, fmt.Errorf("Bash cwd is not a directory")
 	}
 	workspace, err := os.OpenRoot(root)
 	if err != nil {
-		return Preview{}, fmt.Errorf("open run_command root: %w", err)
+		return Preview{}, fmt.Errorf("open Bash root: %w", err)
 	}
 	defer workspace.Close()
 	if hasSymlink, symlinkErr := hasSymlinkComponent(workspace, args.CWD); symlinkErr != nil || hasSymlink {
-		return Preview{}, fmt.Errorf("run_command cwd contains a symlink")
+		return Preview{}, fmt.Errorf("Bash cwd contains a symlink")
 	}
 	timeout := DefaultCommandTimeout
 	if args.TimeoutMS != 0 {
 		if args.TimeoutMS < 1 || time.Duration(args.TimeoutMS)*time.Millisecond > MaxCommandTimeout {
-			return Preview{}, fmt.Errorf("run_command timeout_ms must be between 1 and 60000")
+			return Preview{}, fmt.Errorf("Bash timeout_ms must be between 1 and 60000")
 		}
 		timeout = time.Duration(args.TimeoutMS) * time.Millisecond
 	}
 	maxOutput := MaxCommandOutputBytes
 	if args.MaxOutputBytes != 0 {
 		if args.MaxOutputBytes < 256 || args.MaxOutputBytes > MaxCommandOutputBytes {
-			return Preview{}, fmt.Errorf("run_command max_output_bytes must be between 256 and %d", MaxCommandOutputBytes)
+			return Preview{}, fmt.Errorf("Bash max_output_bytes must be between 256 and %d", MaxCommandOutputBytes)
 		}
 		maxOutput = args.MaxOutputBytes
 	}
 	sandbox, err := SelectSandbox(sandboxMode, DetectSandbox())
 	if err != nil {
-		return Preview{}, fmt.Errorf("run_command: %w", err)
+		return Preview{}, fmt.Errorf("Bash: %w", err)
 	}
 	return Preview{Operation: "run_command", Path: args.CWD, Command: args.Command, CWD: args.CWD, Timeout: timeout, OutputLimit: maxOutput, SandboxMode: sandboxMode, Sandbox: sandbox}, nil
 }

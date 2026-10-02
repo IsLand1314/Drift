@@ -15,14 +15,14 @@ func TestPermissionPolicyMissingFileIsEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if policy.allows(agent.PermissionRequest{ToolName: "write_file", Operation: "create_file", Path: "a.txt"}) {
+	if policy.allows(agent.PermissionRequest{ToolName: "WriteFile", Operation: "create_file", Path: "a.txt"}) {
 		t.Fatal("missing policy unexpectedly allowed a request")
 	}
 }
 
 func TestPermissionPolicyMatchesExactFileRequest(t *testing.T) {
 	root := t.TempDir()
-	request := agent.PermissionRequest{ToolName: "write_file", Operation: "create_file", Path: "tmp/hello.txt"}
+	request := agent.PermissionRequest{ToolName: "WriteFile", Operation: "create_file", Path: "tmp/hello.txt"}
 	policy := newPermissionPolicy(root)
 	if err := policy.remember(request); err != nil {
 		t.Fatal(err)
@@ -34,14 +34,14 @@ func TestPermissionPolicyMatchesExactFileRequest(t *testing.T) {
 	if !loaded.allows(request) {
 		t.Fatal("exact request was not allowed")
 	}
-	if loaded.allows(agent.PermissionRequest{ToolName: "write_file", Operation: "create_file", Path: "tmp/other.txt"}) {
+	if loaded.allows(agent.PermissionRequest{ToolName: "WriteFile", Operation: "create_file", Path: "tmp/other.txt"}) {
 		t.Fatal("different path unexpectedly matched")
 	}
 }
 
 func TestPermissionPolicyMatchesExactCommandAndCWD(t *testing.T) {
 	root := t.TempDir()
-	request := agent.PermissionRequest{ToolName: "run_command", Operation: "run_command", Command: "go test ./...", CWD: "."}
+	request := agent.PermissionRequest{ToolName: "Bash", Operation: "run_command", Command: "go test ./...", CWD: "."}
 	policy := newPermissionPolicy(root)
 	if err := policy.remember(request); err != nil {
 		t.Fatal(err)
@@ -53,7 +53,7 @@ func TestPermissionPolicyMatchesExactCommandAndCWD(t *testing.T) {
 	if !loaded.allows(request) {
 		t.Fatal("exact command was not allowed")
 	}
-	if loaded.allows(agent.PermissionRequest{ToolName: "run_command", Operation: "run_command", Command: "go test ./...", CWD: "subdir"}) {
+	if loaded.allows(agent.PermissionRequest{ToolName: "Bash", Operation: "run_command", Command: "go test ./...", CWD: "subdir"}) {
 		t.Fatal("different cwd unexpectedly matched")
 	}
 }
@@ -74,7 +74,7 @@ func TestPermissionPolicyCorruptVersionFailsClosed(t *testing.T) {
 
 func TestPermissionPolicyDeduplicatesRulesAndClears(t *testing.T) {
 	root := t.TempDir()
-	request := agent.PermissionRequest{ToolName: "delete_file", Operation: "delete_file", Path: "old.txt"}
+	request := agent.PermissionRequest{ToolName: "DeleteFile", Operation: "delete_file", Path: "old.txt"}
 	policy := newPermissionPolicy(root)
 	if err := policy.remember(request); err != nil {
 		t.Fatal(err)
@@ -109,13 +109,13 @@ func TestPermissionPolicyDeduplicatesRulesAndClears(t *testing.T) {
 
 func TestPermissionCommandsShowAndClearPolicy(t *testing.T) {
 	root := t.TempDir()
-	request := agent.PermissionRequest{ToolName: "write_file", Operation: "create_file", Path: "tmp/hello.txt"}
+	request := agent.PermissionRequest{ToolName: "WriteFile", Operation: "create_file", Path: "tmp/hello.txt"}
 	policy := newPermissionPolicy(root)
 	if err := policy.remember(request); err != nil {
 		t.Fatal(err)
 	}
 	message, handled := handlePermissionCommand(policy, "/permissions")
-	if !handled || !strings.Contains(message, "write_file/create_file") || !strings.Contains(message, "tmp/hello.txt") {
+	if !handled || !strings.Contains(message, "WriteFile/create_file") || !strings.Contains(message, "tmp/hello.txt") {
 		t.Fatalf("summary handled=%t message=%q", handled, message)
 	}
 	message, handled = handlePermissionCommand(policy, "/permissions clear")
@@ -126,7 +126,7 @@ func TestPermissionCommandsShowAndClearPolicy(t *testing.T) {
 
 func TestPermissionApprovalChecksPersistentPolicyAfterSessionMemory(t *testing.T) {
 	root := t.TempDir()
-	request := agent.PermissionRequest{ToolName: "write_file", Operation: "create_file", Path: "tmp/hello.txt"}
+	request := agent.PermissionRequest{ToolName: "WriteFile", Operation: "create_file", Path: "tmp/hello.txt"}
 	policy := newPermissionPolicy(root)
 	if err := policy.remember(request); err != nil {
 		t.Fatal(err)
@@ -134,7 +134,7 @@ func TestPermissionApprovalChecksPersistentPolicyAfterSessionMemory(t *testing.T
 	if !permissionAlreadyAllowed(newPermissionMemory(), policy, request) {
 		t.Fatal("persistent exact request was not recognized")
 	}
-	if permissionAlreadyAllowed(newPermissionMemory(), policy, agent.PermissionRequest{ToolName: "write_file", Operation: "create_file", Path: "tmp/other.txt"}) {
+	if permissionAlreadyAllowed(newPermissionMemory(), policy, agent.PermissionRequest{ToolName: "WriteFile", Operation: "create_file", Path: "tmp/other.txt"}) {
 		t.Fatal("different path unexpectedly matched persistent policy")
 	}
 }

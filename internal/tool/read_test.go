@@ -140,7 +140,7 @@ func TestReadSupportsLinePaging(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Read() error = %v", err)
 	}
-	if got != "read_file: lines 2-3\ntwo\nthree\nread_file: more lines available; next offset: 3" {
+	if got != "ReadFile: lines 2-3\ntwo\nthree\nReadFile: more lines available; next offset: 3" {
 		t.Fatalf("Read() = %q, want paged result", got)
 	}
 
@@ -148,7 +148,7 @@ func TestReadSupportsLinePaging(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Read() final page error = %v", err)
 	}
-	if got != "read_file: lines 4-4\nfour" {
+	if got != "ReadFile: lines 4-4\nfour" {
 		t.Fatalf("Read() final page = %q, want four", got)
 	}
 }
@@ -217,8 +217,8 @@ func TestReadDefinition(t *testing.T) {
 	if err := json.Unmarshal(definition.Function, &function); err != nil {
 		t.Fatal(err)
 	}
-	if function.Name != "read_file" {
-		t.Fatalf("name = %q, want read_file", function.Name)
+	if function.Name != "ReadFile" {
+		t.Fatalf("name = %q, want ReadFile", function.Name)
 	}
 	if function.Parameters.Type != "object" || len(function.Parameters.Properties) != 3 || function.Parameters.Properties["path"] == nil || len(function.Parameters.Required) != 1 || function.Parameters.Required[0] != "path" || function.Parameters.AdditionalProperties {
 		t.Fatalf("unexpected parameters schema: %s", strings.TrimSpace(string(definition.Function)))
@@ -226,13 +226,13 @@ func TestReadDefinition(t *testing.T) {
 	for _, name := range []string{"offset", "limit"} {
 		raw, ok := function.Parameters.Properties[name]
 		if !ok {
-			t.Fatalf("read_file schema missing %s", name)
+			t.Fatalf("ReadFile schema missing %s", name)
 		}
 		var property struct {
 			Type string `json:"type"`
 		}
 		if err := json.Unmarshal(raw, &property); err != nil || property.Type != "integer" {
-			t.Fatalf("read_file %s schema = %s, %v", name, raw, err)
+			t.Fatalf("ReadFile %s schema = %s, %v", name, raw, err)
 		}
 	}
 }
@@ -240,7 +240,7 @@ func TestReadDefinition(t *testing.T) {
 func TestDefaultRegistryExposesReadOnlyTools(t *testing.T) {
 	registry := NewDefaultRegistry()
 	definitions := registry.Definitions()
-	wantNames := []string{"list_files", "search_text", "read_file"}
+	wantNames := []string{"Glob", "Grep", "ReadFile"}
 	if len(definitions) != len(wantNames) {
 		t.Fatalf("Definitions() length = %d, want %d", len(definitions), len(wantNames))
 	}
@@ -269,11 +269,11 @@ func TestNewRegistryRejectsDuplicateToolNames(t *testing.T) {
 }
 
 func TestRunCommandIsChatOnly(t *testing.T) {
-	if _, ok := NewDefaultRegistry().Lookup("run_command"); ok {
-		t.Fatal("default registry exposed run_command")
+	if _, ok := NewDefaultRegistry().Lookup("Bash"); ok {
+		t.Fatal("default registry exposed Bash")
 	}
-	if _, ok := NewChatRegistry().Lookup("run_command"); !ok {
-		t.Fatal("chat registry did not expose run_command")
+	if _, ok := NewChatRegistry().Lookup("Bash"); !ok {
+		t.Fatal("chat registry did not expose Bash")
 	}
 }
 

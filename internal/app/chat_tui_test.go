@@ -34,11 +34,11 @@ func TestTTYChatViewKeepsTranscriptAndSingleFooter(t *testing.T) {
 
 func TestTTYChatToolResultDoesNotRenderProbeFailure(t *testing.T) {
 	m := newTTYChatModel(context.Background(), nil, nil, nil, nil, chatStatus{}, nil)
-	m.applyEvent(agent.Event{Type: agent.EventToolResult, ToolName: "read_file", Path: "missing.txt", ErrorSummary: "tool execution failed"})
+	m.applyEvent(agent.Event{Type: agent.EventToolResult, ToolName: "ReadFile", Path: "missing.txt", ErrorSummary: "tool execution failed"})
 	if len(m.lines) != 0 {
 		t.Fatalf("probe failure should stay out of transcript: %#v", m.lines)
 	}
-	m.applyEvent(agent.Event{Type: agent.EventToolResult, ToolName: "read_file", Path: "ok.txt", Result: "hello", AfterBytes: 5})
+	m.applyEvent(agent.Event{Type: agent.EventToolResult, ToolName: "ReadFile", Path: "ok.txt", Result: "hello", AfterBytes: 5})
 	if len(m.lines) != 1 || !strings.Contains(m.lines[0], "ok.txt") {
 		t.Fatalf("successful tool result missing: %#v", m.lines)
 	}
@@ -46,11 +46,11 @@ func TestTTYChatToolResultDoesNotRenderProbeFailure(t *testing.T) {
 
 func TestTTYChatToolProgressReplacesStartLine(t *testing.T) {
 	m := newTTYChatModel(context.Background(), nil, nil, nil, nil, chatStatus{}, nil)
-	m.applyEvent(agent.Event{Type: agent.EventToolCall, ToolCallID: "call-1", ToolName: "read_file", Arguments: `{"path":"README.md"}`})
+	m.applyEvent(agent.Event{Type: agent.EventToolCall, ToolCallID: "call-1", ToolName: "ReadFile", Arguments: `{"path":"README.md"}`})
 	if len(m.lines) != 1 || !strings.Contains(m.lines[0], "● Read README.md ...") {
 		t.Fatalf("tool start line missing: %#v", m.lines)
 	}
-	m.applyEvent(agent.Event{Type: agent.EventToolResult, ToolCallID: "call-1", ToolName: "read_file", Path: "README.md", Result: "hello"})
+	m.applyEvent(agent.Event{Type: agent.EventToolResult, ToolCallID: "call-1", ToolName: "ReadFile", Path: "README.md", Result: "hello"})
 	if len(m.lines) != 1 || !strings.Contains(m.lines[0], "✓ Read README.md") || strings.Contains(m.lines[0], "●") {
 		t.Fatalf("tool result did not replace start line: %#v", m.lines)
 	}
@@ -161,7 +161,7 @@ func TestTTYChatCancellationUsesSafeMessage(t *testing.T) {
 
 func TestApprovalDecisionDefersPersistentPolicyUntilSuccess(t *testing.T) {
 	memory := newPermissionMemory()
-	request := agent.PermissionRequest{ToolName: "write_file", Operation: "create_file", Path: "tmp/hello.txt"}
+	request := agent.PermissionRequest{ToolName: "WriteFile", Operation: "create_file", Path: "tmp/hello.txt"}
 	decision := approvalDecision(1, memory, request)
 	if decision.Reason != "persistent_pattern_pending" {
 		t.Fatalf("reason=%q, want persistent_pattern_pending", decision.Reason)
@@ -173,10 +173,10 @@ func TestApprovalDecisionDefersPersistentPolicyUntilSuccess(t *testing.T) {
 
 func TestTTYApprovalPersistsOnlyAfterSuccessfulToolResult(t *testing.T) {
 	root := t.TempDir()
-	request := agent.PermissionRequest{ToolName: "write_file", Operation: "create_file", Path: "tmp/hello.txt"}
+	request := agent.PermissionRequest{ToolName: "WriteFile", Operation: "create_file", Path: "tmp/hello.txt"}
 	m := newTTYChatModel(context.Background(), nil, nil, nil, nil, chatStatus{Workspace: root}, nil)
 	m.pendingPermissions[permissionRuleKey(permissionRuleFromRequest(request))] = request
-	m.applyEvent(agent.Event{Type: agent.EventToolResult, ToolName: "write_file", Operation: "create_file", Path: "tmp/hello.txt", Result: "ok"})
+	m.applyEvent(agent.Event{Type: agent.EventToolResult, ToolName: "WriteFile", Operation: "create_file", Path: "tmp/hello.txt", Result: "ok"})
 	loaded, err := loadPermissionPolicy(root)
 	if err != nil || !loaded.allows(request) {
 		t.Fatalf("successful operation did not persist policy: err=%v", err)
@@ -185,7 +185,7 @@ func TestTTYApprovalPersistsOnlyAfterSuccessfulToolResult(t *testing.T) {
 	failedRoot := t.TempDir()
 	failed := newTTYChatModel(context.Background(), nil, nil, nil, nil, chatStatus{Workspace: failedRoot}, nil)
 	failed.pendingPermissions[permissionRuleKey(permissionRuleFromRequest(request))] = request
-	failed.applyEvent(agent.Event{Type: agent.EventToolResult, ToolName: "write_file", Operation: "create_file", Path: "tmp/hello.txt", ErrorSummary: "failed"})
+	failed.applyEvent(agent.Event{Type: agent.EventToolResult, ToolName: "WriteFile", Operation: "create_file", Path: "tmp/hello.txt", ErrorSummary: "failed"})
 	failedLoaded, err := loadPermissionPolicy(failedRoot)
 	if err != nil || failedLoaded.allows(request) {
 		t.Fatalf("failed operation unexpectedly persisted policy: err=%v", err)

@@ -174,7 +174,7 @@ func auditToolPath(eventType agent.EventType, toolName, rawArguments string) str
 	if eventType == agent.EventPermissionRequest || eventType == agent.EventPermissionDecision {
 		return auditRelativePath(rawArguments)
 	}
-	if eventType != agent.EventToolCall || (toolName != "read_file" && toolName != "list_files" && toolName != "search_text") {
+	if eventType != agent.EventToolCall || (toolName != "ReadFile" && toolName != "Glob" && toolName != "Grep") {
 		return ""
 	}
 	var args struct {

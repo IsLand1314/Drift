@@ -191,7 +191,7 @@ func TestRunReadRoundTrip(t *testing.T) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		switch requests {
 		case 1:
-			if request.Model != "test" || len(request.Messages) != 2 || request.Messages[0].Role != "system" || !strings.Contains(request.Messages[0].Content, "native read-only tools") || !strings.Contains(request.Messages[0].Content, "run_command") || !strings.Contains(request.Messages[0].Content, "DSML") || request.Messages[1].Role != "user" || request.Messages[1].Content != "explain app.go" {
+			if request.Model != "test" || len(request.Messages) != 2 || request.Messages[0].Role != "system" || !strings.Contains(request.Messages[0].Content, "native read-only tools") || !strings.Contains(request.Messages[0].Content, "Bash") || !strings.Contains(request.Messages[0].Content, "DSML") || request.Messages[1].Role != "user" || request.Messages[1].Content != "explain app.go" {
 				t.Errorf("first request messages = %#v", request.Messages)
 			}
 			if len(request.Tools) != 3 || request.Tools[0].Type != "function" || request.Tools[1].Type != "function" || request.Tools[2].Type != "function" {
@@ -200,16 +200,16 @@ func TestRunReadRoundTrip(t *testing.T) {
 				var definition struct {
 					Name string `json:"name"`
 				}
-				if err := json.Unmarshal(request.Tools[2].Function, &definition); err != nil || definition.Name != "read_file" {
-					t.Errorf("read_file schema = %s, %v", request.Tools[2].Function, err)
+				if err := json.Unmarshal(request.Tools[2].Function, &definition); err != nil || definition.Name != "ReadFile" {
+					t.Errorf("ReadFile schema = %s, %v", request.Tools[2].Function, err)
 				}
 			}
-			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-1\",\"type\":\"function\",\"function\":{\"name\":\"read_file\",\"arguments\":\"{\\\"path\\\":\\\"app.go\\\"}\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n")
+			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-1\",\"type\":\"function\",\"function\":{\"name\":\"ReadFile\",\"arguments\":\"{\\\"path\\\":\\\"app.go\\\"}\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n")
 		case 2:
 			if request.Model != "test" || len(request.Tools) != 3 {
 				t.Errorf("second request tools = %#v, want three native tools", request.Tools)
 			}
-			if len(request.Messages) != 3 || request.Messages[1].Role != "assistant" || len(request.Messages[1].ToolCalls) != 1 || request.Messages[1].ToolCalls[0].ID != "call-1" || request.Messages[1].ToolCalls[0].Function.Name != "read_file" || request.Messages[2].Role != "tool" || request.Messages[2].ToolCallID != "call-1" || !strings.Contains(request.Messages[2].Content, "package app") {
+			if len(request.Messages) != 3 || request.Messages[1].Role != "assistant" || len(request.Messages[1].ToolCalls) != 1 || request.Messages[1].ToolCalls[0].ID != "call-1" || request.Messages[1].ToolCalls[0].Function.Name != "ReadFile" || request.Messages[2].Role != "tool" || request.Messages[2].ToolCallID != "call-1" || !strings.Contains(request.Messages[2].Content, "package app") {
 				t.Errorf("second request messages = %#v", request.Messages)
 			}
 			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"最终解释\"}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
@@ -260,15 +260,15 @@ func TestRunReadRoundTripMultipleFiles(t *testing.T) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		switch requests {
 		case 1:
-			if request.Model != "test" || len(request.Messages) != 2 || request.Messages[0].Role != "system" || !strings.Contains(request.Messages[0].Content, "native read-only tools") || !strings.Contains(request.Messages[0].Content, "run_command") || !strings.Contains(request.Messages[0].Content, "DSML") || request.Messages[1].Role != "user" || request.Messages[1].Content != "总结项目" {
+			if request.Model != "test" || len(request.Messages) != 2 || request.Messages[0].Role != "system" || !strings.Contains(request.Messages[0].Content, "native read-only tools") || !strings.Contains(request.Messages[0].Content, "Bash") || !strings.Contains(request.Messages[0].Content, "DSML") || request.Messages[1].Role != "user" || request.Messages[1].Content != "总结项目" {
 				t.Errorf("first request messages = %#v", request.Messages)
 			}
-			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-app\",\"type\":\"function\",\"function\":{\"name\":\"read_file\",\"arguments\":\"{\\\"path\\\":\\\"app.go\\\"}\"}},{\"index\":1,\"id\":\"call-app-test\",\"type\":\"function\",\"function\":{\"name\":\"read_file\",\"arguments\":\"{\\\"path\\\":\\\"app_test.go\\\"}\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n")
+			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-app\",\"type\":\"function\",\"function\":{\"name\":\"ReadFile\",\"arguments\":\"{\\\"path\\\":\\\"app.go\\\"}\"}},{\"index\":1,\"id\":\"call-app-test\",\"type\":\"function\",\"function\":{\"name\":\"ReadFile\",\"arguments\":\"{\\\"path\\\":\\\"app_test.go\\\"}\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n")
 		case 2:
 			if request.Model != "test" || len(request.Tools) != 3 {
 				t.Errorf("second request model=%q tools=%#v, want three native tools", request.Model, request.Tools)
 			}
-			if len(request.Messages) != 4 || request.Messages[1].Role != "assistant" || len(request.Messages[1].ToolCalls) != 2 || request.Messages[1].ToolCalls[0].ID != "call-app" || request.Messages[1].ToolCalls[0].Function.Name != "read_file" || request.Messages[1].ToolCalls[0].Function.Arguments != `{"path":"app.go"}` || request.Messages[1].ToolCalls[1].ID != "call-app-test" || request.Messages[1].ToolCalls[1].Function.Name != "read_file" || request.Messages[1].ToolCalls[1].Function.Arguments != `{"path":"app_test.go"}` || request.Messages[2].Role != "tool" || request.Messages[2].ToolCallID != "call-app" || !strings.Contains(request.Messages[2].Content, "package app") || request.Messages[3].Role != "tool" || request.Messages[3].ToolCallID != "call-app-test" || !strings.Contains(request.Messages[3].Content, "TestRunReadRoundTrip") {
+			if len(request.Messages) != 4 || request.Messages[1].Role != "assistant" || len(request.Messages[1].ToolCalls) != 2 || request.Messages[1].ToolCalls[0].ID != "call-app" || request.Messages[1].ToolCalls[0].Function.Name != "ReadFile" || request.Messages[1].ToolCalls[0].Function.Arguments != `{"path":"app.go"}` || request.Messages[1].ToolCalls[1].ID != "call-app-test" || request.Messages[1].ToolCalls[1].Function.Name != "ReadFile" || request.Messages[1].ToolCalls[1].Function.Arguments != `{"path":"app_test.go"}` || request.Messages[2].Role != "tool" || request.Messages[2].ToolCallID != "call-app" || !strings.Contains(request.Messages[2].Content, "package app") || request.Messages[3].Role != "tool" || request.Messages[3].ToolCallID != "call-app-test" || !strings.Contains(request.Messages[3].Content, "TestRunReadRoundTrip") {
 				t.Errorf("second request messages = %#v", request.Messages)
 			}
 			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"项目摘要\"}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
@@ -341,7 +341,7 @@ func TestRunMultiTurnExplorationRoundTripAndSessionAudit(t *testing.T) {
 		if request.Model != "test" {
 			t.Errorf("request %d model = %q, want test", requests, request.Model)
 		}
-		wantTools := []string{"list_files", "search_text", "read_file"}
+		wantTools := []string{"Glob", "Grep", "ReadFile"}
 		if len(request.Tools) != len(wantTools) {
 			t.Errorf("request %d tools = %#v, want three native schemas", requests, request.Tools)
 		} else {
@@ -356,17 +356,17 @@ func TestRunMultiTurnExplorationRoundTripAndSessionAudit(t *testing.T) {
 			if len(request.Messages) != 2 || request.Messages[0].Role != "system" || request.Messages[1].Role != "user" || request.Messages[1].Content != "探索项目" {
 				t.Errorf("first request messages = %#v", request.Messages)
 			}
-			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-list\",\"type\":\"function\",\"function\":{\"name\":\"list_files\",\"arguments\":\"{\\\"path\\\":\\\"src\\\"}\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n")
+			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-list\",\"type\":\"function\",\"function\":{\"name\":\"Glob\",\"arguments\":\"{\\\"path\\\":\\\"src\\\"}\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n")
 		case 2:
 			if len(request.Messages) != 3 || request.Messages[1].Role != "assistant" || request.Messages[1].ToolCalls[0].ID != "call-list" || request.Messages[2].Role != "tool" || request.Messages[2].ToolCallID != "call-list" || request.Messages[2].Content != "src/README.md\nsrc/main.go" {
 				t.Errorf("second request messages = %#v", request.Messages)
 			}
-			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-search\",\"type\":\"function\",\"function\":{\"name\":\"search_text\",\"arguments\":\"{\\\"query\\\":\\\"needle\\\",\\\"path\\\":\\\"src\\\"}\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n")
+			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-search\",\"type\":\"function\",\"function\":{\"name\":\"Grep\",\"arguments\":\"{\\\"query\\\":\\\"needle\\\",\\\"path\\\":\\\"src\\\"}\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n")
 		case 3:
 			if len(request.Messages) != 5 || request.Messages[3].Role != "assistant" || request.Messages[3].ToolCalls[0].ID != "call-search" || request.Messages[3].ToolCalls[0].Function.Arguments != `{"query":"needle","path":"src"}` || request.Messages[4].Role != "tool" || request.Messages[4].ToolCallID != "call-search" || request.Messages[4].Content != "src/README.md:1: needle in readme" {
 				t.Errorf("third request messages = %#v", request.Messages)
 			}
-			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-read\",\"type\":\"function\",\"function\":{\"name\":\"read_file\",\"arguments\":\"{\\\"path\\\":\\\"src/README.md\\\"}\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n")
+			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-read\",\"type\":\"function\",\"function\":{\"name\":\"ReadFile\",\"arguments\":\"{\\\"path\\\":\\\"src/README.md\\\"}\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n")
 		case 4:
 			if len(request.Messages) != 7 || request.Messages[5].Role != "assistant" || request.Messages[5].ToolCalls[0].ID != "call-read" || request.Messages[5].ToolCalls[0].Function.Arguments != `{"path":"src/README.md"}` || request.Messages[6].Role != "tool" || request.Messages[6].ToolCallID != "call-read" || request.Messages[6].Content != "needle in readme\n" {
 				t.Errorf("fourth request messages = %#v", request.Messages)
@@ -425,7 +425,7 @@ func TestRunWritesSessionAudit(t *testing.T) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		switch requests {
 		case 1:
-			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-1\",\"type\":\"function\",\"function\":{\"name\":\"read_file\",\"arguments\":\"{\\\"path\\\":\\\"README.md\\\"}\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n")
+			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-1\",\"type\":\"function\",\"function\":{\"name\":\"ReadFile\",\"arguments\":\"{\\\"path\\\":\\\"README.md\\\"}\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n")
 		case 2:
 			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"最终回答\"}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
 		default:
@@ -540,7 +540,7 @@ func TestRunWorkspaceDirectory(t *testing.T) {
 			if len(request.Messages) != 2 || request.Messages[0].Role != "system" || strings.Contains(request.Messages[0].Content, "initial focus target") || request.Messages[1].Content != "analyze target" {
 				t.Errorf("first request messages = %#v", request.Messages)
 			}
-			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-read\",\"type\":\"function\",\"function\":{\"name\":\"read_file\",\"arguments\":\"{\\\"path\\\":\\\"README.md\\\"}\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n")
+			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-read\",\"type\":\"function\",\"function\":{\"name\":\"ReadFile\",\"arguments\":\"{\\\"path\\\":\\\"README.md\\\"}\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n")
 		case 2:
 			if len(request.Messages) != 3 || request.Messages[2].Role != "tool" || request.Messages[2].Content != "workspace readme\n" {
 				t.Errorf("second request messages = %#v", request.Messages)

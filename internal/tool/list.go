@@ -17,7 +17,7 @@ const MaxListEntries = 200
 
 type listFilesTool struct{}
 
-func (listFilesTool) Name() string                   { return "list_files" }
+func (listFilesTool) Name() string                   { return "Glob" }
 func (listFilesTool) Definition() llm.ToolDefinition { return ListDefinition() }
 func (listFilesTool) Execute(ctx context.Context, root, rawArguments string) (string, error) {
 	if err := ctx.Err(); err != nil {
@@ -32,7 +32,7 @@ type listArguments struct {
 
 func ListDefinition() llm.ToolDefinition {
 	function := map[string]any{
-		"name":        "list_files",
+		"name":        "Glob",
 		"description": "List regular files below a workspace directory.",
 		"parameters": map[string]any{
 			"type":                 "object",
@@ -42,7 +42,7 @@ func ListDefinition() llm.ToolDefinition {
 	}
 	raw, err := json.Marshal(function)
 	if err != nil {
-		panic("tool: marshal list_files definition: " + err.Error())
+		panic("tool: marshal Glob definition: " + err.Error())
 	}
 	return llm.ToolDefinition{Type: "function", Function: raw}
 }
@@ -53,11 +53,11 @@ func List(root, rawArguments string) (string, error) {
 		return "", err
 	}
 	if err := validateRelativePath(args.Path, true); err != nil {
-		return "", fmt.Errorf("list_files path is invalid: %w", err)
+		return "", fmt.Errorf("Glob path is invalid: %w", err)
 	}
 	workspace, err := openWorkspace(root)
 	if err != nil {
-		return "", fmt.Errorf("open list_files root: %w", err)
+		return "", fmt.Errorf("open Glob root: %w", err)
 	}
 	defer workspace.Close()
 	paths := make([]string, 0, MaxListEntries)
@@ -65,7 +65,7 @@ func List(root, rawArguments string) (string, error) {
 		paths = append(paths, path.Clean(strings.ReplaceAll(filePath, `\`, "/")))
 		return nil
 	}); err != nil {
-		return "", fmt.Errorf("list_files: %w", err)
+		return "", fmt.Errorf("Glob: %w", err)
 	}
 	sort.Strings(paths)
 	truncated := len(paths) > MaxListEntries
@@ -77,7 +77,7 @@ func List(root, rawArguments string) (string, error) {
 		if result != "" {
 			result += "\n"
 		}
-		result += "list_files: results truncated at 200 entries"
+		result += "Glob: results truncated at 200 entries"
 	}
 	return result, nil
 }
@@ -89,27 +89,27 @@ func decodeListArguments(rawArguments string) (listArguments, error) {
 		if err == nil {
 			err = fmt.Errorf("arguments must be a JSON object")
 		}
-		return listArguments{}, fmt.Errorf("decode list_files arguments: %w", err)
+		return listArguments{}, fmt.Errorf("decode Glob arguments: %w", err)
 	}
 	var extra any
 	if err := decoder.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return listArguments{}, fmt.Errorf("decode list_files arguments: multiple JSON values")
+			return listArguments{}, fmt.Errorf("decode Glob arguments: multiple JSON values")
 		}
-		return listArguments{}, fmt.Errorf("decode list_files arguments: %w", err)
+		return listArguments{}, fmt.Errorf("decode Glob arguments: %w", err)
 	}
 	for name := range fields {
 		if name != "path" {
-			return listArguments{}, fmt.Errorf("decode list_files arguments: unknown field %q", name)
+			return listArguments{}, fmt.Errorf("decode Glob arguments: unknown field %q", name)
 		}
 	}
 	var args listArguments
 	if rawPath, ok := fields["path"]; ok {
 		if string(rawPath) == "null" {
-			return listArguments{}, fmt.Errorf("decode list_files arguments: path must be a string")
+			return listArguments{}, fmt.Errorf("decode Glob arguments: path must be a string")
 		}
 		if err := json.Unmarshal(rawPath, &args.Path); err != nil {
-			return listArguments{}, fmt.Errorf("decode list_files arguments: path must be a string: %w", err)
+			return listArguments{}, fmt.Errorf("decode Glob arguments: path must be a string: %w", err)
 		}
 	}
 	return args, nil

@@ -20,11 +20,11 @@ const (
 	MaxSearchBytes   = 32 << 10
 )
 
-const searchTruncatedMarker = "search_text: results truncated at configured limit"
+const searchTruncatedMarker = "Grep: results truncated at configured limit"
 
 type searchTextTool struct{}
 
-func (searchTextTool) Name() string                   { return "search_text" }
+func (searchTextTool) Name() string                   { return "Grep" }
 func (searchTextTool) Definition() llm.ToolDefinition { return SearchDefinition() }
 func (searchTextTool) Execute(ctx context.Context, root, rawArguments string) (string, error) {
 	if err := ctx.Err(); err != nil {
@@ -45,35 +45,35 @@ func decodeSearchArguments(raw string) (searchArguments, error) {
 		if err == nil {
 			err = fmt.Errorf("arguments must be a JSON object")
 		}
-		return searchArguments{}, fmt.Errorf("decode search_text arguments: %w", err)
+		return searchArguments{}, fmt.Errorf("decode Grep arguments: %w", err)
 	}
 	var extra any
 	if err := decoder.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return searchArguments{}, fmt.Errorf("decode search_text arguments: multiple JSON values")
+			return searchArguments{}, fmt.Errorf("decode Grep arguments: multiple JSON values")
 		}
-		return searchArguments{}, fmt.Errorf("decode search_text arguments: %w", err)
+		return searchArguments{}, fmt.Errorf("decode Grep arguments: %w", err)
 	}
 	for name := range fields {
 		if name != "query" && name != "path" {
-			return searchArguments{}, fmt.Errorf("decode search_text arguments: unknown field %q", name)
+			return searchArguments{}, fmt.Errorf("decode Grep arguments: unknown field %q", name)
 		}
 	}
 	var args searchArguments
 	rawQuery, ok := fields["query"]
 	if !ok || string(rawQuery) == "null" || json.Unmarshal(rawQuery, &args.Query) != nil || args.Query == "" {
-		return searchArguments{}, fmt.Errorf("search_text query must be a non-empty string")
+		return searchArguments{}, fmt.Errorf("Grep query must be a non-empty string")
 	}
 	if rawPath, ok := fields["path"]; ok {
 		if string(rawPath) == "null" || json.Unmarshal(rawPath, &args.Path) != nil {
-			return searchArguments{}, fmt.Errorf("search_text path must be a string")
+			return searchArguments{}, fmt.Errorf("Grep path must be a string")
 		}
 	}
 	return args, nil
 }
 
 func SearchDefinition() llm.ToolDefinition {
-	function := map[string]any{"name": "search_text", "description": "Search literal text in regular files below the workspace root.", "parameters": map[string]any{
+	function := map[string]any{"name": "Grep", "description": "Search literal text in regular files below the workspace root.", "parameters": map[string]any{
 		"type": "object", "properties": map[string]any{
 			"query": map[string]any{"type": "string", "description": "Literal text to find."},
 			"path":  map[string]any{"type": "string", "description": "Optional relative directory below the workspace root."},
@@ -81,7 +81,7 @@ func SearchDefinition() llm.ToolDefinition {
 	}}
 	raw, err := json.Marshal(function)
 	if err != nil {
-		panic("tool: marshal search_text definition: " + err.Error())
+		panic("tool: marshal Grep definition: " + err.Error())
 	}
 	return llm.ToolDefinition{Type: "function", Function: raw}
 }
@@ -96,11 +96,11 @@ func searchWithContext(ctx context.Context, root, rawArguments string) (string, 
 		return "", err
 	}
 	if err := validateRelativePath(args.Path, true); err != nil {
-		return "", fmt.Errorf("search_text path is invalid: %w", err)
+		return "", fmt.Errorf("Grep path is invalid: %w", err)
 	}
 	workspace, err := openWorkspace(root)
 	if err != nil {
-		return "", fmt.Errorf("open search_text root: %w", err)
+		return "", fmt.Errorf("open Grep root: %w", err)
 	}
 	defer workspace.Close()
 	var out strings.Builder
@@ -164,7 +164,7 @@ func searchWithContext(ctx context.Context, root, rawArguments string) (string, 
 		return nil
 	})
 	if err != nil && !errors.Is(err, stop) {
-		return "", fmt.Errorf("search_text: %w", err)
+		return "", fmt.Errorf("Grep: %w", err)
 	}
 	if truncated {
 		marker := searchTruncatedMarker

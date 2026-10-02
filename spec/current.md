@@ -1,6 +1,26 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M3.9。M3.8 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M3.10。M3.9 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+
+## M3.10：工具公开名称统一
+
+M3.10 统一模型可见的内建工具名称，不改变工具行为、路径边界、审批和沙箱策略。
+
+### 当前范围
+
+- 只读工具：`Glob`、`Grep`、`ReadFile`。
+- chat 变更工具：`WriteFile`、`EditFile`、`DeleteFile`、`Bash`。
+- `-p` 仍只暴露 `Glob`、`Grep`、`ReadFile`；chat 才暴露全部七个工具。
+- 旧名称 `list_files`、`search_text`、`read_file`、`write_file`、`edit_file`、`delete_file`、`run_command` 不再注册或兼容；旧会话中的旧工具调用必须按未知工具处理，不自动改写。
+- 变更记录中的内部 operation（例如 `create_file`、`edit_file`、`run_command`）保持不变，避免破坏 change set 恢复语义。
+
+### 验收
+
+| ID | 验证方法 | 通过阈值 | 证据类型 | 失败判定 |
+| --- | --- | --- | --- | --- |
+| AC-M310-001 | `go test ./internal/tool -run 'TestPublicToolNames|TestDefinitionsUsePublicToolNames' -count=1` | 两个 registry 仅暴露新名称，旧名称 Lookup 全部失败 | 测试日志 | 旧名称仍可调用 |
+| AC-M310-002 | `go test ./... -count=1` | Agent、权限、审计、Provider 和 TUI 均使用新名称 | 测试日志 | 任一回归失败 |
+| AC-M310-003 | `go vet ./...`、`go build ./cmd/drift`、`git diff --check` | 全部退出码为 0 | 命令日志 | 任一命令失败 |
 
 ## M3.9：会话权限模式
 

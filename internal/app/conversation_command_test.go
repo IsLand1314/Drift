@@ -54,7 +54,7 @@ func TestConversationTimelineShowsStructureWithoutBodies(t *testing.T) {
 	}
 	snapshot.Messages = []llm.Message{
 		{Role: "user", Content: "secret prompt"},
-		{Role: "assistant", ToolCalls: []llm.ToolCall{{ID: "call-1", Name: "read_file"}}},
+		{Role: "assistant", ToolCalls: []llm.ToolCall{{ID: "call-1", Name: "ReadFile"}}},
 		{Role: "tool", ToolCallID: "call-1", Content: "secret result"},
 	}
 	if err := store.Save(snapshot); err != nil {
@@ -65,7 +65,7 @@ func TestConversationTimelineShowsStructureWithoutBodies(t *testing.T) {
 		t.Fatalf("code=%d out=%q stderr=%q", code, out.String(), stderr.String())
 	}
 	got := out.String()
-	for _, required := range []string{"01 user", "02 assistant", "read_file", "03 tool", "bytes="} {
+	for _, required := range []string{"01 user", "02 assistant", "ReadFile", "03 tool", "bytes="} {
 		if !strings.Contains(got, required) {
 			t.Fatalf("timeline missing %q: %q", required, got)
 		}
