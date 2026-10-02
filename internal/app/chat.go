@@ -136,6 +136,9 @@ func (p *chatPersistence) clearRunner(runner *agent.Runner) error {
 
 func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit session.Writer, traceSink agent.EventSink, persistence *chatPersistence, status chatStatus, interrupt *interruptCoordinator, in io.Reader, out, stderr io.Writer) int {
 	input := newChatInput(in, out, status.Model)
+	if _, ok := input.(*ttyChatInput); ok {
+		return runTTYChatLoop(ctx, runner, audit, traceSink, persistence, status, interrupt, in, out)
+	}
 	permissionMemory := newPermissionMemory()
 	var currentActivity *chatActivity
 	if runner != nil {
