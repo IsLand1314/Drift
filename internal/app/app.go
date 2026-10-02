@@ -236,7 +236,9 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 			runner = agent.NewRunnerWithMessagesAndSystemContext(modelClient{Client: client, model: *model}, selection.Root, snapshot.Focus, selectedSkill.Name, selectedSkill.Content, registry, snapshot.Messages)
 			persistence = &chatPersistence{store: store, snapshot: snapshot, persistent: true}
 			persistence.usage = usageTotals{InputTokens: snapshot.InputTokens, OutputTokens: snapshot.OutputTokens, ReportedRequests: snapshot.ReportedRequests, UnreportedRequests: snapshot.UnreportedRequests}
-			fmt.Fprintf(stderr, "Session ID: %s\n注意：此会话会保存完整本地上下文，可能包含用户输入和读取结果；使用 --no-session 可关闭\n", snapshot.ID)
+			if _, _, isTTY := ttyChatFiles(in, out); !isTTY {
+				fmt.Fprintf(stderr, "Session ID: %s\n注意：此会话会保存完整本地上下文，可能包含用户输入和读取结果；使用 --no-session 可关闭\n", snapshot.ID)
+			}
 		} else if !persistenceOptions.noSession {
 			snapshot, createErr := store.Create(selection.Focus)
 			if createErr != nil {
@@ -245,11 +247,15 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 			}
 			runner = agent.NewRunnerWithSystemContext(modelClient{Client: client, model: *model}, selection.Root, selection.Focus, selectedSkill.Name, selectedSkill.Content, registry)
 			persistence = &chatPersistence{store: store, snapshot: snapshot, persistent: true}
-			fmt.Fprintf(stderr, "Session ID: %s\n注意：此会话会保存完整本地上下文，可能包含用户输入和读取结果；使用 --no-session 可关闭\n", snapshot.ID)
+			if _, _, isTTY := ttyChatFiles(in, out); !isTTY {
+				fmt.Fprintf(stderr, "Session ID: %s\n注意：此会话会保存完整本地上下文，可能包含用户输入和读取结果；使用 --no-session 可关闭\n", snapshot.ID)
+			}
 		} else {
 			runner = agent.NewRunnerWithSystemContext(modelClient{Client: client, model: *model}, selection.Root, selection.Focus, selectedSkill.Name, selectedSkill.Content, registry)
 			persistence = &chatPersistence{persistent: false}
-			fmt.Fprintln(stderr, "已禁用完整会话保存（--no-session）；仍保留脱敏审计")
+			if _, _, isTTY := ttyChatFiles(in, out); !isTTY {
+				fmt.Fprintln(stderr, "已禁用完整会话保存（--no-session）；仍保留脱敏审计")
+			}
 		}
 	} else {
 		runner = agent.NewRunnerWithSystemContext(modelClient{Client: client, model: *model}, selection.Root, selection.Focus, selectedSkill.Name, selectedSkill.Content, registry)

@@ -21,12 +21,19 @@ type chatInput interface {
 }
 
 func newChatInput(in io.Reader, out io.Writer, modelName string) chatInput {
-	if inputFile, ok := in.(*os.File); ok {
-		if outputFile, ok := out.(*os.File); ok && isTTY(inputFile) && isTTY(outputFile) {
-			return &ttyChatInput{in: inputFile, out: outputFile, modelName: modelName}
-		}
+	if ttyInput, ttyOutput, ok := ttyChatFiles(in, out); ok {
+		return &ttyChatInput{in: ttyInput, out: ttyOutput, modelName: modelName}
 	}
 	return newScannerChatInput(in)
+}
+
+func ttyChatFiles(in io.Reader, out io.Writer) (*os.File, *os.File, bool) {
+	inputFile, inputOK := in.(*os.File)
+	outputFile, outputOK := out.(*os.File)
+	if !inputOK || !outputOK || !isTTY(inputFile) || !isTTY(outputFile) {
+		return nil, nil, false
+	}
+	return inputFile, outputFile, true
 }
 
 func isTTY(file *os.File) bool {

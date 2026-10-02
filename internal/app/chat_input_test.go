@@ -3,11 +3,27 @@ package app
 import (
 	"context"
 	"io"
+	"os"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
+
+func TestTTYChatFilesIdentifiesTerminalPair(t *testing.T) {
+	readPipe, writePipe, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer readPipe.Close()
+	defer writePipe.Close()
+	if _, _, ok := ttyChatFiles(readPipe, writePipe); ok {
+		t.Fatal("pipe pair must not be treated as an interactive TTY")
+	}
+	if _, _, ok := ttyChatFiles(strings.NewReader(""), &strings.Builder{}); ok {
+		t.Fatal("buffered pair must not be treated as an interactive TTY")
+	}
+}
 
 func TestChatInputScannerReadsLines(t *testing.T) {
 	input := newChatInput(strings.NewReader("hello\n\n"), &strings.Builder{}, "test-model")
