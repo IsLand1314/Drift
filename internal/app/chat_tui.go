@@ -332,13 +332,11 @@ func (m *ttyChatModel) applyEvent(e agent.Event) {
 		m.toolStarted[e.ToolCallID] = toolProgressTUI{started: time.Now(), path: path, lineIdx: len(m.lines) - 1}
 	case agent.EventToolResult:
 		requestKey := permissionRuleKey(permissionRuleFromRequest(agent.PermissionRequest{ToolName: e.ToolName, Operation: e.Operation, Path: e.Path, Command: e.Command, CWD: e.CWD}))
-		if e.ErrorSummary == "" {
-			if request, ok := m.pendingPermissions[requestKey]; ok {
-				delete(m.pendingPermissions, requestKey)
-				if m.permissionPolicy != nil {
-					if err := m.permissionPolicy.remember(request); err != nil {
-						m.lines = append(m.lines, "⚠ 本次已允许，但权限策略持久化失败")
-					}
+		if request, ok := m.pendingPermissions[requestKey]; ok {
+			delete(m.pendingPermissions, requestKey)
+			if e.ErrorSummary == "" && m.permissionPolicy != nil {
+				if err := m.permissionPolicy.remember(request); err != nil {
+					m.lines = append(m.lines, "⚠ 本次已允许，但权限策略持久化失败")
 				}
 			}
 		}

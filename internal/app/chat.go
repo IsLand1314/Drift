@@ -396,11 +396,11 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 			if persistence != nil {
 				persistence.usage.add(event)
 			}
-			if event.Type == agent.EventToolResult && event.ErrorSummary == "" {
+			if event.Type == agent.EventToolResult {
 				key := permissionRuleKey(permissionRuleFromRequest(agent.PermissionRequest{ToolName: event.ToolName, Operation: event.Operation, Path: event.Path, Command: event.Command, CWD: event.CWD}))
 				if request, ok := pendingPermissions[key]; ok {
 					delete(pendingPermissions, key)
-					if permissionPolicyStore != nil {
+					if event.ErrorSummary == "" && permissionPolicyStore != nil {
 						if persistErr := permissionPolicyStore.remember(request); persistErr != nil {
 							fmt.Fprintln(out, "⚠ 本次已允许，但权限策略持久化失败")
 						}
