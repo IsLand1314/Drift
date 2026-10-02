@@ -68,7 +68,7 @@ func DetectSandbox() SandboxCapabilities {
 
 func bwrapArguments(root, cwd, command string) []string {
 	workspace, _ := filepath.Abs(root)
-	workdir := "/workspace"
+	workdir := "/mnt"
 	if cwd != "." && cwd != "" {
 		workdir = filepath.Join(workdir, filepath.FromSlash(cwd))
 	}
@@ -82,12 +82,11 @@ func bwrapArguments(root, cwd, command string) []string {
 		"--tmpfs", "/tmp",
 		"--proc", "/proc",
 		"--dev", "/dev",
-		"--dir", "/workspace",
-		"--bind", workspace, "/workspace",
+		"--bind", workspace, "/mnt",
 	}
 	for _, protected := range []string{".drift", ".git"} {
 		if _, err := os.Stat(filepath.Join(workspace, protected)); err == nil {
-			args = append(args, "--tmpfs", filepath.Join("/workspace", protected))
+			args = append(args, "--tmpfs", filepath.Join("/mnt", protected))
 		}
 	}
 	args = append(args, "--chdir", workdir, "/bin/sh", "-c", command)

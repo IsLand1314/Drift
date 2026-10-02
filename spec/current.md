@@ -12,6 +12,7 @@ M3.13 不扩大沙箱策略，只把已实现的 Linux `bwrap` 包装从“参�
 - `required` 模式下命令可写入 workspace，workspace 外部路径不能落盘，`.drift` 和 `.git` 内容不能被修改。
 - `--unshare-net` 运行时没有可用路由；`--die-with-parent`、workspace bind 和保护目录隔离继续由参数测试覆盖。
 - 不新增远程服务器验证、不引入 Node runtime、不改变 Windows `auto/required` 的既有 fail-open/fail-closed 契约。
+- 2026-10-02 已在临时 Linux 环境实际执行 AC-M313-001 并通过；测试二进制、临时目录和临时安装的 `bubblewrap` 均已清理。
 
 ### 验收
 

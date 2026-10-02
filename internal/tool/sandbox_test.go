@@ -43,7 +43,7 @@ func TestBwrapArgumentsBindWorkspaceAndDisableNetwork(t *testing.T) {
 	args := bwrapArguments("/work/project", ".", "printf ok")
 	joined := strings.Join(args, " ")
 	workspace, _ := filepath.Abs("/work/project")
-	for _, want := range []string{"--die-with-parent", "--unshare-net", "--ro-bind / /", "--bind " + workspace + " /workspace", "--chdir /workspace", "printf ok"} {
+	for _, want := range []string{"--die-with-parent", "--unshare-net", "--ro-bind / /", "--bind " + workspace + " /mnt", "--chdir /mnt", "printf ok"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("bwrap args missing %q: %q", want, joined)
 		}
