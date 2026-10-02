@@ -63,3 +63,10 @@
 ## 分阶段交付
 
 M3.9 交付策略契约、能力检测、模式解析、审计字段和 fail-closed 验收；Linux/macOS/Windows 后端按可验证程度分别交付。Windows 完整文件/网络隔离进入后续独立阶段。
+
+## 第一阶段实现状态（2026-10-02）
+
+- 已实现 `off`、`auto`、`required` 模式解析与能力选择。
+- `run_command` 预览和结果记录沙箱模式、后端及 `sandboxed` 状态。
+- 当前 Windows 无可靠 OS 后端，`required` 安全拒绝，`auto` 明确记录未沙箱执行。
+- 尚未把 `bwrap` 或 `sandbox-exec` 标记为可靠后端；后续必须先提供并验证受限 profile，再启用实际包装执行。

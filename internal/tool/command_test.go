@@ -77,3 +77,25 @@ func TestRunCommandReportsNonZeroExit(t *testing.T) {
 		t.Fatalf("result=%q", result)
 	}
 }
+
+func TestRunCommandSandboxModeIsRecorded(t *testing.T) {
+	root := t.TempDir()
+	preview, err := RunCommandPreview(root, `{"command":"echo ok","sandbox_mode":"auto"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.SandboxMode != SandboxAuto || preview.Sandbox.Available {
+		t.Fatalf("preview sandbox=%+v", preview)
+	}
+	result, err := ExecuteCommand(context.Background(), root, preview)
+	if err != nil || !strings.Contains(result, "sandbox_mode=auto") || !strings.Contains(result, "sandboxed=false") {
+		t.Fatalf("result=%q err=%v", result, err)
+	}
+}
+
+func TestRunCommandRequiredSandboxFailsClosedWithoutBackend(t *testing.T) {
+	root := t.TempDir()
+	if _, err := RunCommandPreview(root, `{"command":"echo blocked","sandbox_mode":"required"}`); err == nil {
+		t.Fatal("required sandbox unexpectedly accepted without reliable backend")
+	}
+}

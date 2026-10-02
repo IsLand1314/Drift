@@ -44,6 +44,7 @@ type commandArguments struct {
 	CWD            string `json:"cwd"`
 	TimeoutMS      int    `json:"timeout_ms"`
 	MaxOutputBytes int    `json:"max_output_bytes"`
+	SandboxMode    string `json:"sandbox_mode"`
 }
 
 func RunCommandDefinition() llm.ToolDefinition {
@@ -57,6 +58,7 @@ func RunCommandDefinition() llm.ToolDefinition {
 				"cwd":              map[string]any{"type": "string", "description": "Optional workspace-relative working directory."},
 				"timeout_ms":       map[string]any{"type": "integer", "description": "Optional timeout from 1 to 60000 milliseconds."},
 				"max_output_bytes": map[string]any{"type": "integer", "description": "Optional combined stdout/stderr limit from 256 to 32768 bytes."},
+				"sandbox_mode":     map[string]any{"type": "string", "enum": []string{"off", "auto", "required"}, "description": "OS sandbox policy. Default is off."},
 			},
 			"required":             []string{"command"},
 			"additionalProperties": false,
@@ -129,10 +131,25 @@ func RunCommandPreview(root, raw string) (Preview, error) {
 		}
 		maxOutput = args.MaxOutputBytes
 	}
-	return Preview{Operation: "run_command", Path: args.CWD, Command: args.Command, CWD: args.CWD, Timeout: timeout, OutputLimit: maxOutput}, nil
+	sandboxMode := SandboxOff
+	if strings.TrimSpace(args.SandboxMode) != "" {
+		var parseErr error
+		sandboxMode, parseErr = ParseSandboxMode(args.SandboxMode)
+		if parseErr != nil {
+			return Preview{}, fmt.Errorf("run_command sandbox_mode: %w", parseErr)
+		}
+	}
+	sandbox, err := SelectSandbox(sandboxMode, DetectSandbox())
+	if err != nil {
+		return Preview{}, fmt.Errorf("run_command: %w", err)
+	}
+	return Preview{Operation: "run_command", Path: args.CWD, Command: args.Command, CWD: args.CWD, Timeout: timeout, OutputLimit: maxOutput, SandboxMode: sandboxMode, Sandbox: sandbox}, nil
 }
 
 func ExecuteCommand(parent context.Context, root string, preview Preview) (string, error) {
+	if preview.SandboxMode == SandboxRequired && !preview.Sandbox.Available {
+		return "", fmt.Errorf("sandbox required but unavailable")
+	}
 	ctx, cancel := context.WithTimeout(parent, preview.Timeout)
 	defer cancel()
 	process := newCommandProcess(ctx, preview.Command)
@@ -176,7 +193,7 @@ func ExecuteCommand(parent context.Context, root string, preview Preview) (strin
 	if output == "" {
 		output = "<no output>"
 	}
-	return fmt.Sprintf("run_command status=%s exit_code=%d duration=%s stdout_bytes=%d stderr_bytes=%d truncated=%t\n%s", status, exitCode, duration, stdout.n, stderr.n, stdout.truncated || stderr.truncated, output), nil
+	return fmt.Sprintf("run_command status=%s exit_code=%d duration=%s sandbox_mode=%s sandbox_backend=%s sandboxed=%t stdout_bytes=%d stderr_bytes=%d truncated=%t\n%s", status, exitCode, duration, preview.SandboxMode, preview.Sandbox.Backend, preview.Sandbox.Available, stdout.n, stderr.n, stdout.truncated || stderr.truncated, output), nil
 }
 
 type limitedBuffer struct {

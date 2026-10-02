@@ -15,6 +15,8 @@ type Preview struct {
 	CWD          string
 	Timeout      time.Duration
 	OutputLimit  int
+	SandboxMode  SandboxMode
+	Sandbox      SandboxDecision
 	Content      []byte
 	Before       []byte
 	BeforeExists bool
