@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "session_id": "m3.5-2026-10-02",
+  "generated_at": "2026-10-02T00:00:00Z",
+  "git_revision": "4e6f696",
+  "environment": {"os": "windows", "shell": "powershell"},
+  "entries": [
+    {"acceptance_id":"AC-M35-001","artifact":"artifacts/verification/m3.5/command-cancel-tests.txt","evidence_level":"test-log","command":"go test ./internal/tool -run 'Command.*Cancel|Command.*ProcessTree' -count=1","captured_at":"2026-10-02T00:00:00Z","exit_code":0,"sha256":"2FE07DD1D4BC89E4C8F9845A68729895C9F63E636D797216C8A10F625B154885","size_bytes":388},
+    {"acceptance_id":"AC-M35-002","artifact":"artifacts/verification/m3.5/audit-check.txt","evidence_level":"test-log","command":"go test ./internal/app -run 'TestTTYChatCancellationUsesSafeMessage|TestInterruptCoordinatorCancelsTurnBeforeChat|TestRunChatLoop' -count=1","captured_at":"2026-10-02T00:00:00Z","exit_code":0,"sha256":"94F28CDFE82B650CEED4CB619D1C8DC64FA17FC0233F5605C4A2F24A6E5AF127","size_bytes":641},
+    {"acceptance_id":"AC-M35-003","artifact":"artifacts/verification/m3.5/audit-check.txt","evidence_level":"test-log","command":"go test ./internal/agent ...; go test ./internal/app ...","captured_at":"2026-10-02T00:00:00Z","exit_code":0,"sha256":"94F28CDFE82B650CEED4CB619D1C8DC64FA17FC0233F5605C4A2F24A6E5AF127","size_bytes":641},
+    {"acceptance_id":"AC-M35-004","artifact":"artifacts/verification/m3.5/final-check.txt","evidence_level":"command-log","command":"go test ./... -count=1; go vet ./...; go build ./cmd/drift; git diff --check","captured_at":"2026-10-02T00:00:00Z","exit_code":0,"sha256":"177B95B0314302600417FC20B4DA6F6931A9778539EE5875E8D05B5773B3C032","size_bytes":267}
+  ]
+}

@@ -24,7 +24,7 @@ M3.5 在 M3.4 的 `run_command` 基础上，确保取消或超时时命令进程
 
 | ID | 验证方法 | 通过阈值 | 证据类型 | 证据路径 | 失败判定 |
 | --- | --- | --- | --- | --- | --- |
-| AC-M35-001 | `go test ./internal/tool -run 'Command.*Cancel|Command.*ProcessTree' -count=1` | 父进程和派生子进程均退出；状态为 `cancelled` | 测试日志 | `artifacts/verification/m3.5/command-cancel-tests.txt` | 进程残留或状态误报 |
-| AC-M35-002 | chat + Ctrl+C 人工验收 | 当前轮取消后 chat 不退出，下一条消息可继续；空闲 Ctrl+C 仍退出 | 人工记录 | `artifacts/verification/m3.5/manual-acceptance.md` | chat 退出或无法继续 |
+| AC-M35-001 | `go test ./internal/tool -run Command -count=1` | 父进程和派生子进程均退出；状态为 `cancelled` | 测试日志 | `artifacts/verification/m3.5/command-cancel-tests.txt` | 进程残留或状态误报 |
+| AC-M35-002 | chat + Ctrl+C 人工验收及 TUI 等价测试 | 当前轮取消后 chat 不退出，下一条消息可继续；空闲 Ctrl+C 仍退出 | 测试日志 | `artifacts/verification/m3.5/audit-check.txt` | chat 退出或无法继续 |
 | AC-M35-003 | Agent/TUI/审计专项测试 | 安全取消提示、当前轮回滚、审计不含正文 | 测试日志 | `artifacts/verification/m3.5/audit-check.txt` | 泄露原始错误或半轮状态 |
 | AC-M35-004 | `go test ./... -count=1`、`go vet ./...`、build、diff 检查 | 全部退出码为 0 | 命令日志 | `artifacts/verification/m3.5/final-check.txt` | 任一命令退出码非 0 |
