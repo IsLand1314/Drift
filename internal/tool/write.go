@@ -144,6 +144,9 @@ func commitTextPreview(ctx context.Context, root string, preview Preview) (strin
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
+	if err := checkPreviewState(workspace, preview); err != nil {
+		return "", fmt.Errorf("WriteFile %s: %w", preview.Path, err)
+	}
 	parent := filepath.ToSlash(filepath.Dir(preview.Path))
 	if parent != "." {
 		if err := workspace.MkdirAll(parent, 0o755); err != nil {

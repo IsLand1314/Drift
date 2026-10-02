@@ -31,4 +31,26 @@ func TestEditRequiresUniqueMatchAndCommits(t *testing.T) {
 	}
 }
 
+func TestEditRejectsExternalChangeAfterPreview(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "main.txt")
+	if err := os.WriteFile(path, []byte("one\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	preview, err := Edit(root, `{"path":"main.txt","old_text":"one","new_text":"two"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("external\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CommitEdit(context.Background(), root, preview); err == nil {
+		t.Fatal("stale edit unexpectedly committed")
+	}
+	got, _ := os.ReadFile(path)
+	if string(got) != "external\n" {
+		t.Fatalf("external content overwritten: %q", got)
+	}
+}
+
 func quote(value string) string { return `"` + value + `"` }

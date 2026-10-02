@@ -1,6 +1,25 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M3.11。M3.10 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M3.12。M3.11 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+
+## M3.12：写入前文件状态校验
+
+M3.12 为 WriteFile、EditFile、DeleteFile 增加预览到提交之间的文件状态校验，防止用户审批等待期间外部修改被覆盖或删除。
+
+### 当前范围
+
+- Preview 携带目标文件在预览时的存在状态和原始内容快照。
+- 提交前重新读取并比较快照；目标新增、删除、替换或变为 symlink/非普通文件时拒绝提交。
+- 拒绝时不创建 change set、不写入、不删除，保留外部修改后的内容。
+- 当前采用内存字节比较，不做持久化缓存、跨进程锁或多 Agent 协调。
+
+### 验收
+
+| ID | 验证方法 | 通过阈值 | 证据类型 | 失败判定 |
+| --- | --- | --- | --- | --- |
+| AC-M312-001 | `go test ./internal/tool -run 'ExternalChangeAfterPreview' -count=1` | 写入、编辑、删除在外部修改后全部拒绝 | 测试日志 | 外部内容被覆盖/删除 |
+| AC-M312-002 | 全量工具与 change set 测试 | 正常审批提交仍成功，失败不产生半个 change set | 测试日志 | 正常路径回归或审计污染 |
+| AC-M312-003 | `go test ./...`、`go vet ./...`、build、diff check | 全部退出码为 0 | 命令日志 | 任一命令失败 |
 
 ## M3.11：Glob 与 Grep
 

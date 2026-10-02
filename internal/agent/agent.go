@@ -469,6 +469,7 @@ func safeToolError(root, message string) string {
 		"DeleteFile path is invalid",
 		"DeleteFile target is not a regular file",
 		"DeleteFile target is binary",
+		"target changed since preview",
 	} {
 		if strings.Contains(message, known) {
 			return known

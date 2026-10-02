@@ -87,6 +87,9 @@ func CommitDelete(ctx context.Context, root string, preview Preview) (string, er
 		return "", fmt.Errorf("open DeleteFile root: %w", err)
 	}
 	defer workspace.Close()
+	if err := checkPreviewState(workspace, preview); err != nil {
+		return "", fmt.Errorf("DeleteFile %s: %w", preview.Path, err)
+	}
 	info, err := workspace.Lstat(preview.Path)
 	if err != nil {
 		return "", fmt.Errorf("DeleteFile target changed: %w", err)

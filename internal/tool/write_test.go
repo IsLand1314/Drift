@@ -49,6 +49,28 @@ func TestWritePreviewOverwriteRequiresCommit(t *testing.T) {
 	}
 }
 
+func TestWriteRejectsExternalChangeAfterPreview(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "README.md")
+	if err := os.WriteFile(path, []byte("old\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	preview, err := Write(root, `{"path":"README.md","content":"new\n"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("external\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CommitWrite(context.Background(), root, preview); err == nil {
+		t.Fatal("stale write unexpectedly committed")
+	}
+	got, _ := os.ReadFile(path)
+	if string(got) != "external\n" {
+		t.Fatalf("external content overwritten: %q", got)
+	}
+}
+
 func TestWriteRejectsUnsafeTargets(t *testing.T) {
 	root := t.TempDir()
 	for _, path := range []string{"../escape.txt", `C:\escape.txt`, ".drift/x", ".git/config", ".codex-temp/x", ".worktrees/x"} {
