@@ -17,16 +17,16 @@ func TestTTYChatFilesIdentifiesTerminalPair(t *testing.T) {
 	}
 	defer readPipe.Close()
 	defer writePipe.Close()
-	if _, _, ok := ttyChatFiles(readPipe, writePipe); ok {
+	if _, _, ok := tuiMainScreenFiles(readPipe, writePipe); ok {
 		t.Fatal("pipe pair must not be treated as an interactive TTY")
 	}
-	if _, _, ok := ttyChatFiles(strings.NewReader(""), &strings.Builder{}); ok {
+	if _, _, ok := tuiMainScreenFiles(strings.NewReader(""), &strings.Builder{}); ok {
 		t.Fatal("buffered pair must not be treated as an interactive TTY")
 	}
 }
 
 func TestChatInputScannerReadsLines(t *testing.T) {
-	input := newChatInput(strings.NewReader("hello\n\n"), &strings.Builder{}, "test-model")
+	input := newTuiMainScreenInput(strings.NewReader("hello\n\n"), &strings.Builder{}, "test-model")
 	if _, ok := input.(*scannerChatInput); !ok {
 		t.Fatalf("expected scanner input, got %T", input)
 	}
@@ -87,5 +87,16 @@ func TestChatInputModelSubmittedViewDoesNotLeaveFooter(t *testing.T) {
 	}
 	if !strings.Contains(view, "create file") {
 		t.Fatalf("submitted input lost prompt: %q", view)
+	}
+}
+
+func TestPermissionModeInputModelSelectsMode(t *testing.T) {
+	model := newPermissionModeInputModel(permissionModeDefault)
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	model = updated.(permissionModeInputModel)
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(permissionModeInputModel)
+	if !model.submitted || cmd == nil || model.mode() != permissionModeAcceptEdits {
+		t.Fatalf("submitted=%v mode=%q cmd=%v", model.submitted, model.mode(), cmd)
 	}
 }

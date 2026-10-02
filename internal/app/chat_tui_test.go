@@ -16,7 +16,7 @@ import (
 )
 
 func TestTTYChatViewKeepsTranscriptAndSingleFooter(t *testing.T) {
-	m := newTTYChatModel(context.Background(), nil, nil, nil, nil, chatStatus{Model: "test-model"}, nil)
+	m := newTuiFullScreen(context.Background(), nil, nil, nil, nil, chatStatus{Model: "test-model"}, nil)
 	m.width, m.height = 80, 20
 	m.lines = []string{"❯ first request", "● first answer", "Done - 0.1s", "❯ second request", "● second answer", "Done - 0.2s"}
 
@@ -33,7 +33,7 @@ func TestTTYChatViewKeepsTranscriptAndSingleFooter(t *testing.T) {
 }
 
 func TestTTYChatToolResultDoesNotRenderProbeFailure(t *testing.T) {
-	m := newTTYChatModel(context.Background(), nil, nil, nil, nil, chatStatus{}, nil)
+	m := newTuiFullScreen(context.Background(), nil, nil, nil, nil, chatStatus{}, nil)
 	m.applyEvent(agent.Event{Type: agent.EventToolResult, ToolName: "ReadFile", Path: "missing.txt", ErrorSummary: "tool execution failed"})
 	if len(m.lines) != 0 {
 		t.Fatalf("probe failure should stay out of transcript: %#v", m.lines)
@@ -45,7 +45,7 @@ func TestTTYChatToolResultDoesNotRenderProbeFailure(t *testing.T) {
 }
 
 func TestTTYChatToolProgressReplacesStartLine(t *testing.T) {
-	m := newTTYChatModel(context.Background(), nil, nil, nil, nil, chatStatus{}, nil)
+	m := newTuiFullScreen(context.Background(), nil, nil, nil, nil, chatStatus{}, nil)
 	m.applyEvent(agent.Event{Type: agent.EventToolCall, ToolCallID: "call-1", ToolName: "ReadFile", Arguments: `{"path":"README.md"}`})
 	if len(m.lines) != 1 || !strings.Contains(m.lines[0], "● Read README.md ...") {
 		t.Fatalf("tool start line missing: %#v", m.lines)
@@ -57,10 +57,10 @@ func TestTTYChatToolProgressReplacesStartLine(t *testing.T) {
 }
 
 func TestTTYChatTextEventsSurviveBubbleTeaModelCopies(t *testing.T) {
-	m := newTTYChatModel(context.Background(), nil, nil, nil, nil, chatStatus{}, nil)
+	m := newTuiFullScreen(context.Background(), nil, nil, nil, nil, chatStatus{}, nil)
 	model, _ := m.Update(tuiAgentEvent{event: agent.Event{Type: agent.EventTextDelta, Text: "first"}})
 	model, _ = model.Update(tuiAgentEvent{event: agent.Event{Type: agent.EventTextDelta, Text: " second"}})
-	modelValue := model.(*ttyChatModel)
+	modelValue := model.(*tuiFullScreen)
 	got := modelValue.stream
 	if got != "first second" {
 		t.Fatalf("stream = %q, want %q", got, "first second")
@@ -68,11 +68,11 @@ func TestTTYChatTextEventsSurviveBubbleTeaModelCopies(t *testing.T) {
 }
 
 func TestTTYChatLayoutUsesFullWidthRulesAndWrappedInput(t *testing.T) {
-	m := newTTYChatModel(context.Background(), nil, nil, nil, nil, chatStatus{Model: "deepseek-v4-flash"}, nil)
+	m := newTuiFullScreen(context.Background(), nil, nil, nil, nil, chatStatus{Model: "deepseek-v4-flash"}, nil)
 	m.width, m.height = 24, 12
 	m.textarea.SetWidth(22)
 	m.textarea.SetValue(strings.Repeat("x", 30))
-	resizeTTYTextarea(&m)
+	resizeTuiFullScreenTextarea(&m)
 	if m.textarea.Height() < 2 {
 		t.Fatalf("wrapped input height = %d, want at least 2", m.textarea.Height())
 	}
@@ -88,7 +88,7 @@ func TestTTYChatLayoutUsesFullWidthRulesAndWrappedInput(t *testing.T) {
 
 func TestTTYChatLayoutKeepsLongModelName(t *testing.T) {
 	name := "provider-with-a-very-long-model-name"
-	m := newTTYChatModel(context.Background(), nil, nil, nil, nil, chatStatus{Model: name}, nil)
+	m := newTuiFullScreen(context.Background(), nil, nil, nil, nil, chatStatus{Model: name}, nil)
 	m.width, m.height = 24, 12
 	view := m.View()
 	if !strings.Contains(view, name) {
@@ -119,7 +119,7 @@ func TestStyleTranscriptPreservesUnicodeAfterMarker(t *testing.T) {
 }
 
 func TestTTYChatViewKeepsFooterAfterLongAnswer(t *testing.T) {
-	m := newTTYChatModel(context.Background(), nil, nil, nil, nil, chatStatus{Model: "deepseek-v4-flash"}, nil)
+	m := newTuiFullScreen(context.Background(), nil, nil, nil, nil, chatStatus{Model: "deepseek-v4-flash"}, nil)
 	m.width, m.height = 80, 24
 	m.lines = []string{"❯ 你好，请介绍一下你自己", "● " + strings.Repeat("这是助手的回答。", 80), "Done - 3.4s"}
 	view := m.View()
@@ -129,14 +129,14 @@ func TestTTYChatViewKeepsFooterAfterLongAnswer(t *testing.T) {
 }
 
 func TestTTYChatViewportScrollsAndKeepsManualPosition(t *testing.T) {
-	m := newTTYChatModel(context.Background(), nil, nil, nil, nil, chatStatus{Model: "model"}, nil)
+	m := newTuiFullScreen(context.Background(), nil, nil, nil, nil, chatStatus{Model: "model"}, nil)
 	m.width, m.height = 40, 10
 	for i := 0; i < 40; i++ {
 		m.lines = append(m.lines, fmt.Sprintf("line %d", i))
 	}
 	m.View()
 	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyPgUp})
-	scrolled := model.(*ttyChatModel)
+	scrolled := model.(*tuiFullScreen)
 	if scrolled.viewport.YOffset == 0 {
 		t.Fatalf("page up did not move viewport")
 	}
@@ -147,33 +147,33 @@ func TestTTYChatViewportScrollsAndKeepsManualPosition(t *testing.T) {
 }
 
 func TestTTYChatViewportSupportsTopAndBottomNavigation(t *testing.T) {
-	m := newTTYChatModel(context.Background(), nil, nil, nil, nil, chatStatus{Model: "model"}, nil)
+	m := newTuiFullScreen(context.Background(), nil, nil, nil, nil, chatStatus{Model: "model"}, nil)
 	m.width, m.height = 40, 10
 	for i := 0; i < 40; i++ {
 		m.lines = append(m.lines, fmt.Sprintf("line %d", i))
 	}
 	m.View()
 	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlHome})
-	m = *model.(*ttyChatModel)
+	m = *model.(*tuiFullScreen)
 	if m.viewport.YOffset != 0 {
 		t.Fatalf("ctrl+home offset=%d, want 0", m.viewport.YOffset)
 	}
 	model, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlEnd})
-	m = *model.(*ttyChatModel)
+	m = *model.(*tuiFullScreen)
 	if !m.viewport.AtBottom() {
 		t.Fatalf("ctrl+end offset=%d, want bottom", m.viewport.YOffset)
 	}
 }
 
 func TestTTYChatResizePreservesManualViewportPosition(t *testing.T) {
-	m := newTTYChatModel(context.Background(), nil, nil, nil, nil, chatStatus{Model: "model"}, nil)
+	m := newTuiFullScreen(context.Background(), nil, nil, nil, nil, chatStatus{Model: "model"}, nil)
 	m.width, m.height = 40, 10
 	for i := 0; i < 40; i++ {
 		m.lines = append(m.lines, fmt.Sprintf("line %d", i))
 	}
 	m.View()
 	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyPgUp})
-	m = *model.(*ttyChatModel)
+	m = *model.(*tuiFullScreen)
 	before := m.viewport.YOffset
 	if before == 0 {
 		t.Fatal("page up did not create a manual scroll position")
@@ -186,7 +186,7 @@ func TestTTYChatResizePreservesManualViewportPosition(t *testing.T) {
 }
 
 func TestTTYChatInlineViewLeavesTerminalLastColumnFree(t *testing.T) {
-	m := newTTYChatModel(context.Background(), nil, nil, nil, nil, chatStatus{Model: "model"}, nil)
+	m := newTuiFullScreen(context.Background(), nil, nil, nil, nil, chatStatus{Model: "model"}, nil)
 	m.width, m.height = 24, 12
 	m.lines = []string{"❯ " + strings.Repeat("x", 80)}
 	for _, line := range strings.Split(m.View(), "\n") {
@@ -197,7 +197,7 @@ func TestTTYChatInlineViewLeavesTerminalLastColumnFree(t *testing.T) {
 }
 
 func TestTTYChatCancellationUsesSafeMessage(t *testing.T) {
-	m := newTTYChatModel(context.Background(), nil, nil, nil, nil, chatStatus{}, nil)
+	m := newTuiFullScreen(context.Background(), nil, nil, nil, nil, chatStatus{}, nil)
 	m.started = time.Now()
 	m.finishTurn(context.Canceled)
 	joined := strings.Join(m.lines, "\n")
@@ -224,7 +224,7 @@ func TestApprovalDecisionDefersPersistentPolicyUntilSuccess(t *testing.T) {
 func TestTTYApprovalPersistsOnlyAfterSuccessfulToolResult(t *testing.T) {
 	root := t.TempDir()
 	request := agent.PermissionRequest{ToolName: "WriteFile", Operation: "create_file", Path: "tmp/hello.txt"}
-	m := newTTYChatModel(context.Background(), nil, nil, nil, nil, chatStatus{Workspace: root}, nil)
+	m := newTuiFullScreen(context.Background(), nil, nil, nil, nil, chatStatus{Workspace: root}, nil)
 	m.pendingPermissions[permissionRuleKey(permissionRuleFromRequest(request))] = request
 	m.applyEvent(agent.Event{Type: agent.EventToolResult, ToolName: "WriteFile", Operation: "create_file", Path: "tmp/hello.txt", Result: "ok"})
 	loaded, err := loadPermissionPolicy(root)
@@ -233,7 +233,7 @@ func TestTTYApprovalPersistsOnlyAfterSuccessfulToolResult(t *testing.T) {
 	}
 
 	failedRoot := t.TempDir()
-	failed := newTTYChatModel(context.Background(), nil, nil, nil, nil, chatStatus{Workspace: failedRoot}, nil)
+	failed := newTuiFullScreen(context.Background(), nil, nil, nil, nil, chatStatus{Workspace: failedRoot}, nil)
 	failed.pendingPermissions[permissionRuleKey(permissionRuleFromRequest(request))] = request
 	failed.applyEvent(agent.Event{Type: agent.EventToolResult, ToolName: "WriteFile", Operation: "create_file", Path: "tmp/hello.txt", ErrorSummary: "failed"})
 	failedLoaded, err := loadPermissionPolicy(failedRoot)
@@ -250,7 +250,7 @@ func TestTTYPolicyLoadFailureFallsBackToAsk(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, ".drift", "permissions.json"), []byte(`{"version":99}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	m := newTTYChatModel(context.Background(), nil, nil, nil, nil, chatStatus{Workspace: root}, nil)
+	m := newTuiFullScreen(context.Background(), nil, nil, nil, nil, chatStatus{Workspace: root}, nil)
 	if !strings.Contains(m.View(), "权限策略加载失败") {
 		t.Fatal("TTY did not show safe policy-load warning")
 	}
@@ -279,13 +279,13 @@ func TestPermissionPickerListsModesAndDescriptions(t *testing.T) {
 }
 
 func TestPermissionPickerChangesModeWithoutTranscriptCommand(t *testing.T) {
-	m := newTTYChatModel(context.Background(), nil, nil, nil, nil, chatStatus{}, nil)
+	m := newTuiFullScreen(context.Background(), nil, nil, nil, nil, chatStatus{}, nil)
 	if !m.handleCommand("/permissions") || m.permissionPicker == nil {
 		t.Fatal("/permissions did not open picker")
 	}
 	model, _ := m.handlePermissionPicker(tea.KeyMsg{Type: tea.KeyDown})
-	model, _ = model.(*ttyChatModel).handlePermissionPicker(tea.KeyMsg{Type: tea.KeyEnter})
-	got := model.(*ttyChatModel)
+	model, _ = model.(*tuiFullScreen).handlePermissionPicker(tea.KeyMsg{Type: tea.KeyEnter})
+	got := model.(*tuiFullScreen)
 	if *got.permissionMode != permissionModeAcceptEdits {
 		t.Fatalf("selected mode = %q, want %q", *got.permissionMode, permissionModeAcceptEdits)
 	}

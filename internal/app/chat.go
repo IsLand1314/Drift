@@ -138,10 +138,13 @@ func (p *chatPersistence) clearRunner(runner *agent.Runner) error {
 }
 
 func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit session.Writer, traceSink agent.EventSink, persistence *chatPersistence, status chatStatus, interrupt *interruptCoordinator, in io.Reader, out, stderr io.Writer) int {
-	input := newChatInput(in, out, status.Model)
-	if _, ok := input.(*ttyChatInput); ok {
-		return runTTYChatLoop(ctx, runner, audit, traceSink, persistence, status, interrupt, in, out)
-	}
+	return runTuiMainScreenLoop(ctx, runner, audit, traceSink, persistence, status, interrupt, in, out, stderr)
+}
+
+// runTuiMainScreenLoop writes completed chat output directly to the terminal's
+// main buffer. It deliberately owns no transcript viewport or scroll region.
+func runTuiMainScreenLoop(ctx context.Context, runner *agent.Runner, audit session.Writer, traceSink agent.EventSink, persistence *chatPersistence, status chatStatus, interrupt *interruptCoordinator, in io.Reader, out, stderr io.Writer) int {
+	input := newTuiMainScreenInput(in, out, status.Model)
 	permissionMemory := newPermissionMemory()
 	permissionMode := status.PermissionMode
 	if permissionMode == "" {
@@ -176,8 +179,22 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 		})
 	}
 	interactiveInput := false
-	if _, ok := input.(*ttyChatInput); ok {
+	if _, ok := input.(*tuiMainScreenInput); ok {
 		interactiveInput = true
+		for _, line := range tuiSessionHeader(persistence) {
+			if _, err := fmt.Fprintln(out, line); err != nil {
+				fmt.Fprintln(stderr, "错误：", err)
+				return 1
+			}
+		}
+		if persistence != nil && persistence.persistent {
+			for _, line := range transcriptFromLLMMessages(persistence.snapshot.Messages) {
+				if _, err := fmt.Fprintln(out, line); err != nil {
+					fmt.Fprintln(stderr, "错误：", err)
+					return 1
+				}
+			}
+		}
 	}
 	for {
 		// TTY 输入组件自己负责分隔线、占位符和光标；纯文本路径保留原有提示。
@@ -221,6 +238,18 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 		}
 		if prompt == "compact" {
 			fmt.Fprintln(out, "如需压缩上下文，请输入 /compact")
+			continue
+		}
+		if prompt == "/permissions" && interactiveInput {
+			mode, selected, pickerErr := readPermissionModeChoice(ctx, input, permissionMode)
+			if pickerErr != nil {
+				fmt.Fprintln(stderr, "错误：权限模式选择器失败：", pickerErr)
+				continue
+			}
+			if selected {
+				permissionMode = mode
+				fmt.Fprintln(out, chatMuted(out)+"权限模式已切换为 "+string(mode)+chatReset(out))
+			}
 			continue
 		}
 		if mode, handled, modeErr := parsePermissionModeCommand(prompt); handled {
@@ -395,11 +424,6 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 		if persistence != nil {
 			usageBefore = persistence.usage
 		}
-		var fixedFooter *fixedChatFooter
-		if interactiveInput {
-			fixedFooter = newFixedChatFooter(out, input.(*ttyChatInput))
-			fixedFooter.Begin()
-		}
 		if interactiveInput {
 			currentActivity = newChatActivity(out)
 			currentActivity.Start()
@@ -464,9 +488,6 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 		if currentActivity != nil {
 			currentActivity.Stop()
 			currentActivity = nil
-		}
-		if fixedFooter != nil {
-			fixedFooter.End()
 		}
 		if changeSet != nil {
 			statusText := "complete"
@@ -595,7 +616,7 @@ func confirmWrite(ctx context.Context, input chatInput, out io.Writer, mode perm
 	if permissionAlreadyAllowed(memory, policy, request) {
 		return agent.PermissionDecision{Allow: true, Reason: "session_pattern_approved"}, nil
 	}
-	if _, ok := input.(*ttyChatInput); ok {
+	if _, ok := input.(*tuiMainScreenInput); ok {
 		choice, err := readApprovalChoice(ctx, input, request)
 		if err != nil {
 			return agent.PermissionDecision{Reason: "approval_cancelled"}, err

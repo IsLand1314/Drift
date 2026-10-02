@@ -20,14 +20,14 @@ type chatInput interface {
 	Read(context.Context) (string, error)
 }
 
-func newChatInput(in io.Reader, out io.Writer, modelName string) chatInput {
-	if ttyInput, ttyOutput, ok := ttyChatFiles(in, out); ok {
-		return &ttyChatInput{in: ttyInput, out: ttyOutput, modelName: modelName}
+func newTuiMainScreenInput(in io.Reader, out io.Writer, modelName string) chatInput {
+	if ttyInput, ttyOutput, ok := tuiMainScreenFiles(in, out); ok {
+		return &tuiMainScreenInput{in: ttyInput, out: ttyOutput, modelName: modelName}
 	}
 	return newScannerChatInput(in)
 }
 
-func ttyChatFiles(in io.Reader, out io.Writer) (*os.File, *os.File, bool) {
+func tuiMainScreenFiles(in io.Reader, out io.Writer) (*os.File, *os.File, bool) {
 	inputFile, inputOK := in.(*os.File)
 	outputFile, outputOK := out.(*os.File)
 	if !inputOK || !outputOK || !isTTY(inputFile) || !isTTY(outputFile) {
@@ -61,7 +61,9 @@ func (s *scannerChatInput) Read(context.Context) (string, error) {
 	return s.scanner.Text(), nil
 }
 
-type ttyChatInput struct {
+// tuiMainScreenInput owns only the transient input editor. Completed turns are
+// printed by runTuiMainScreenLoop and remain in terminal scrollback.
+type tuiMainScreenInput struct {
 	in        io.Reader
 	out       io.Writer
 	modelName string
@@ -69,7 +71,7 @@ type ttyChatInput struct {
 	height    int
 }
 
-func (t *ttyChatInput) Read(ctx context.Context) (string, error) {
+func (t *tuiMainScreenInput) Read(ctx context.Context) (string, error) {
 	if separator := chatSeparator(t.out); separator != "" {
 		if _, err := fmt.Fprintln(t.out, separator); err != nil {
 			return "", err
@@ -124,6 +126,82 @@ type chatInputModel struct {
 	height    int
 	submitted bool
 	cancelled bool
+}
+
+type permissionModeInputModel struct {
+	picker    permissionPicker
+	submitted bool
+	cancelled bool
+}
+
+func newPermissionModeInputModel(current permissionMode) permissionModeInputModel {
+	return permissionModeInputModel{picker: *newPermissionPicker(current)}
+}
+
+func (m permissionModeInputModel) Init() tea.Cmd { return nil }
+
+func (m permissionModeInputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	key, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return m, nil
+	}
+	switch key.Type {
+	case tea.KeyUp:
+		if m.picker.cursor > 0 {
+			m.picker.cursor--
+		}
+	case tea.KeyDown:
+		if m.picker.cursor+1 < len(m.picker.options) {
+			m.picker.cursor++
+		}
+	case tea.KeyEnter:
+		m.submitted = true
+		return m, tea.Quit
+	case tea.KeyEscape, tea.KeyCtrlC:
+		m.cancelled = true
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+func (m permissionModeInputModel) View() string { return renderTUIPermissionPicker(m.picker) }
+
+func (m permissionModeInputModel) mode() permissionMode {
+	if m.cancelled || len(m.picker.options) == 0 {
+		return ""
+	}
+	return m.picker.options[m.picker.cursor]
+}
+
+func (m permissionModeInputModel) renderedLines() int {
+	return strings.Count(m.View(), "\n")
+}
+
+func readPermissionModeChoice(ctx context.Context, input chatInput, current permissionMode) (permissionMode, bool, error) {
+	tui, ok := input.(*tuiMainScreenInput)
+	if !ok {
+		return "", false, nil
+	}
+	model := newPermissionModeInputModel(current)
+	result, err := tea.NewProgram(&model, tea.WithContext(ctx), tea.WithInput(tui.in), tea.WithOutput(tui.out), tea.WithoutSignalHandler(), tea.WithoutSignals()).Run()
+	if err != nil {
+		return "", false, err
+	}
+	final, ok := result.(permissionModeInputModel)
+	if !ok {
+		if pointer, pointerOK := result.(*permissionModeInputModel); pointerOK {
+			final = *pointer
+		} else {
+			return "", false, errors.New("permission mode input returned an invalid model")
+		}
+	}
+	if chatUsesColor(tui.out) {
+		_, _ = io.WriteString(tui.out, approvalCleanupSequence(final.renderedLines()))
+	}
+	if final.cancelled {
+		return "", false, nil
+	}
+	return final.mode(), true, nil
 }
 
 func newChatInputModel(modelName, separator string) chatInputModel {

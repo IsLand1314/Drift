@@ -26,6 +26,15 @@ type cancelThenAnswerClient struct {
 	calls   int
 }
 
+type answerClient struct{}
+
+func (answerClient) Stream(_ context.Context, _ llm.Request, emit func(llm.StreamEvent) error) (llm.Completion, error) {
+	if err := emit(llm.StreamEvent{Text: "main screen answer"}); err != nil {
+		return llm.Completion{}, err
+	}
+	return llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "main screen answer"}, FinishReason: "stop"}, nil
+}
+
 type blockingReader struct {
 	started chan struct{}
 	release chan struct{}
@@ -52,6 +61,33 @@ func (c *cancelThenAnswerClient) Stream(ctx context.Context, _ llm.Request, emit
 		return llm.Completion{}, err
 	}
 	return llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "continued answer"}, FinishReason: "stop"}, nil
+}
+
+func TestTuiMainScreenAppendsCompletedTurnsWithoutScreenControl(t *testing.T) {
+	root := t.TempDir()
+	audit, err := session.NewJSONLWriter(filepath.Join(root, "audit.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer audit.Close()
+
+	runner := agent.NewRunner(answerClient{}, root, "", tool.NewDefaultRegistry())
+	var out, stderr bytes.Buffer
+	code := runTuiMainScreenLoop(context.Background(), runner, audit, nil, nil, chatStatus{}, nil, strings.NewReader("question\nexit\n"), &out, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d out=%q stderr=%q", code, out.String(), stderr.String())
+	}
+	got := out.String()
+	for _, sequence := range []string{"\x1b[?1049", "\x1b[1;", "\x1b[r"} {
+		if strings.Contains(got, sequence) {
+			t.Fatalf("main-screen output contains terminal screen control %q: %q", sequence, got)
+		}
+	}
+	for _, want := range []string{"● main screen answer", "Done -"} {
+		if strings.Count(got, want) != 1 {
+			t.Fatalf("output count for %q = %d, output=%q", want, strings.Count(got, want), got)
+		}
+	}
 }
 
 func TestChatPreservesConversationAcrossTurns(t *testing.T) {

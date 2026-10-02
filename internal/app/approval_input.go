@@ -116,7 +116,7 @@ func approvalCleanupSequence(lines int) string {
 }
 
 func readApprovalChoice(ctx context.Context, input chatInput, request agent.PermissionRequest) (approvalChoice, error) {
-	if tty, ok := input.(*ttyChatInput); ok {
+	if tty, ok := input.(*tuiMainScreenInput); ok {
 		model := newApprovalInputModel(request)
 		program := tea.NewProgram(&model, tea.WithContext(ctx), tea.WithInput(tty.in), tea.WithOutput(tty.out), tea.WithoutSignalHandler(), tea.WithoutSignals())
 		result, err := program.Run()

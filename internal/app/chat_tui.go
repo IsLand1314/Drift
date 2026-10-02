@@ -20,9 +20,9 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// ttyChatModel is the sole owner of a real terminal chat screen. Runtime code
+// tuiFullScreen is the alternate-screen renderer. Runtime code
 // communicates through messages; it never writes transcript text directly.
-type ttyChatModel struct {
+type tuiFullScreen struct {
 	ctx                context.Context
 	runner             *agent.Runner
 	audit              session.Writer
@@ -78,21 +78,21 @@ type toolProgressTUI struct {
 	lineIdx int
 }
 
-func runTTYChatLoop(ctx context.Context, runner *agent.Runner, audit session.Writer, trace agent.EventSink, persistence *chatPersistence, status chatStatus, interrupt *interruptCoordinator, in io.Reader, out io.Writer) int {
-	m := newTTYChatModel(ctx, runner, audit, trace, persistence, status, interrupt)
-	// Inline mode keeps the terminal's main buffer and native scrollback. Mouse
-	// reporting stays disabled so selection and paste remain owned by the terminal.
-	final, err := tea.NewProgram(&m, tea.WithContext(ctx), tea.WithInput(in), tea.WithOutput(out), tea.WithoutSignalHandler(), tea.WithoutSignals()).Run()
+func runTuiFullScreen(ctx context.Context, runner *agent.Runner, audit session.Writer, trace agent.EventSink, persistence *chatPersistence, status chatStatus, interrupt *interruptCoordinator, in io.Reader, out io.Writer) int {
+	m := newTuiFullScreen(ctx, runner, audit, trace, persistence, status, interrupt)
+	// The fullscreen renderer owns the frame in the alternate screen. Mouse
+	// reporting remains disabled so terminal selection and paste stay available.
+	final, err := tea.NewProgram(&m, tea.WithContext(ctx), tea.WithInput(in), tea.WithOutput(out), tea.WithAltScreen(), tea.WithoutSignalHandler(), tea.WithoutSignals()).Run()
 	if err != nil {
 		return 1
 	}
-	if model, ok := final.(*ttyChatModel); ok {
+	if model, ok := final.(*tuiFullScreen); ok {
 		return model.exitCode
 	}
 	return m.exitCode
 }
 
-func newTTYChatModel(ctx context.Context, runner *agent.Runner, audit session.Writer, trace agent.EventSink, persistence *chatPersistence, status chatStatus, interrupt *interruptCoordinator) ttyChatModel {
+func newTuiFullScreen(ctx context.Context, runner *agent.Runner, audit session.Writer, trace agent.EventSink, persistence *chatPersistence, status chatStatus, interrupt *interruptCoordinator) tuiFullScreen {
 	ta := textarea.New()
 	ta.Prompt = "❯ "
 	ta.Placeholder = "Send a message..."
@@ -116,12 +116,12 @@ func newTTYChatModel(ctx context.Context, runner *agent.Runner, audit session.Wr
 	if mode == "" {
 		mode = permissionModeDefault
 	}
-	m := ttyChatModel{ctx: ctx, runner: runner, audit: audit, trace: trace, persistence: persistence, status: status, interrupt: interrupt, permissionMemory: newPermissionMemory(), permissionPolicy: policy, permissionMode: &mode, pendingPermissions: make(map[string]agent.PermissionRequest), textarea: ta, toolStarted: make(map[string]toolProgressTUI), events: make(chan tea.Msg, 32), followBottom: true, width: 80, height: 24}
+	m := tuiFullScreen{ctx: ctx, runner: runner, audit: audit, trace: trace, persistence: persistence, status: status, interrupt: interrupt, permissionMemory: newPermissionMemory(), permissionPolicy: policy, permissionMode: &mode, pendingPermissions: make(map[string]agent.PermissionRequest), textarea: ta, toolStarted: make(map[string]toolProgressTUI), events: make(chan tea.Msg, 32), followBottom: true, width: 80, height: 24}
 	if persistence != nil && persistence.persistent {
-		m.lines = append(m.lines, ttySessionHeader(persistence)...)
+		m.lines = append(m.lines, tuiSessionHeader(persistence)...)
 		m.lines = append(m.lines, transcriptFromLLMMessages(persistence.snapshot.Messages)...)
 	} else if persistence != nil {
-		m.lines = append(m.lines, ttySessionHeader(persistence)...)
+		m.lines = append(m.lines, tuiSessionHeader(persistence)...)
 	}
 	if policyWarning {
 		m.lines = append(m.lines, "⚠ 权限策略加载失败，已恢复为每次询问")
@@ -151,17 +151,17 @@ func newTTYChatModel(ctx context.Context, runner *agent.Runner, audit session.Wr
 	return m
 }
 
-func (m ttyChatModel) Init() tea.Cmd { return tea.Batch(textarea.Blink, m.waitEvent(), tickTUI()) }
+func (m tuiFullScreen) Init() tea.Cmd { return tea.Batch(textarea.Blink, m.waitEvent(), tickTUI()) }
 func tickTUI() tea.Cmd {
 	return tea.Tick(250*time.Millisecond, func(t time.Time) tea.Msg { return tuiTick(t) })
 }
-func (m ttyChatModel) waitEvent() tea.Cmd { return func() tea.Msg { return <-m.events } }
+func (m tuiFullScreen) waitEvent() tea.Cmd { return func() tea.Msg { return <-m.events } }
 
-func (m *ttyChatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *tuiFullScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if size, ok := msg.(tea.WindowSizeMsg); ok {
 		m.width, m.height = size.Width, size.Height
 		m.textarea.SetWidth(maxTUI(1, size.Width-3))
-		resizeTTYTextarea(m)
+		resizeTuiFullScreenTextarea(m)
 		viewportWidth := maxTUI(1, size.Width)
 		viewportHeight := maxTUI(1, size.Height-5)
 		if m.viewport.Width == 0 && m.viewport.Height == 0 {
@@ -245,7 +245,7 @@ func (m *ttyChatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.textarea.Reset()
-			resizeTTYTextarea(m)
+			resizeTuiFullScreenTextarea(m)
 			if text == "exit" || text == "/exit" || text == "quit" {
 				return m, tea.Quit
 			}
@@ -264,11 +264,11 @@ func (m *ttyChatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	var cmd tea.Cmd
 	m.textarea, cmd = m.textarea.Update(msg)
-	resizeTTYTextarea(m)
+	resizeTuiFullScreenTextarea(m)
 	return m, cmd
 }
 
-func (m *ttyChatModel) handleCommand(text string) bool {
+func (m *tuiFullScreen) handleCommand(text string) bool {
 	if text == "/permissions" {
 		m.permissionPicker = newPermissionPicker(*m.permissionMode)
 		return true
@@ -305,14 +305,14 @@ func (m *ttyChatModel) handleCommand(text string) bool {
 		} else {
 			m.runner.ResetContext()
 		}
-		m.lines = ttySessionHeader(m.persistence)
+		m.lines = tuiSessionHeader(m.persistence)
 		return true
 	}
 	if text == "/new" {
 		if err := startNewChatSession(m.runner, m.persistence); err != nil {
 			m.lines = append(m.lines, "✖ "+err.Error())
 		} else {
-			m.lines = ttySessionHeader(m.persistence)
+			m.lines = tuiSessionHeader(m.persistence)
 		}
 		return true
 	}
@@ -358,7 +358,7 @@ func newPermissionPicker(current permissionMode) *permissionPicker {
 	return picker
 }
 
-func (m *ttyChatModel) handlePermissionPicker(key tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *tuiFullScreen) handlePermissionPicker(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	p := m.permissionPicker
 	if p == nil {
 		return m, nil
@@ -384,7 +384,7 @@ func (m *ttyChatModel) handlePermissionPicker(key tea.KeyMsg) (tea.Model, tea.Cm
 	return m, nil
 }
 
-func (m *ttyChatModel) startTurn(prompt string) {
+func (m *tuiFullScreen) startTurn(prompt string) {
 	m.running, m.started = true, time.Now()
 	m.stream = ""
 	go func() {
@@ -422,14 +422,14 @@ func (m *ttyChatModel) startTurn(prompt string) {
 	}()
 }
 
-func (m *ttyChatModel) emit(msg tea.Msg) {
+func (m *tuiFullScreen) emit(msg tea.Msg) {
 	select {
 	case m.events <- msg:
 	case <-m.ctx.Done():
 	}
 }
 
-func (m *ttyChatModel) applyEvent(e agent.Event) {
+func (m *tuiFullScreen) applyEvent(e agent.Event) {
 	if m.persistence != nil {
 		m.persistence.usage.add(e)
 	}
@@ -480,7 +480,7 @@ func (m *ttyChatModel) applyEvent(e agent.Event) {
 	case agent.EventPermissionRequest: /* callback supplies overlay */
 	}
 }
-func (m *ttyChatModel) finishTurn(err error) {
+func (m *tuiFullScreen) finishTurn(err error) {
 	if m.stream != "" {
 		m.lines = append(m.lines, "● "+m.stream)
 	}
@@ -497,7 +497,7 @@ func (m *ttyChatModel) finishTurn(err error) {
 		_ = m.persistence.saveRunner(m.runner)
 	}
 }
-func (m *ttyChatModel) handleApproval(key tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *tuiFullScreen) handleApproval(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	a := m.approval
 	switch key.Type {
 	case tea.KeyUp:
@@ -526,7 +526,7 @@ func approvalDecision(selected int, memory *permissionMemory, request agent.Perm
 	}
 	return agent.PermissionDecision{Reason: "user_denied"}
 }
-func (m *ttyChatModel) handleResume(key tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *tuiFullScreen) handleResume(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if len(m.resume.items) == 0 {
 		m.resume = nil
 		return m, nil
@@ -546,7 +546,7 @@ func (m *ttyChatModel) handleResume(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if err := switchChatSession(m.runner, m.persistence, id); err != nil {
 			m.lines = append(m.lines, "✖ "+err.Error())
 		} else {
-			m.lines = ttySessionHeader(m.persistence)
+			m.lines = tuiSessionHeader(m.persistence)
 			m.lines = append(m.lines, transcriptFromLLMMessages(m.runner.Messages())...)
 			m.lines = append(m.lines, "已切换会话： "+id)
 		}
@@ -556,7 +556,7 @@ func (m *ttyChatModel) handleResume(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func ttySessionHeader(persistence *chatPersistence) []string {
+func tuiSessionHeader(persistence *chatPersistence) []string {
 	if persistence == nil {
 		return nil
 	}
@@ -577,9 +577,9 @@ func transcriptFromLLMMessages(messages []llm.Message) []string {
 	}
 	return lines
 }
-func (m *ttyChatModel) View() string {
+func (m *tuiFullScreen) View() string {
 	m.textarea.SetWidth(maxTUI(1, m.width-3))
-	resizeTTYTextarea(m)
+	resizeTuiFullScreenTextarea(m)
 	content := strings.Join(m.lines, "\n")
 	if m.running {
 		if m.stream != "" {
@@ -766,7 +766,7 @@ func isTTYViewportKey(key tea.KeyMsg) bool {
 	}
 }
 
-func resizeTTYTextarea(m *ttyChatModel) {
+func resizeTuiFullScreenTextarea(m *tuiFullScreen) {
 	width := maxTUI(1, m.width-3)
 	rows := 1
 	for _, line := range strings.Split(m.textarea.Value(), "\n") {
