@@ -1,8 +1,13 @@
 {
-  "stage": "M3.6",
-  "artifacts": [
-    {"path": "permission-policy-tests.txt", "sha256": "c40edc8ed3f910776015a08eef090ec41d28ee5256244c5f4e6c9112ef861849", "bytes": 562},
-    {"path": "manual-acceptance.md", "sha256": "bdd8efa8f8e171f216399c80441a6615e6af0a1830bd41fbc2dfb90056b734e2", "bytes": 1155},
-    {"path": "final-check.txt", "sha256": "0ed24800276609d5d4a4a0b888a691e469ab29721df6d2d82027f709e8ddec8f", "bytes": 260}
+  "version": 1,
+  "session_id": "m3.6-2026-10-02",
+  "generated_at": "2026-10-02T08:00:00Z",
+  "git_revision": "86bf822",
+  "environment": {"os": "windows", "shell": "powershell"},
+  "entries": [
+    {"acceptance_id":"AC-M36-001","artifact":"artifacts/verification/m3.6/permission-policy-tests.txt","evidence_level":"test-log","command":"go test ./internal/app -run 'PermissionPolicy|Permission|Approval' -count=1","captured_at":"2026-10-02T08:00:00Z","exit_code":0,"sha256":"C40EDC8ED3F910776015A08EEF090EC41D28EE5256244C5F4E6C9112EF861849","size_bytes":562},
+    {"acceptance_id":"AC-M36-002","artifact":"artifacts/verification/m3.6/manual-acceptance.md","evidence_level":"manual-checklist","command":"go run ./cmd/drift chat -w <workspace>","captured_at":"2026-10-02T08:00:00Z","exit_code":0,"sha256":"BDD8EFA8F8E171F216399C80441A6615E6AF0A1830BD41FBC2DFB90056B734E2","size_bytes":1155},
+    {"acceptance_id":"AC-M36-003","artifact":"artifacts/verification/m3.6/permission-policy-tests.txt","evidence_level":"test-log","command":"go test ./internal/app -run 'PermissionPolicy|Permission|Approval' -count=1","captured_at":"2026-10-02T08:00:00Z","exit_code":0,"sha256":"C40EDC8ED3F910776015A08EEF090EC41D28EE5256244C5F4E6C9112EF861849","size_bytes":562},
+    {"acceptance_id":"AC-M36-004","artifact":"artifacts/verification/m3.6/final-check.txt","evidence_level":"command-log","command":"go test ./... -count=1; go vet ./...; go build ./cmd/drift; git diff --check","captured_at":"2026-10-02T08:00:00Z","exit_code":0,"sha256":"0ED24800276609D5D4A4A0B888A691E469AB29721DF6D2D82027F709E8DDEC8F","size_bytes":260}
   ]
 }
