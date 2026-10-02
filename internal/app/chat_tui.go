@@ -217,6 +217,10 @@ func (m *ttyChatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *ttyChatModel) handleCommand(text string) bool {
+	if message, handled := handlePermissionCommand(m.permissionPolicy, text); handled {
+		m.lines = append(m.lines, message)
+		return true
+	}
 	if text == "/status" {
 		var b bytes.Buffer
 		writeChatStatus(&b, m.runner, m.persistence, m.status)

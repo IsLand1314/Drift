@@ -196,3 +196,27 @@ func (p *permissionPolicy) summary() []string {
 	}
 	return result
 }
+
+func handlePermissionCommand(policy *permissionPolicy, command string) (string, bool) {
+	switch strings.TrimSpace(command) {
+	case "/permissions":
+		if policy == nil {
+			return "当前工作区没有持久化权限", true
+		}
+		summary := policy.summary()
+		if len(summary) == 0 {
+			return "当前工作区没有持久化权限", true
+		}
+		return "持久化权限（" + fmt.Sprint(len(summary)) + " 条）：\n- " + strings.Join(summary, "\n- "), true
+	case "/permissions clear":
+		if policy == nil {
+			return "已清除持久化权限", true
+		}
+		if err := policy.clear(); err != nil {
+			return "✖ 权限策略清除失败", true
+		}
+		return "已清除持久化权限", true
+	default:
+		return "", false
+	}
+}

@@ -216,6 +216,10 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 			fmt.Fprintln(out, "如需压缩上下文，请输入 /compact")
 			continue
 		}
+		if message, handled := handlePermissionCommand(permissionPolicyStore, prompt); handled {
+			fmt.Fprintln(out, message)
+			continue
+		}
 		if prompt == "/resume" || strings.HasPrefix(prompt, "/resume ") {
 			if persistence == nil || !persistence.persistent {
 				fmt.Fprintln(out, "当前为 --no-session 模式，无法恢复持久会话")

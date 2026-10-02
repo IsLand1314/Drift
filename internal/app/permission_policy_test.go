@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/IsLand1314/Drift/internal/agent"
@@ -103,6 +104,23 @@ func TestPermissionPolicyDeduplicatesRulesAndClears(t *testing.T) {
 	}
 	if loaded.allows(request) {
 		t.Fatal("cleared policy still allowed request")
+	}
+}
+
+func TestPermissionCommandsShowAndClearPolicy(t *testing.T) {
+	root := t.TempDir()
+	request := agent.PermissionRequest{ToolName: "write_file", Operation: "create_file", Path: "tmp/hello.txt"}
+	policy := newPermissionPolicy(root)
+	if err := policy.remember(request); err != nil {
+		t.Fatal(err)
+	}
+	message, handled := handlePermissionCommand(policy, "/permissions")
+	if !handled || !strings.Contains(message, "write_file/create_file") || !strings.Contains(message, "tmp/hello.txt") {
+		t.Fatalf("summary handled=%t message=%q", handled, message)
+	}
+	message, handled = handlePermissionCommand(policy, "/permissions clear")
+	if !handled || !strings.Contains(message, "已清除") || policy.allows(request) {
+		t.Fatalf("clear handled=%t message=%q allowed=%t", handled, message, policy.allows(request))
 	}
 }
 
