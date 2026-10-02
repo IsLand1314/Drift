@@ -1,0 +1,10 @@
+command: ["go", "test", "./internal/tool", "-run", "Command|Read", "-count=1"]
+cwd: "F:\\code\\drift"
+output_encoding: utf-8
+exit_code: 0
+
+--- stdout ---
+ok  	github.com/IsLand1314/Drift/internal/tool	2.610s
+
+--- stderr ---
+

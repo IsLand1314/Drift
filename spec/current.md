@@ -1,6 +1,19 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M3.7。M3.6 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M3.8。M3.7 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+
+## M3.8：命令与测试执行收敛
+
+M3.8 在现有 `run_command` 基础上完成命令、测试、取消、权限和审计的自动化验收，不新增重复的测试工具。
+
+### 验收
+
+| ID | 验证方法 | 通过阈值 | 证据类型 | 证据路径 | 失败判定 |
+| --- | --- | --- | --- | --- | --- |
+| AC-M38-001 | `go test ./internal/tool -run Command -count=1` | 成功、非零退出、超时、取消和截断状态准确 | 测试日志 | `artifacts/verification/m3.8/command-tests.txt` | 状态或退出码错误 |
+| AC-M38-002 | 命令路径/cwd/保护目录测试 | 越界、符号链接和受保护目录全部拒绝 | 测试日志 | `artifacts/verification/m3.8/command-tests.txt` | 安全边界绕过 |
+| AC-M38-003 | `-p` 注册表测试 | 只读模式不暴露 `run_command` | 测试日志 | `artifacts/verification/m3.8/command-tests.txt` | 出现命令工具 |
+| AC-M38-004 | 全量回归 | test、vet、build、diff check 全部通过 | 命令日志 | `artifacts/verification/m3.8/final-check.txt` | 任一命令失败 |
 
 ## M3.7：Change Set 恢复
 

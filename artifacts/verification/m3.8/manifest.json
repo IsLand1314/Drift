@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "session_id": "m3.8-2026-10-02",
+  "generated_at": "2026-10-02T08:33:03Z",
+  "git_revision": "eb031e7",
+  "environment": {"os":"windows","shell":"powershell"},
+  "entries": [
+    {"acceptance_id":"AC-M38-001","artifact":"artifacts/verification/m3.8/command-tests.txt","evidence_level":"test-log","command":"go test ./internal/tool -run 'Command|Read' -count=1","captured_at":"2026-10-02T08:32:57Z","exit_code":0,"sha256":"e193de9e5fb2c1bfd18dddd9030452f38272f6400879a048f9d033d38f49fbb4","size_bytes":225},
+    {"acceptance_id":"AC-M38-002","artifact":"artifacts/verification/m3.8/command-tests.txt","evidence_level":"test-log","command":"go test ./internal/tool -run 'Command|Read' -count=1","captured_at":"2026-10-02T08:32:57Z","exit_code":0,"sha256":"e193de9e5fb2c1bfd18dddd9030452f38272f6400879a048f9d033d38f49fbb4","size_bytes":225},
+    {"acceptance_id":"AC-M38-003","artifact":"artifacts/verification/m3.8/command-tests.txt","evidence_level":"test-log","command":"go test ./internal/tool -run 'Command|Read' -count=1","captured_at":"2026-10-02T08:32:57Z","exit_code":0,"sha256":"e193de9e5fb2c1bfd18dddd9030452f38272f6400879a048f9d033d38f49fbb4","size_bytes":225},
+    {"acceptance_id":"AC-M38-004","artifact":"artifacts/verification/m3.8/final-check.txt","evidence_level":"test-log","command":"go test ./... -count=1; go vet ./...; go build ./cmd/drift; git diff --check","captured_at":"2026-10-02T08:33:03Z","exit_code":0,"sha256":"75595718e6e167eead376fbaaf807a602b6d25cf11ee85a32ca7544842015a90","size_bytes":886}
+  ]
+}
