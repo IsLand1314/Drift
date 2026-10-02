@@ -1,0 +1,9 @@
+M3.5 command cancellation TDD verification (2026-10-02)
+
+$ go test ./internal/tool -run 'Command.*Cancel|Command.*ProcessTree' -count=1
+ok github.com/IsLand1314/Drift/internal/tool
+
+Covered:
+- Windows child-process cancellation and temporary-directory cleanup.
+- Unix process-group cancellation test (platform-selected).
+- cancelled status and non-zero exit status do not become success.

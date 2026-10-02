@@ -24,6 +24,18 @@ func TestMaxToolCallsSupportsProjectExploration(t *testing.T) {
 	}
 }
 
+func TestCommandStatusMapsNonSuccessResults(t *testing.T) {
+	for _, status := range []string{"cancelled", "timeout", "failed"} {
+		result := "run_command status=" + status + " exit_code=-1 duration=1ms stdout_bytes=0 stderr_bytes=0 truncated=false\n<no output>"
+		if got := commandStatus(result); got != status {
+			t.Fatalf("commandStatus(%q) = %q, want %q", result, got, status)
+		}
+	}
+	if got := commandStatus("run_command status=success exit_code=0"); got != "success" {
+		t.Fatalf("commandStatus(success) = %q, want success", got)
+	}
+}
+
 func TestChatRegistrySystemInstructionAllowsConfirmedWrite(t *testing.T) {
 	client := &scriptedClient{steps: []scriptedStep{{events: []llm.StreamEvent{{Text: "ok"}}, completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "ok"}, FinishReason: "stop"}}}}
 	if err := RunEventsWithRegistry(context.Background(), client, t.TempDir(), "describe", "", tool.NewChatRegistry(), nil); err != nil {

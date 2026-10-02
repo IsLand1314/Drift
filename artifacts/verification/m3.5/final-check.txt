@@ -1,0 +1,17 @@
+M3.5 final verification (2026-10-02)
+
+$ go test ./... -count=1
+exit_code=0
+
+$ go vet ./...
+exit_code=0
+
+$ go build ./cmd/drift
+exit_code=0
+
+$ git diff --check
+exit_code=0
+
+Cross-platform compile check:
+$ GOOS=linux GOARCH=amd64 go test -c ./internal/tool
+exit_code=0

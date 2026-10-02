@@ -1,0 +1,13 @@
+M3.5 Agent/TUI cancellation verification (2026-10-02)
+
+$ go test ./internal/agent -run 'TestCommandStatusMapsNonSuccessResults|Test.*Cancel|Test.*Context' -count=1
+ok github.com/IsLand1314/Drift/internal/agent
+
+$ go test ./internal/app -run 'TestTTYChatCancellationUsesSafeMessage|TestInterruptCoordinatorCancelsTurnBeforeChat|TestRunChatLoop' -count=1
+ok github.com/IsLand1314/Drift/internal/app
+
+Covered:
+- Active Ctrl+C cancels the turn before the chat context.
+- Idle Ctrl+C still exits.
+- TUI uses the safe cancellation message and does not render raw context canceled.
+- commandStatus maps cancelled, timeout, and failed result lines.
