@@ -219,9 +219,20 @@ func (m *ttyChatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if isTTYViewportKey(key) {
-			m.followBottom = false
+			switch key.Type {
+			case tea.KeyHome, tea.KeyCtrlHome:
+				m.viewport.GotoTop()
+				m.followBottom = false
+			case tea.KeyEnd, tea.KeyCtrlEnd:
+				m.viewport.GotoBottom()
+				m.followBottom = true
+			default:
+				m.followBottom = false
+			}
 			var cmd tea.Cmd
-			m.viewport, cmd = m.viewport.Update(msg)
+			if key.Type != tea.KeyHome && key.Type != tea.KeyEnd && key.Type != tea.KeyCtrlHome && key.Type != tea.KeyCtrlEnd {
+				m.viewport, cmd = m.viewport.Update(msg)
+			}
 			return m, cmd
 		}
 		switch key.Type {
@@ -747,6 +758,8 @@ func isTTYViewportKey(key tea.KeyMsg) bool {
 	case tea.KeyPgUp, tea.KeyPgDown:
 		return true
 	case tea.KeyCtrlU, tea.KeyCtrlD:
+		return true
+	case tea.KeyHome, tea.KeyEnd, tea.KeyCtrlHome, tea.KeyCtrlEnd:
 		return true
 	default:
 		return false

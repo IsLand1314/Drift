@@ -146,6 +146,25 @@ func TestTTYChatViewportScrollsAndKeepsManualPosition(t *testing.T) {
 	}
 }
 
+func TestTTYChatViewportSupportsTopAndBottomNavigation(t *testing.T) {
+	m := newTTYChatModel(context.Background(), nil, nil, nil, nil, chatStatus{Model: "model"}, nil)
+	m.width, m.height = 40, 10
+	for i := 0; i < 40; i++ {
+		m.lines = append(m.lines, fmt.Sprintf("line %d", i))
+	}
+	m.View()
+	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlHome})
+	m = *model.(*ttyChatModel)
+	if m.viewport.YOffset != 0 {
+		t.Fatalf("ctrl+home offset=%d, want 0", m.viewport.YOffset)
+	}
+	model, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlEnd})
+	m = *model.(*ttyChatModel)
+	if !m.viewport.AtBottom() {
+		t.Fatalf("ctrl+end offset=%d, want bottom", m.viewport.YOffset)
+	}
+}
+
 func TestTTYChatResizePreservesManualViewportPosition(t *testing.T) {
 	m := newTTYChatModel(context.Background(), nil, nil, nil, nil, chatStatus{Model: "model"}, nil)
 	m.width, m.height = 40, 10
