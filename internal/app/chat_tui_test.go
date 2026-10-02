@@ -47,3 +47,22 @@ func TestTTYChatTextEventsSurviveBubbleTeaModelCopies(t *testing.T) {
 		t.Fatalf("stream = %q, want %q", got, "first second")
 	}
 }
+
+func TestTTYChatLayoutUsesFullWidthRulesAndWrappedInput(t *testing.T) {
+	m := newTTYChatModel(context.Background(), nil, nil, nil, nil, chatStatus{Model: "deepseek-v4-flash"}, nil)
+	m.width, m.height = 24, 12
+	m.textarea.SetWidth(22)
+	m.textarea.SetValue(strings.Repeat("x", 30))
+	resizeTTYTextarea(&m)
+	if m.textarea.Height() < 2 {
+		t.Fatalf("wrapped input height = %d, want at least 2", m.textarea.Height())
+	}
+	m.lines = []string{"❯ /resume"}
+	view := m.View()
+	if !strings.Contains(view, strings.Repeat("─", 24)) {
+		t.Fatalf("separator did not span terminal width: %q", view)
+	}
+	if !strings.Contains(view, "/resume") {
+		t.Fatalf("submitted command missing from transcript: %q", view)
+	}
+}

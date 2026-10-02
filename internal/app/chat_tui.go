@@ -87,7 +87,10 @@ func newTTYChatModel(ctx context.Context, runner *agent.Runner, audit session.Wr
 	ta.Focus()
 	m := ttyChatModel{ctx: ctx, runner: runner, audit: audit, trace: trace, persistence: persistence, status: status, interrupt: interrupt, permissionMemory: newPermissionMemory(), textarea: ta, toolStarted: make(map[string]time.Time), events: make(chan tea.Msg, 32), width: 80, height: 24}
 	if persistence != nil && persistence.persistent {
-		m.lines = transcriptFromLLMMessages(persistence.snapshot.Messages)
+		m.lines = append(m.lines, ttySessionHeader(persistence)...)
+		m.lines = append(m.lines, transcriptFromLLMMessages(persistence.snapshot.Messages)...)
+	} else if persistence != nil {
+		m.lines = append(m.lines, ttySessionHeader(persistence)...)
 	}
 	if runner != nil {
 		runner.SetPermissionPrompt(func(promptCtx context.Context, request agent.PermissionRequest) (agent.PermissionDecision, error) {
@@ -121,6 +124,7 @@ func (m ttyChatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if size, ok := msg.(tea.WindowSizeMsg); ok {
 		m.width, m.height = size.Width, size.Height
 		m.textarea.SetWidth(maxTUI(1, size.Width-2))
+		resizeTTYTextarea(&m)
 		m.viewport = viewport.New(maxTUI(1, size.Width), maxTUI(1, size.Height-5))
 		return m, nil
 	}
@@ -168,19 +172,21 @@ func (m ttyChatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.textarea.Reset()
+			resizeTTYTextarea(&m)
 			if text == "exit" || text == "/exit" || text == "quit" {
 				return m, tea.Quit
 			}
+			m.lines = append(m.lines, "❯ "+text)
 			if m.handleCommand(text) {
 				return m, nil
 			}
-			m.lines = append(m.lines, "❯ "+text)
 			m.startTurn(text)
 			return m, tickTUI()
 		}
 	}
 	var cmd tea.Cmd
 	m.textarea, cmd = m.textarea.Update(msg)
+	resizeTTYTextarea(&m)
 	return m, cmd
 }
 
@@ -197,14 +203,14 @@ func (m *ttyChatModel) handleCommand(text string) bool {
 		} else {
 			m.runner.ResetContext()
 		}
-		m.lines = nil
+		m.lines = ttySessionHeader(m.persistence)
 		return true
 	}
 	if text == "/new" {
 		if err := startNewChatSession(m.runner, m.persistence); err != nil {
 			m.lines = append(m.lines, "✖ "+err.Error())
 		} else {
-			m.lines = nil
+			m.lines = ttySessionHeader(m.persistence)
 		}
 		return true
 	}
@@ -363,7 +369,8 @@ func (m ttyChatModel) handleResume(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if err := switchChatSession(m.runner, m.persistence, id); err != nil {
 			m.lines = append(m.lines, "✖ "+err.Error())
 		} else {
-			m.lines = transcriptFromLLMMessages(m.runner.Messages())
+			m.lines = ttySessionHeader(m.persistence)
+			m.lines = append(m.lines, transcriptFromLLMMessages(m.runner.Messages())...)
 			m.lines = append(m.lines, "已切换会话： "+id)
 		}
 	case tea.KeyEscape, tea.KeyCtrlC:
@@ -371,6 +378,17 @@ func (m ttyChatModel) handleResume(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	return m, nil
 }
+
+func ttySessionHeader(persistence *chatPersistence) []string {
+	if persistence == nil {
+		return nil
+	}
+	if persistence.persistent {
+		return []string{"Session ID: " + persistence.snapshot.ID, "注意：此会话会保存完整本地上下文，可能包含用户输入和读取结果；使用 --no-session 可关闭"}
+	}
+	return []string{"已禁用完整会话保存；仍保留脱敏审计"}
+}
+
 func transcriptFromLLMMessages(messages []llm.Message) []string {
 	lines := make([]string, 0, len(messages))
 	for _, x := range messages {
@@ -391,31 +409,96 @@ func (m ttyChatModel) View() string {
 			content += "\n" + spinnerFrame(m.spinner) + " Thinking..."
 		}
 	}
-	m.viewport.SetContent(content)
+	panel := m.textarea.View()
+	if m.approval != nil {
+		panel = renderTUIApproval(*m.approval)
+	} else if m.resume != nil {
+		panel = renderTUIResume(*m.resume)
+	}
+	panelRows := strings.Count(panel, "\n") + 1
+	m.viewport.SetContent(styleTranscript(content))
 	m.viewport.Width = maxTUI(1, m.width)
-	m.viewport.Height = maxTUI(1, m.height-5)
+	m.viewport.Height = maxTUI(1, m.height-panelRows-3)
 	m.viewport.GotoBottom()
 	var b strings.Builder
 	b.WriteString(m.viewport.View())
-	b.WriteString("\n────────────────────────\n")
-	if m.approval != nil {
-		b.WriteString(renderTUIApproval(*m.approval))
-		b.WriteString("\n")
-	} else if m.resume != nil {
-		b.WriteString(renderTUIResume(*m.resume))
-		b.WriteString("\n")
-	} else {
-		b.WriteString(m.textarea.View())
-		b.WriteString("\n")
-	}
+	b.WriteString("\n" + tuiRule(m.width) + "\n" + panel + "\n" + tuiRule(m.width) + "\n")
 	left := "  Enter 发送 · Ctrl+C 取消"
-	b.WriteString("────────────────────────\n" + left)
-	if m.status.Model != "" {
-		b.WriteString(strings.Repeat(" ", maxTUI(1, m.width-lipgloss.Width(left)-lipgloss.Width(m.status.Model))))
-		b.WriteString(m.status.Model)
+	b.WriteString(tuiMuted.Render(left))
+	model := fitTUIRight(m.status.Model, m.width-lipgloss.Width(left)-1)
+	if model != "" {
+		b.WriteString(strings.Repeat(" ", maxTUI(1, m.width-lipgloss.Width(left)-lipgloss.Width(model))))
+		b.WriteString(tuiMuted.Render(model))
 	}
 	return b.String()
 }
+
+var (
+	tuiAccent    = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
+	tuiUser      = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+	tuiAI        = lipgloss.NewStyle().Foreground(lipgloss.Color("99"))
+	tuiOK        = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
+	tuiError     = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
+	tuiMuted     = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+	tuiRuleStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+)
+
+func styleTranscript(content string) string {
+	if content == "" {
+		return content
+	}
+	lines := strings.Split(content, "\n")
+	for i, line := range lines {
+		switch {
+		case strings.HasPrefix(line, "❯ "):
+			lines[i] = tuiAccent.Render("❯") + " " + tuiUser.Render(line[2:])
+		case strings.HasPrefix(line, "● "):
+			lines[i] = tuiAI.Render("●") + " " + tuiUser.Render(line[2:])
+		case strings.HasPrefix(line, "✓ "):
+			lines[i] = tuiOK.Render("✓") + " " + tuiMuted.Render(line[2:])
+		case strings.HasPrefix(line, "✖ "):
+			lines[i] = tuiError.Render("✖") + " " + tuiError.Render(line[2:])
+		case strings.HasPrefix(line, "Done -"):
+			lines[i] = tuiMuted.Render(line)
+		case strings.HasPrefix(line, "Session ID:") || strings.HasPrefix(line, "注意：") || strings.HasPrefix(line, "已禁用完整会话"):
+			lines[i] = tuiMuted.Render(line)
+		default:
+			lines[i] = tuiUser.Render(line)
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func tuiRule(width int) string {
+	return tuiRuleStyle.Render(strings.Repeat("─", maxTUI(1, width)))
+}
+
+func fitTUIRight(value string, width int) string {
+	if width <= 0 || value == "" {
+		return ""
+	}
+	if lipgloss.Width(value) <= width {
+		return value
+	}
+	runes := []rune(value)
+	for len(runes) > 0 && lipgloss.Width(string(runes)) > width {
+		runes = runes[:len(runes)-1]
+	}
+	return string(runes)
+}
+
+func resizeTTYTextarea(m *ttyChatModel) {
+	width := maxTUI(1, m.width-2)
+	rows := 1
+	for _, line := range strings.Split(m.textarea.Value(), "\n") {
+		lineWidth := lipgloss.Width(line)
+		if lineWidth > width {
+			rows += (lineWidth - 1) / width
+		}
+	}
+	m.textarea.SetHeight(rows)
+}
+
 func renderTUIApproval(a tuiApproval) string {
 	title := "WriteFile command"
 	if a.request.ToolName == "edit_file" {
@@ -426,28 +509,34 @@ func renderTUIApproval(a tuiApproval) string {
 	}
 	opts := []string{"1. Yes", "2. Yes, and don't ask again for this pattern", "3. No"}
 	var b strings.Builder
-	b.WriteString(title + "\n\n  " + a.request.Path + "\n\n  This command requires approval\n\n")
+	b.WriteString(tuiAccent.Bold(true).Render(title) + "\n\n  " + tuiUser.Render(a.request.Path) + "\n\n  " + tuiMuted.Render("This command requires approval") + "\n\n")
 	for i, x := range opts {
 		if i == a.selected {
-			b.WriteString("❯ ")
+			b.WriteString(tuiAccent.Render("❯") + " " + lipgloss.NewStyle().Foreground(lipgloss.Color("255")).Background(lipgloss.Color("236")).Render(x))
 		} else {
-			b.WriteString("  ")
+			b.WriteString("  " + tuiMuted.Render(x))
 		}
-		b.WriteString(x + "\n")
+		b.WriteString("\n")
 	}
 	return b.String()
 }
 func renderTUIResume(r tuiResume) string {
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("Resume session (1 of %d)\n⌕ Search…\n", len(r.items)))
+	b.WriteString(tuiAccent.Bold(true).Render(fmt.Sprintf("Resume session (1 of %d)", len(r.items))) + "\n")
+	b.WriteString(tuiMuted.Render("⌕ Search…") + "\n")
 	for i, x := range r.items {
 		p := "  "
 		if i == r.cursor {
-			p = "❯ "
+			p = tuiAccent.Render("❯") + " "
 		}
 		title := x.Title
 		if title == "" {
 			title = x.Preview
+		}
+		if i == r.cursor {
+			title = lipgloss.NewStyle().Foreground(lipgloss.Color("255")).Background(lipgloss.Color("236")).Render(title)
+		} else {
+			title = tuiUser.Render(title)
 		}
 		b.WriteString(p + title + "\n")
 	}
