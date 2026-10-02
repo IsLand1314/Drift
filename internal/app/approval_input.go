@@ -70,11 +70,16 @@ func (m approvalInputModel) View() string {
 		titleText = "EditFile command"
 	case "delete_file":
 		titleText = "DeleteFile command"
+	case "run_command":
+		titleText = "RunCommand command"
 	}
 	title := lipgloss.NewStyle().Foreground(lipgloss.Color("220")).Bold(true).Render(titleText)
 	muted := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	path := "  " + m.request.Path
-	text := title + "\n\n" + path + "\n\n" + muted.Render("  This command requires approval") + "\n\n"
+	detail := "  " + m.request.Path
+	if m.request.ToolName == "run_command" {
+		detail = "  " + m.request.Command + "\n\n  cwd: " + m.request.CWD
+	}
+	text := title + "\n\n" + detail + "\n\n" + muted.Render("  This command requires approval") + "\n\n"
 	options := []string{"1. Yes", "2. Yes, and don't ask again for this pattern", "3. No"}
 	for i, option := range options {
 		prefix := "  "

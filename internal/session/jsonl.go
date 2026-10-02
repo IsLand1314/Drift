@@ -125,6 +125,7 @@ func entryFromEvent(event agent.Event, clean sanitizer) Entry {
 	if event.Type == agent.EventPermissionRequest || event.Type == agent.EventPermissionDecision {
 		path = auditRelativePath(event.Path)
 	}
+	cwd := auditRelativePath(event.CWD)
 	return Entry{
 		Version:        1,
 		Type:           string(event.Type),
@@ -135,6 +136,8 @@ func entryFromEvent(event agent.Event, clean sanitizer) Entry {
 		ToolCallID:     clean.text(event.ToolCallID),
 		Tool:           clean.text(event.ToolName),
 		Path:           path,
+		CWD:            cwd,
+		CommandBytes:   len(event.Command),
 		Operation:      clean.text(event.Operation),
 		OldBytes:       event.OldBytes,
 		NewBytes:       event.NewBytes,

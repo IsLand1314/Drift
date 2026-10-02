@@ -382,7 +382,7 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 				switch event.Type {
 				case agent.EventToolCall:
 					currentActivity.Stop()
-					toolStarted[event.ToolCallID] = toolProgress{started: time.Now(), path: safeToolPath(event.Arguments)}
+					toolStarted[event.ToolCallID] = toolProgress{started: time.Now(), path: safeToolPathForTool(event.ToolName, event.Arguments)}
 					currentActivity.Start()
 				case agent.EventToolResult:
 					currentActivity.Stop()
@@ -513,6 +513,8 @@ func toolLabel(name string) string {
 		return "Search"
 	case "write_file":
 		return "Write"
+	case "run_command":
+		return "Run"
 	default:
 		name = strings.TrimSpace(name)
 		if name == "" {
@@ -548,7 +550,11 @@ func confirmWrite(ctx context.Context, input chatInput, out io.Writer, memory *p
 			return agent.PermissionDecision{Reason: "user_denied"}, nil
 		}
 	}
-	fmt.Fprintf(out, "\nWrite request: %s %s (%d -> %d bytes)\n", request.Operation, request.Path, request.OldBytes, request.NewBytes)
+	if request.ToolName == "run_command" {
+		fmt.Fprintf(out, "\nRun command: %s (cwd %s)\n", request.Command, request.CWD)
+	} else {
+		fmt.Fprintf(out, "\nWrite request: %s %s (%d -> %d bytes)\n", request.Operation, request.Path, request.OldBytes, request.NewBytes)
+	}
 	fmt.Fprint(out, "Allow this change? [y/N] ")
 	choice, err := readApprovalChoice(ctx, input, request)
 	if err != nil {
@@ -580,6 +586,19 @@ func safeToolPath(arguments string) string {
 		}
 	}
 	return input.Path
+}
+
+func safeToolPathForTool(name, arguments string) string {
+	if name != "run_command" {
+		return safeToolPath(arguments)
+	}
+	var input struct {
+		Command string `json:"command"`
+	}
+	if json.Unmarshal([]byte(arguments), &input) != nil || strings.TrimSpace(input.Command) == "" || len(input.Command) > 160 {
+		return ""
+	}
+	return strings.TrimSpace(input.Command)
 }
 
 func formatToolBytes(size int) string {

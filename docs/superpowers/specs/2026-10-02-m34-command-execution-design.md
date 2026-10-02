@@ -12,6 +12,7 @@
 4. 执行进程使用 workspace cwd；命令的启动方式、环境继承和平台差异在实现任务中单独固定，不能由模型自行决定。
 5. stdout/stderr 分别限流，结果携带 exit code、耗时、超时、取消和截断状态。
 6. 审计只保留脱敏元数据；完整命令输出不写入 session、audit 或 changes。
+7. 默认超时为 30 秒，最大 60 秒；stdout/stderr 各自受 32 KiB 总上限约束。
 
 ## 状态流
 
@@ -20,13 +21,13 @@
   -> 规范化命令/cwd
   -> workspace 与受保护路径预检
   -> PermissionPrompt(ask/allow/deny)
-  -> 启动进程组
-  -> 流式收集 stdout/stderr（超时/取消/上限）
+  -> 以 workspace cwd 启动平台 shell
+  -> 收集 stdout/stderr（超时/取消/上限）
   -> 返回稳定结果
   -> 脱敏审计
 ```
 
-审批被拒绝、进程启动失败、超时、取消和非零退出必须分别可辨识。任何不确定的子进程状态都不能返回成功。
+审批被拒绝、进程启动失败、超时、取消和非零退出必须分别可辨识。Windows 使用 `cmd.exe /d /s /c`，Unix 使用 `/bin/sh -c`；任何非成功状态都不能返回成功。
 
 ## 明确不做
 

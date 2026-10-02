@@ -314,7 +314,7 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) (
 			}
 			var content string
 			var errorSummary string
-			var operation, path string
+			var operation, path, command, cwd string
 			var oldBytes, newBytes int
 			if toolCalls >= MaxToolCalls {
 				content = call.Name + " failed: request/tool budget exceeded"
@@ -331,9 +331,10 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) (
 						toolErr = previewErr
 					} else {
 						operation, path = preview.Operation, preview.Path
+						command, cwd = preview.Command, preview.CWD
 						oldBytes, newBytes = preview.OldBytes, preview.NewBytes
-						request := PermissionRequest{ToolName: call.Name, Operation: preview.Operation, Path: preview.Path, OldBytes: preview.OldBytes, NewBytes: preview.NewBytes, Diff: preview.Diff}
-						if err := emit(Event{Type: EventPermissionRequest, ToolCallID: call.ID, ToolName: call.Name, Operation: preview.Operation, Path: preview.Path, OldBytes: preview.OldBytes, NewBytes: preview.NewBytes}); err != nil {
+						request := PermissionRequest{ToolName: call.Name, Operation: preview.Operation, Path: preview.Path, Command: preview.Command, CWD: preview.CWD, OldBytes: preview.OldBytes, NewBytes: preview.NewBytes, Diff: preview.Diff}
+						if err := emit(Event{Type: EventPermissionRequest, ToolCallID: call.ID, ToolName: call.Name, Operation: preview.Operation, Path: preview.Path, Command: preview.Command, CWD: preview.CWD, OldBytes: preview.OldBytes, NewBytes: preview.NewBytes}); err != nil {
 							return err
 						}
 						decision := PermissionDecision{Reason: "permission denied"}
@@ -343,7 +344,7 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) (
 						if toolErr == nil && !decision.Allow {
 							toolErr = errors.New("permission denied")
 						}
-						if err := emit(Event{Type: EventPermissionDecision, ToolCallID: call.ID, ToolName: call.Name, Operation: preview.Operation, Path: preview.Path, OldBytes: preview.OldBytes, NewBytes: preview.NewBytes, Allowed: decision.Allow, DecisionReason: decision.Reason}); err != nil {
+						if err := emit(Event{Type: EventPermissionDecision, ToolCallID: call.ID, ToolName: call.Name, Operation: preview.Operation, Path: preview.Path, Command: preview.Command, CWD: preview.CWD, OldBytes: preview.OldBytes, NewBytes: preview.NewBytes, Allowed: decision.Allow, DecisionReason: decision.Reason}); err != nil {
 							return err
 						}
 						if toolErr == nil {
@@ -352,6 +353,11 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) (
 					}
 				} else {
 					result, toolErr = registeredTool.Execute(ctx, r.root, call.Arguments)
+				}
+				if toolErr == nil && call.Name == "run_command" {
+					if status := commandStatus(result); status != "" && status != "success" {
+						errorSummary = "command " + status
+					}
 				}
 				if toolErr != nil && ctx.Err() != nil {
 					return fail(ctx.Err())
@@ -373,7 +379,7 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) (
 				}
 			}
 			r.messages = append(r.messages, llm.Message{Role: "tool", Content: content, ToolCallID: call.ID})
-			if err := emit(Event{Type: EventToolResult, ToolCallID: call.ID, ToolName: call.Name, Result: content, ErrorSummary: errorSummary, Operation: operation, Path: path, OldBytes: oldBytes, NewBytes: newBytes}); err != nil {
+			if err := emit(Event{Type: EventToolResult, ToolCallID: call.ID, ToolName: call.Name, Result: content, ErrorSummary: errorSummary, Operation: operation, Path: path, Command: command, CWD: cwd, OldBytes: oldBytes, NewBytes: newBytes}); err != nil {
 				return err
 			}
 		}
@@ -406,6 +412,15 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) (
 	return fail(errRequestToolBudgetExceeded)
 }
 
+func commandStatus(result string) string {
+	const prefix = "run_command status="
+	if !strings.HasPrefix(result, prefix) {
+		return ""
+	}
+	value := strings.TrimPrefix(strings.SplitN(result, "\n", 2)[0], prefix)
+	return strings.TrimSpace(strings.SplitN(value, " ", 2)[0])
+}
+
 func systemInstruction(focus string) string {
 	if focus == "" {
 		return nativeToolSystemInstruction
@@ -418,7 +433,7 @@ func systemInstruction(focus string) string {
 func (r *Runner) systemInstruction() string {
 	base := systemInstruction(r.focus)
 	if _, writable := r.registry.Lookup("write_file"); writable {
-		base = strings.Replace(base, nativeToolSystemInstruction, "Drift is workspace-scoped. Use the supplied tools to inspect and modify files only after the user explicitly approves each preview. The native write_file, edit_file, and delete_file tools are available only in chat. When the user explicitly asks to create, write, edit, or delete, call the corresponding native tool instead of only suggesting code; never claim a change succeeded unless the tool result says it succeeded. If a mutation tool fails, explain its safe error summary and do not read Drift's implementation files to diagnose the runtime. Never emit XML, DSML, or pseudo-tool syntax.", 1)
+		base = strings.Replace(base, nativeToolSystemInstruction, "Drift is workspace-scoped. Use the supplied tools to inspect and modify files only after the user explicitly approves each preview. The native write_file, edit_file, delete_file, and run_command tools are available only in chat. When the user explicitly asks to create, write, edit, or delete, call the corresponding native tool instead of only suggesting code; when the user explicitly asks to run a command, call run_command. Never claim a change succeeded unless the tool result says it succeeded. If a mutation or command tool fails, explain its safe error summary and do not read Drift's implementation files to diagnose the runtime. Never emit XML, DSML, or pseudo-tool syntax.", 1)
 	}
 	if r.skillContent == "" {
 		return base

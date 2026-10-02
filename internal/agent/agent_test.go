@@ -32,8 +32,8 @@ func TestChatRegistrySystemInstructionAllowsConfirmedWrite(t *testing.T) {
 	if !strings.Contains(client.requests[0].Messages[0].Content, "write_file") || !strings.Contains(client.requests[0].Messages[0].Content, "create, write, edit, or delete") {
 		t.Fatalf("system instruction=%q", client.requests[0].Messages[0].Content)
 	}
-	if len(client.requests[0].Tools) != 6 {
-		t.Fatalf("tools=%d, want 6", len(client.requests[0].Tools))
+	if len(client.requests[0].Tools) != 7 {
+		t.Fatalf("tools=%d, want 7", len(client.requests[0].Tools))
 	}
 }
 

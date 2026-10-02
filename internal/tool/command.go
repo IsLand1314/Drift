@@ -1,0 +1,203 @@
+package tool
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/IsLand1314/Drift/internal/llm"
+)
+
+const (
+	DefaultCommandTimeout = 30 * time.Second
+	MaxCommandTimeout     = 60 * time.Second
+	MaxCommandBytes       = 8 << 10
+	MaxCommandOutputBytes = 32 << 10
+)
+
+type runCommandTool struct{}
+
+func (runCommandTool) Name() string                   { return "run_command" }
+func (runCommandTool) Definition() llm.ToolDefinition { return RunCommandDefinition() }
+func (runCommandTool) Execute(context.Context, string, string) (string, error) {
+	return "", fmt.Errorf("run_command requires permission confirmation")
+}
+func (runCommandTool) Preview(ctx context.Context, root, raw string) (Preview, error) {
+	if err := ctx.Err(); err != nil {
+		return Preview{}, err
+	}
+	return RunCommandPreview(root, raw)
+}
+func (runCommandTool) ExecutePreview(ctx context.Context, root string, preview Preview) (string, error) {
+	return ExecuteCommand(ctx, root, preview)
+}
+
+type commandArguments struct {
+	Command        string `json:"command"`
+	CWD            string `json:"cwd"`
+	TimeoutMS      int    `json:"timeout_ms"`
+	MaxOutputBytes int    `json:"max_output_bytes"`
+}
+
+func RunCommandDefinition() llm.ToolDefinition {
+	function := map[string]any{
+		"name":        "run_command",
+		"description": "Run one user-approved command in the workspace. Output is limited and the command may not use a cwd outside the workspace.",
+		"parameters": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"command":          map[string]any{"type": "string", "description": "Shell command to run."},
+				"cwd":              map[string]any{"type": "string", "description": "Optional workspace-relative working directory."},
+				"timeout_ms":       map[string]any{"type": "integer", "description": "Optional timeout from 1 to 60000 milliseconds."},
+				"max_output_bytes": map[string]any{"type": "integer", "description": "Optional combined stdout/stderr limit from 256 to 32768 bytes."},
+			},
+			"required":             []string{"command"},
+			"additionalProperties": false,
+		},
+	}
+	raw, err := json.Marshal(function)
+	if err != nil {
+		panic("tool: marshal run_command definition: " + err.Error())
+	}
+	return llm.ToolDefinition{Type: "function", Function: raw}
+}
+
+func RunCommandPreview(root, raw string) (Preview, error) {
+	var args commandArguments
+	decoder := json.NewDecoder(strings.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&args); err != nil {
+		return Preview{}, fmt.Errorf("decode run_command arguments: %w", err)
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return Preview{}, fmt.Errorf("decode run_command arguments: multiple JSON values")
+	}
+	args.Command = strings.TrimSpace(args.Command)
+	if args.Command == "" {
+		return Preview{}, fmt.Errorf("run_command command is blank")
+	}
+	if len(args.Command) > MaxCommandBytes {
+		return Preview{}, fmt.Errorf("run_command command exceeds %d bytes", MaxCommandBytes)
+	}
+	args.CWD = filepath.ToSlash(strings.TrimSpace(args.CWD))
+	if args.CWD == "" {
+		args.CWD = "."
+	}
+	if err := validateRelativePath(args.CWD, false); err != nil {
+		return Preview{}, fmt.Errorf("run_command cwd is invalid: %w", err)
+	}
+	for _, part := range strings.Split(args.CWD, "/") {
+		switch strings.ToLower(part) {
+		case ".git", ".drift", ".codex-temp", ".worktrees":
+			return Preview{}, fmt.Errorf("run_command cwd is protected")
+		}
+	}
+	info, err := os.Stat(filepath.Join(root, filepath.FromSlash(args.CWD)))
+	if err != nil {
+		return Preview{}, fmt.Errorf("run_command cwd: %w", err)
+	}
+	if !info.IsDir() {
+		return Preview{}, fmt.Errorf("run_command cwd is not a directory")
+	}
+	workspace, err := os.OpenRoot(root)
+	if err != nil {
+		return Preview{}, fmt.Errorf("open run_command root: %w", err)
+	}
+	defer workspace.Close()
+	if hasSymlink, symlinkErr := hasSymlinkComponent(workspace, args.CWD); symlinkErr != nil || hasSymlink {
+		return Preview{}, fmt.Errorf("run_command cwd contains a symlink")
+	}
+	timeout := DefaultCommandTimeout
+	if args.TimeoutMS != 0 {
+		if args.TimeoutMS < 1 || time.Duration(args.TimeoutMS)*time.Millisecond > MaxCommandTimeout {
+			return Preview{}, fmt.Errorf("run_command timeout_ms must be between 1 and 60000")
+		}
+		timeout = time.Duration(args.TimeoutMS) * time.Millisecond
+	}
+	maxOutput := MaxCommandOutputBytes
+	if args.MaxOutputBytes != 0 {
+		if args.MaxOutputBytes < 256 || args.MaxOutputBytes > MaxCommandOutputBytes {
+			return Preview{}, fmt.Errorf("run_command max_output_bytes must be between 256 and %d", MaxCommandOutputBytes)
+		}
+		maxOutput = args.MaxOutputBytes
+	}
+	return Preview{Operation: "run_command", Path: args.CWD, Command: args.Command, CWD: args.CWD, Timeout: timeout, OutputLimit: maxOutput}, nil
+}
+
+func ExecuteCommand(parent context.Context, root string, preview Preview) (string, error) {
+	ctx, cancel := context.WithTimeout(parent, preview.Timeout)
+	defer cancel()
+	cmd := commandProcess(ctx, preview.Command)
+	cmd.Dir = filepath.Join(root, filepath.FromSlash(preview.CWD))
+	limit := preview.OutputLimit
+	if limit <= 0 || limit > MaxCommandOutputBytes {
+		limit = MaxCommandOutputBytes
+	}
+	stdout, stderr := &limitedBuffer{limit: limit / 2}, &limitedBuffer{limit: limit - limit/2}
+	cmd.Stdout, cmd.Stderr = stdout, stderr
+	started := time.Now()
+	err := cmd.Run()
+	duration := time.Since(started).Round(time.Millisecond)
+	status, exitCode := "success", 0
+	if err != nil {
+		status = "failed"
+		if ctx.Err() == context.DeadlineExceeded {
+			status = "timeout"
+		}
+		if ctx.Err() == context.Canceled {
+			status = "cancelled"
+		}
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ProcessState != nil {
+			exitCode = exitErr.ExitCode()
+		} else if status != "success" {
+			exitCode = -1
+		}
+	}
+	output := strings.TrimSpace(strings.TrimRight(stdout.String()+stderr.String(), "\r\n"))
+	if output == "" {
+		output = "<no output>"
+	}
+	return fmt.Sprintf("run_command status=%s exit_code=%d duration=%s stdout_bytes=%d stderr_bytes=%d truncated=%t\n%s", status, exitCode, duration, stdout.n, stderr.n, stdout.truncated || stderr.truncated, output), nil
+}
+
+func commandProcess(ctx context.Context, command string) *exec.Cmd {
+	if runtime.GOOS == "windows" {
+		return exec.CommandContext(ctx, "cmd.exe", "/d", "/s", "/c", command)
+	}
+	return exec.CommandContext(ctx, "/bin/sh", "-c", command)
+}
+
+type limitedBuffer struct {
+	mu        sync.Mutex
+	data      []byte
+	n         int
+	limit     int
+	truncated bool
+}
+
+func (b *limitedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.n += len(p)
+	if len(b.data)+len(p) > b.limit {
+		b.truncated = true
+	}
+	if len(b.data) < b.limit {
+		take := len(p)
+		if remaining := b.limit - len(b.data); take > remaining {
+			take = remaining
+		}
+		b.data = append(b.data, p[:take]...)
+	}
+	return len(p), nil
+}
+func (b *limitedBuffer) String() string { b.mu.Lock(); defer b.mu.Unlock(); return string(b.data) }

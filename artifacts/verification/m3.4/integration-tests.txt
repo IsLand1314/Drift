@@ -1,0 +1,8 @@
+M3.4 integration verification (2026-10-02)
+
+$ go test ./internal/agent ./internal/app ./internal/session -count=1
+ok   github.com/IsLand1314/Drift/internal/agent
+ok   github.com/IsLand1314/Drift/internal/app
+ok   github.com/IsLand1314/Drift/internal/session
+
+Covered: agent permission request flow, exact current-chat command memory, TTY/non-TTY approval rendering, and audit metadata without command/output bodies.

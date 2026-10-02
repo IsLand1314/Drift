@@ -1,0 +1,12 @@
+M3.4 final verification (2026-10-02)
+
+$ go test ./... -count=1
+PASS
+$ go vet ./...
+PASS
+$ go build ./cmd/drift
+PASS
+$ git diff --check
+PASS
+
+The default -p registry remains read-only; run_command is registered only by chat.

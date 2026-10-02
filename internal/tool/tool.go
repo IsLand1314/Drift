@@ -2,18 +2,23 @@ package tool
 
 import (
 	"context"
+	"time"
 
 	"github.com/IsLand1314/Drift/internal/llm"
 )
 
 // Preview describes a write that has not changed the target yet.
 type Preview struct {
-	Operation string
-	Path      string
-	Content   []byte
-	OldBytes  int
-	NewBytes  int
-	Diff      string
+	Operation   string
+	Path        string
+	Command     string
+	CWD         string
+	Timeout     time.Duration
+	OutputLimit int
+	Content     []byte
+	OldBytes    int
+	NewBytes    int
+	Diff        string
 }
 
 // Previewable is implemented by tools that require caller approval before execution.

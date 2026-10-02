@@ -33,3 +33,20 @@ func TestPermissionMemoryIsProcessLocal(t *testing.T) {
 		t.Fatal("new memory inherited process state")
 	}
 }
+
+func TestPermissionMemoryMatchesExactCommandAndCWD(t *testing.T) {
+	memory := newPermissionMemory()
+	request := agent.PermissionRequest{ToolName: "run_command", Operation: "run_command", Command: "go test ./...", CWD: "."}
+	memory.Remember(request)
+	if !memory.Allow(request) {
+		t.Fatal("remembered command was not allowed")
+	}
+	for _, different := range []agent.PermissionRequest{
+		{ToolName: "run_command", Operation: "run_command", Command: "go test ./internal/tool", CWD: "."},
+		{ToolName: "run_command", Operation: "run_command", Command: request.Command, CWD: "internal"},
+	} {
+		if memory.Allow(different) {
+			t.Fatalf("different command pattern matched: %+v", different)
+		}
+	}
+}

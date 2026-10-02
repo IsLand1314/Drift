@@ -1,0 +1,12 @@
+M3.4 DeepSeek chat command denial check (2026-10-02)
+
+Prompt:
+  请运行命令 echo m34-chat-denied；不要修改任何文件。
+
+Observed (non-TTY approval input `n`):
+  approval displayed the command and cwd `.`;
+  model received a stable execution failure and did not receive command output;
+  no file was modified.
+  exit_code=0
+
+Credential values and full model output are omitted.

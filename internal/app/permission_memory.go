@@ -17,7 +17,9 @@ func newPermissionMemory() *permissionMemory {
 
 func (m *permissionMemory) key(request agent.PermissionRequest) string {
 	path := filepath.ToSlash(strings.TrimSpace(request.Path))
-	return request.ToolName + "\x00" + request.Operation + "\x00" + path
+	command := strings.TrimSpace(request.Command)
+	cwd := filepath.ToSlash(strings.TrimSpace(request.CWD))
+	return request.ToolName + "\x00" + request.Operation + "\x00" + path + "\x00" + cwd + "\x00" + command
 }
 
 func (m *permissionMemory) Allow(request agent.PermissionRequest) bool {

@@ -1,0 +1,11 @@
+M3.4 DeepSeek single-turn readonly check (2026-10-02)
+
+Command:
+  go run ./cmd/drift -w artifacts/verification/m3.4 -p "请执行命令 echo m34-p-mode；不要修改文件"
+
+Observed:
+  exit_code=0
+  model stated that only read-only tools were available and did not execute the command.
+  no file was created by the request.
+
+Credential values and full provider configuration are intentionally omitted.

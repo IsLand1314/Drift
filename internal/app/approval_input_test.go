@@ -41,6 +41,14 @@ func TestApprovalInputModelEscapeDenies(t *testing.T) {
 	}
 }
 
+func TestApprovalInputRendersCommandDetails(t *testing.T) {
+	model := newApprovalInputModel(agent.PermissionRequest{ToolName: "run_command", Command: "go test ./...", CWD: "."})
+	view := model.View()
+	if !strings.Contains(view, "RunCommand command") || !strings.Contains(view, "go test ./...") || !strings.Contains(view, "cwd: .") {
+		t.Fatalf("view=%q", view)
+	}
+}
+
 func TestApprovalCleanupSequenceClearsTransientPanel(t *testing.T) {
 	sequence := approvalCleanupSequence(9)
 	if strings.Count(sequence, "\x1b[2K") != 9 || !strings.Contains(sequence, "\x1b[1A") {

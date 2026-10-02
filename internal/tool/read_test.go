@@ -268,6 +268,15 @@ func TestNewRegistryRejectsDuplicateToolNames(t *testing.T) {
 	}
 }
 
+func TestRunCommandIsChatOnly(t *testing.T) {
+	if _, ok := NewDefaultRegistry().Lookup("run_command"); ok {
+		t.Fatal("default registry exposed run_command")
+	}
+	if _, ok := NewChatRegistry().Lookup("run_command"); !ok {
+		t.Fatal("chat registry did not expose run_command")
+	}
+}
+
 type testTool struct {
 	name string
 }

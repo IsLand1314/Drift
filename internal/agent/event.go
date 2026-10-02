@@ -40,6 +40,8 @@ type Event struct {
 	KeptMessages   int
 	Operation      string
 	Path           string
+	Command        string
+	CWD            string
 	OldBytes       int
 	NewBytes       int
 	Allowed        bool
@@ -55,6 +57,8 @@ type PermissionRequest struct {
 	ToolName  string
 	Operation string
 	Path      string
+	Command   string
+	CWD       string
 	OldBytes  int
 	NewBytes  int
 	Diff      string

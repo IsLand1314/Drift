@@ -313,7 +313,7 @@ func (m *ttyChatModel) applyEvent(e agent.Event) {
 	case agent.EventTextDelta:
 		m.stream += e.Text
 	case agent.EventToolCall:
-		path := safeToolPath(e.Arguments)
+		path := safeToolPathForTool(e.ToolName, e.Arguments)
 		m.lines = append(m.lines, "● "+toolLabel(e.ToolName)+formatToolPath(path)+" ...")
 		m.toolStarted[e.ToolCallID] = toolProgressTUI{started: time.Now(), path: path, lineIdx: len(m.lines) - 1}
 	case agent.EventToolResult:
@@ -594,9 +594,14 @@ func renderTUIApproval(a tuiApproval) string {
 	if a.request.ToolName == "delete_file" {
 		title = "DeleteFile command"
 	}
+	detail := a.request.Path
+	if a.request.ToolName == "run_command" {
+		title = "RunCommand command"
+		detail = a.request.Command + "\n\n  cwd: " + a.request.CWD
+	}
 	opts := []string{"1. Yes", "2. Yes, and don't ask again for this pattern", "3. No"}
 	var b strings.Builder
-	b.WriteString(tuiAccent.Bold(true).Render(title) + "\n\n  " + tuiUser.Render(a.request.Path) + "\n\n  " + tuiMuted.Render("This command requires approval") + "\n\n")
+	b.WriteString(tuiAccent.Bold(true).Render(title) + "\n\n  " + tuiUser.Render(detail) + "\n\n  " + tuiMuted.Render("This command requires approval") + "\n\n")
 	for i, x := range opts {
 		if i == a.selected {
 			b.WriteString(tuiAccent.Render("❯") + " " + lipgloss.NewStyle().Foreground(lipgloss.Color("255")).Background(lipgloss.Color("236")).Render(x))

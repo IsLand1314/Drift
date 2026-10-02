@@ -1,0 +1,6 @@
+M3.4 command-focused verification (2026-10-02)
+
+$ go test ./internal/tool -run 'RunCommand|Registry' -count=1
+ok   github.com/IsLand1314/Drift/internal/tool
+
+Covered: workspace execution, protected/unsafe cwd rejection, timeout status, output truncation, and chat-only registry exposure.

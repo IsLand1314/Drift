@@ -17,6 +17,8 @@ type Entry struct {
 	ToolCallID     string    `json:"tool_call_id,omitempty"`
 	Tool           string    `json:"tool,omitempty"`
 	Path           string    `json:"path,omitempty"`
+	CWD            string    `json:"cwd,omitempty"`
+	CommandBytes   int       `json:"command_bytes,omitempty"`
 	Arguments      string    `json:"arguments,omitempty"`
 	ArgumentBytes  int       `json:"argument_bytes,omitempty"`
 	Result         string    `json:"result,omitempty"`

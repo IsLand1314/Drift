@@ -56,6 +56,38 @@ func TestJSONLWriterStoresAuditMetadataOnly(t *testing.T) {
 	}
 }
 
+func TestJSONLWriterStoresCommandMetadataWithoutCommandBody(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "run.jsonl")
+	writer, err := NewJSONLWriter(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := "echo private-command-output"
+	if err := writer.Append(agent.Event{Type: agent.EventPermissionRequest, ToolName: "run_command", Command: command, CWD: "."}); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Append(agent.Event{Type: agent.EventToolResult, ToolName: "run_command", Result: "private-command-output"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(content), command) || strings.Contains(string(content), "private-command-output") {
+		t.Fatalf("command data leaked: %s", content)
+	}
+	entries, err := ReadEntries(path)
+	if err != nil || len(entries) != 2 {
+		t.Fatalf("entries=%v err=%v", entries, err)
+	}
+	if entries[0].CommandBytes != len(command) || entries[0].CWD != "." || entries[1].Result != "<redacted>" {
+		t.Fatalf("entries=%+v", entries)
+	}
+}
+
 func TestJSONLWriterRecordsOnlySafeRelativeToolPath(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "run.jsonl")
 	writer, err := NewJSONLWriter(path)

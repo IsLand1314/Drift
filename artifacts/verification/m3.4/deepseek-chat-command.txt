@@ -1,0 +1,12 @@
+M3.4 DeepSeek chat command approval check (2026-10-02)
+
+Prompt:
+  请运行命令 echo m34-chat-success；不要修改任何文件。
+
+Observed (non-TTY approval input `y`):
+  Run command: echo m34-chat-success (cwd .)
+  output: m34-chat-success
+  Done - 2.0s
+  exit_code=0
+
+The command was harmless and did not modify workspace files. Credential values and full model output are omitted.
