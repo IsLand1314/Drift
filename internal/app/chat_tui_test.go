@@ -36,3 +36,14 @@ func TestTTYChatToolResultDoesNotRenderProbeFailure(t *testing.T) {
 		t.Fatalf("successful tool result missing: %#v", m.lines)
 	}
 }
+
+func TestTTYChatTextEventsSurviveBubbleTeaModelCopies(t *testing.T) {
+	m := newTTYChatModel(context.Background(), nil, nil, nil, nil, chatStatus{}, nil)
+	model, _ := m.Update(tuiAgentEvent{event: agent.Event{Type: agent.EventTextDelta, Text: "first"}})
+	model, _ = model.Update(tuiAgentEvent{event: agent.Event{Type: agent.EventTextDelta, Text: " second"}})
+	modelValue := model.(ttyChatModel)
+	got := modelValue.stream
+	if got != "first second" {
+		t.Fatalf("stream = %q, want %q", got, "first second")
+	}
+}

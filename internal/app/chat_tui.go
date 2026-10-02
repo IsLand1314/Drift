@@ -35,7 +35,7 @@ type ttyChatModel struct {
 	viewport      viewport.Model
 	width, height int
 	lines         []string
-	stream        strings.Builder
+	stream        string
 	toolStarted   map[string]time.Time
 	events        chan tea.Msg
 	running       bool
@@ -240,7 +240,7 @@ func (m *ttyChatModel) handleCommand(text string) bool {
 
 func (m *ttyChatModel) startTurn(prompt string) {
 	m.running, m.started = true, time.Now()
-	m.stream.Reset()
+	m.stream = ""
 	go func() {
 		turnCtx, cancel := context.WithCancel(m.ctx)
 		end := m.interrupt.beginTurn(cancel)
@@ -289,7 +289,7 @@ func (m *ttyChatModel) applyEvent(e agent.Event) {
 	}
 	switch e.Type {
 	case agent.EventTextDelta:
-		m.stream.WriteString(e.Text)
+		m.stream += e.Text
 	case agent.EventToolCall:
 		m.toolStarted[e.ToolCallID] = time.Now()
 	case agent.EventToolResult:
@@ -305,8 +305,8 @@ func (m *ttyChatModel) applyEvent(e agent.Event) {
 	}
 }
 func (m *ttyChatModel) finishTurn(err error) {
-	if m.stream.Len() > 0 {
-		m.lines = append(m.lines, "● "+m.stream.String())
+	if m.stream != "" {
+		m.lines = append(m.lines, "● "+m.stream)
 	}
 	if err != nil {
 		m.lines = append(m.lines, "✖ "+err.Error())
@@ -385,8 +385,8 @@ func transcriptFromLLMMessages(messages []llm.Message) []string {
 func (m ttyChatModel) View() string {
 	content := strings.Join(m.lines, "\n")
 	if m.running {
-		if m.stream.Len() > 0 {
-			content += "\n● " + m.stream.String()
+		if m.stream != "" {
+			content += "\n● " + m.stream
 		} else {
 			content += "\n" + spinnerFrame(m.spinner) + " Thinking..."
 		}
