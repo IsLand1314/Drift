@@ -2,4 +2,4 @@
 
 package tool
 
-func detectWindowsSandbox() SandboxCapabilities { return SandboxCapabilities{} }
+func detectWindowsSandbox(string) SandboxCapabilities { return SandboxCapabilities{} }

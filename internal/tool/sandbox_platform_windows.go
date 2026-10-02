@@ -2,5 +2,6 @@
 
 package tool
 
-// detectWindowsSandbox remains unavailable until the AppContainer probe is implemented.
-func detectWindowsSandbox() SandboxCapabilities { return SandboxCapabilities{} }
+func detectWindowsSandbox(root string) SandboxCapabilities {
+	return probeWindowsSandbox(root)
+}
