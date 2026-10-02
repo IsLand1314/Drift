@@ -416,20 +416,15 @@ func (m ttyChatModel) View() string {
 		panel = renderTUIResume(*m.resume)
 	}
 	panelRows := strings.Count(panel, "\n") + 1
+	footer := tuiFooter(m.status.Model, m.width)
+	footerRows := strings.Count(footer, "\n") + 1
 	m.viewport.SetContent(styleTranscript(content))
 	m.viewport.Width = maxTUI(1, m.width)
-	m.viewport.Height = maxTUI(1, m.height-panelRows-3)
+	m.viewport.Height = maxTUI(1, m.height-panelRows-footerRows-2)
 	m.viewport.GotoBottom()
 	var b strings.Builder
 	b.WriteString(m.viewport.View())
-	b.WriteString("\n" + tuiRule(m.width) + "\n" + panel + "\n" + tuiRule(m.width) + "\n")
-	left := "  Enter 发送 · Ctrl+C 取消"
-	b.WriteString(tuiMuted.Render(left))
-	model := fitTUIRight(m.status.Model, m.width-lipgloss.Width(left)-1)
-	if model != "" {
-		b.WriteString(strings.Repeat(" ", maxTUI(1, m.width-lipgloss.Width(left)-lipgloss.Width(model))))
-		b.WriteString(tuiMuted.Render(model))
-	}
+	b.WriteString("\n" + tuiRule(m.width) + "\n" + panel + "\n" + tuiRule(m.width) + "\n" + footer)
 	return b.String()
 }
 
@@ -473,18 +468,15 @@ func tuiRule(width int) string {
 	return tuiRuleStyle.Render(strings.Repeat("─", maxTUI(1, width)))
 }
 
-func fitTUIRight(value string, width int) string {
-	if width <= 0 || value == "" {
-		return ""
+func tuiFooter(model string, width int) string {
+	left := "  Enter 发送 · Ctrl+C 取消"
+	if model == "" {
+		return tuiMuted.Render(left)
 	}
-	if lipgloss.Width(value) <= width {
-		return value
+	if lipgloss.Width(left)+lipgloss.Width(model)+1 <= width {
+		return tuiMuted.Render(left) + strings.Repeat(" ", width-lipgloss.Width(left)-lipgloss.Width(model)) + tuiMuted.Render(model)
 	}
-	runes := []rune(value)
-	for len(runes) > 0 && lipgloss.Width(string(runes)) > width {
-		runes = runes[:len(runes)-1]
-	}
-	return string(runes)
+	return tuiMuted.Render(left) + "\n" + strings.Repeat(" ", maxTUI(1, width-lipgloss.Width(model))) + tuiMuted.Render(model)
 }
 
 func resizeTTYTextarea(m *ttyChatModel) {

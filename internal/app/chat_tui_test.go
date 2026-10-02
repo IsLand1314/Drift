@@ -66,3 +66,13 @@ func TestTTYChatLayoutUsesFullWidthRulesAndWrappedInput(t *testing.T) {
 		t.Fatalf("submitted command missing from transcript: %q", view)
 	}
 }
+
+func TestTTYChatLayoutKeepsLongModelName(t *testing.T) {
+	name := "provider-with-a-very-long-model-name"
+	m := newTTYChatModel(context.Background(), nil, nil, nil, nil, chatStatus{Model: name}, nil)
+	m.width, m.height = 24, 12
+	view := m.View()
+	if !strings.Contains(view, name) {
+		t.Fatalf("model name was truncated: %q", view)
+	}
+}
