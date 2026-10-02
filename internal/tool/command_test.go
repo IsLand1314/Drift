@@ -62,3 +62,18 @@ func TestRunCommandTruncatesOutput(t *testing.T) {
 		t.Fatalf("result=%q", result)
 	}
 }
+
+func TestRunCommandReportsNonZeroExit(t *testing.T) {
+	root := t.TempDir()
+	preview, err := RunCommandPreview(root, `{"command":"exit 7"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := ExecuteCommand(context.Background(), root, preview)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(result, "status=failed") || !strings.Contains(result, "exit_code=7") || strings.Contains(result, "status=success") {
+		t.Fatalf("result=%q", result)
+	}
+}

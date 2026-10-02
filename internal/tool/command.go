@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -136,7 +135,8 @@ func RunCommandPreview(root, raw string) (Preview, error) {
 func ExecuteCommand(parent context.Context, root string, preview Preview) (string, error) {
 	ctx, cancel := context.WithTimeout(parent, preview.Timeout)
 	defer cancel()
-	cmd := commandProcess(ctx, preview.Command)
+	process := newCommandProcess(ctx, preview.Command)
+	cmd := process.cmd
 	cmd.Dir = filepath.Join(root, filepath.FromSlash(preview.CWD))
 	limit := preview.OutputLimit
 	if limit <= 0 || limit > MaxCommandOutputBytes {
@@ -145,7 +145,17 @@ func ExecuteCommand(parent context.Context, root string, preview Preview) (strin
 	stdout, stderr := &limitedBuffer{limit: limit / 2}, &limitedBuffer{limit: limit - limit/2}
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 	started := time.Now()
-	err := cmd.Run()
+	if err := cmd.Start(); err != nil {
+		_ = process.close()
+		return "", err
+	}
+	if err := process.afterStart(); err != nil {
+		_ = process.cancel()
+		_ = process.close()
+		return "", err
+	}
+	err := cmd.Wait()
+	_ = process.close()
 	duration := time.Since(started).Round(time.Millisecond)
 	status, exitCode := "success", 0
 	if err != nil {
@@ -167,13 +177,6 @@ func ExecuteCommand(parent context.Context, root string, preview Preview) (strin
 		output = "<no output>"
 	}
 	return fmt.Sprintf("run_command status=%s exit_code=%d duration=%s stdout_bytes=%d stderr_bytes=%d truncated=%t\n%s", status, exitCode, duration, stdout.n, stderr.n, stdout.truncated || stderr.truncated, output), nil
-}
-
-func commandProcess(ctx context.Context, command string) *exec.Cmd {
-	if runtime.GOOS == "windows" {
-		return exec.CommandContext(ctx, "cmd.exe", "/d", "/s", "/c", command)
-	}
-	return exec.CommandContext(ctx, "/bin/sh", "-c", command)
 }
 
 type limitedBuffer struct {
