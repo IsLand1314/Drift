@@ -97,8 +97,11 @@ func newTTYChatModel(ctx context.Context, runner *agent.Runner, audit session.Wr
 	ta.FocusedStyle.Placeholder = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	ta.Focus()
 	policy := (*permissionPolicy)(nil)
+	policyWarning := false
 	if status.Workspace != "" {
-		policy, _ = loadPermissionPolicy(status.Workspace)
+		var policyErr error
+		policy, policyErr = loadPermissionPolicy(status.Workspace)
+		policyWarning = policyErr != nil
 		if policy == nil {
 			policy = newPermissionPolicy(status.Workspace)
 		}
@@ -109,6 +112,9 @@ func newTTYChatModel(ctx context.Context, runner *agent.Runner, audit session.Wr
 		m.lines = append(m.lines, transcriptFromLLMMessages(persistence.snapshot.Messages)...)
 	} else if persistence != nil {
 		m.lines = append(m.lines, ttySessionHeader(persistence)...)
+	}
+	if policyWarning {
+		m.lines = append(m.lines, "⚠ 权限策略加载失败，已恢复为每次询问")
 	}
 	if runner != nil {
 		runner.SetPermissionPrompt(func(promptCtx context.Context, request agent.PermissionRequest) (agent.PermissionDecision, error) {

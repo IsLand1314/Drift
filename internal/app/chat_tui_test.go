@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -187,6 +189,20 @@ func TestTTYApprovalPersistsOnlyAfterSuccessfulToolResult(t *testing.T) {
 	failedLoaded, err := loadPermissionPolicy(failedRoot)
 	if err != nil || failedLoaded.allows(request) {
 		t.Fatalf("failed operation unexpectedly persisted policy: err=%v", err)
+	}
+}
+
+func TestTTYPolicyLoadFailureFallsBackToAsk(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".drift"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".drift", "permissions.json"), []byte(`{"version":99}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m := newTTYChatModel(context.Background(), nil, nil, nil, nil, chatStatus{Workspace: root}, nil)
+	if !strings.Contains(m.View(), "权限策略加载失败") {
+		t.Fatal("TTY did not show safe policy-load warning")
 	}
 }
 
