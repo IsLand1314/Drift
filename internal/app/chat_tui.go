@@ -71,7 +71,7 @@ type toolProgressTUI struct {
 
 func runTTYChatLoop(ctx context.Context, runner *agent.Runner, audit session.Writer, trace agent.EventSink, persistence *chatPersistence, status chatStatus, interrupt *interruptCoordinator, in io.Reader, out io.Writer) int {
 	m := newTTYChatModel(ctx, runner, audit, trace, persistence, status, interrupt)
-	final, err := tea.NewProgram(&m, tea.WithContext(ctx), tea.WithInput(in), tea.WithOutput(out), tea.WithAltScreen(), tea.WithMouseCellMotion(), tea.WithoutSignalHandler(), tea.WithoutSignals()).Run()
+	final, err := tea.NewProgram(&m, tea.WithContext(ctx), tea.WithInput(in), tea.WithOutput(out), tea.WithAltScreen(), tea.WithoutSignalHandler(), tea.WithoutSignals()).Run()
 	if err != nil {
 		return 1
 	}
@@ -197,12 +197,6 @@ func (m *ttyChatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.startTurn(text)
 			return m, tickTUI()
 		}
-	}
-	if _, ok := msg.(tea.MouseMsg); ok && !m.running && m.approval == nil && m.resume == nil {
-		m.followBottom = false
-		var cmd tea.Cmd
-		m.viewport, cmd = m.viewport.Update(msg)
-		return m, cmd
 	}
 	var cmd tea.Cmd
 	m.textarea, cmd = m.textarea.Update(msg)
@@ -460,8 +454,9 @@ func (m *ttyChatModel) View() string {
 	footer := tuiFooter(m.status.Model, m.width)
 	footerRows := strings.Count(footer, "\n") + 1
 	availableRows := maxTUI(1, m.height-panelRows-footerRows-2)
-	contentRows := tuiTextRows(content, m.width)
-	m.viewport.SetContent(styleTranscript(content))
+	wrappedContent := wrapTUIText(content, m.width)
+	contentRows := strings.Count(wrappedContent, "\n") + 1
+	m.viewport.SetContent(styleTranscript(wrappedContent))
 	m.viewport.Width = maxTUI(1, m.width)
 	m.viewport.Height = minTUI(availableRows, maxTUI(1, contentRows))
 	if m.followBottom {
@@ -539,14 +534,31 @@ func tuiFooter(model string, width int) string {
 	return tuiMuted.Render(left) + "\n" + strings.Repeat(" ", maxTUI(1, width-lipgloss.Width(model))) + tuiMuted.Render(model)
 }
 
-func tuiTextRows(content string, width int) int {
+func wrapTUIText(content string, width int) string {
 	width = maxTUI(1, width)
-	rows := 0
-	for _, line := range strings.Split(content, "\n") {
-		lineWidth := lipgloss.Width(line)
-		rows += maxTUI(1, (lineWidth+width-1)/width)
+	lines := strings.Split(content, "\n")
+	wrapped := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if line == "" {
+			wrapped = append(wrapped, "")
+			continue
+		}
+		var b strings.Builder
+		lineWidth := 0
+		for _, r := range line {
+			chunk := string(r)
+			runeWidth := lipgloss.Width(chunk)
+			if lineWidth > 0 && lineWidth+runeWidth > width {
+				wrapped = append(wrapped, b.String())
+				b.Reset()
+				lineWidth = 0
+			}
+			b.WriteString(chunk)
+			lineWidth += runeWidth
+		}
+		wrapped = append(wrapped, b.String())
 	}
-	return maxTUI(1, rows)
+	return strings.Join(wrapped, "\n")
 }
 
 func isTTYViewportKey(key tea.KeyMsg) bool {

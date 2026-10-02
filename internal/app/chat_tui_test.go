@@ -9,6 +9,7 @@ import (
 
 	"github.com/IsLand1314/Drift/internal/agent"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 func TestTTYChatViewKeepsTranscriptAndSingleFooter(t *testing.T) {
@@ -127,5 +128,17 @@ func TestTTYChatViewportScrollsAndKeepsManualPosition(t *testing.T) {
 	scrolled.View()
 	if scrolled.viewport.YOffset == 0 {
 		t.Fatalf("view reset manually scrolled viewport")
+	}
+}
+
+func TestTTYWrapTextUsesTerminalWidth(t *testing.T) {
+	wrapped := wrapTUIText("你好世界abcdefgh", 8)
+	if strings.Count(wrapped, "\n") < 1 {
+		t.Fatalf("long transcript line was not wrapped: %q", wrapped)
+	}
+	for _, line := range strings.Split(wrapped, "\n") {
+		if lipgloss.Width(line) > 8 {
+			t.Fatalf("wrapped line exceeds width: %q", line)
+		}
 	}
 }
