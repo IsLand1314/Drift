@@ -8,7 +8,7 @@
 
 - 每个成功的 `write_file`、`edit_file`、`delete_file` 记录恢复所需的变更前状态。
 - 支持按 change set 恢复，覆盖单文件和同一轮中的多文件变更。
-- 通过 `drift change restore <change-dir> --yes` 执行恢复。
+- 通过 `drift change restore [-w <workspace>] <change-dir> --yes` 执行恢复；未指定 `-w` 时使用当前目录。
 - 恢复前检查当前文件状态，发现用户后续修改时拒绝覆盖。
 - 新建文件恢复为删除；编辑/覆盖恢复为旧内容；删除文件恢复为删除前内容。
 - 恢复操作本身不再次生成可递归恢复的 change set。

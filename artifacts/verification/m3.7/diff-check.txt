@@ -7,10 +7,8 @@ exit_code: 0
 
 
 --- stderr ---
-warning: in the working copy of 'internal/app/app.go', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'internal/changes/manifest.go', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'internal/tool/delete.go', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'internal/tool/edit.go', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'internal/tool/tool.go', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'internal/tool/write.go', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'spec/current.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'artifacts/verification/m3.7/build.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'artifacts/verification/m3.7/tdd-tests.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/superpowers/specs/2026-10-02-m37-change-recovery-design.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'internal/app/change_command.go', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'internal/app/change_command_test.go', LF will be replaced by CRLF the next time Git touches it
