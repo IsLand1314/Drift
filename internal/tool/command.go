@@ -137,7 +137,7 @@ func RunCommandPreviewWithSandbox(root, raw string, sandboxMode SandboxMode) (Pr
 		}
 		maxOutput = args.MaxOutputBytes
 	}
-	sandbox, err := SelectSandbox(sandboxMode, DetectSandbox())
+	sandbox, err := SelectSandbox(sandboxMode, DetectSandboxForWorkspace(root))
 	if err != nil {
 		return Preview{}, fmt.Errorf("Bash: %w", err)
 	}
