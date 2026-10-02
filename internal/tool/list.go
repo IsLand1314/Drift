@@ -27,16 +27,21 @@ func (listFilesTool) Execute(ctx context.Context, root, rawArguments string) (st
 }
 
 type listArguments struct {
-	Path string `json:"path"`
+	Pattern string `json:"pattern"`
+	Path    string `json:"path"`
 }
 
 func ListDefinition() llm.ToolDefinition {
 	function := map[string]any{
 		"name":        "Glob",
-		"description": "List regular files below a workspace directory.",
+		"description": "Find regular files below the workspace root by glob pattern.",
 		"parameters": map[string]any{
-			"type":                 "object",
-			"properties":           map[string]any{"path": map[string]any{"type": "string"}},
+			"type": "object",
+			"properties": map[string]any{
+				"pattern": map[string]any{"type": "string", "description": "Glob pattern such as **/*.go."},
+				"path":    map[string]any{"type": "string", "description": "Optional relative search root."},
+			},
+			"required":             []string{"pattern"},
 			"additionalProperties": false,
 		},
 	}
@@ -52,6 +57,9 @@ func List(root, rawArguments string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if args.Pattern == "" {
+		return "", fmt.Errorf("Glob pattern must be a non-empty string")
+	}
 	if err := validateRelativePath(args.Path, true); err != nil {
 		return "", fmt.Errorf("Glob path is invalid: %w", err)
 	}
@@ -62,7 +70,10 @@ func List(root, rawArguments string) (string, error) {
 	defer workspace.Close()
 	paths := make([]string, 0, MaxListEntries)
 	if err := walkRegularFiles(workspace, args.Path, func(filePath string, _ fs.DirEntry) error {
-		paths = append(paths, path.Clean(strings.ReplaceAll(filePath, `\`, "/")))
+		filePath = path.Clean(strings.ReplaceAll(filePath, `\`, "/"))
+		if globMatch(args.Pattern, filePath) {
+			paths = append(paths, filePath)
+		}
 		return nil
 	}); err != nil {
 		return "", fmt.Errorf("Glob: %w", err)
@@ -99,11 +110,15 @@ func decodeListArguments(rawArguments string) (listArguments, error) {
 		return listArguments{}, fmt.Errorf("decode Glob arguments: %w", err)
 	}
 	for name := range fields {
-		if name != "path" {
+		if name != "pattern" && name != "path" {
 			return listArguments{}, fmt.Errorf("decode Glob arguments: unknown field %q", name)
 		}
 	}
 	var args listArguments
+	rawPattern, ok := fields["pattern"]
+	if !ok || string(rawPattern) == "null" || json.Unmarshal(rawPattern, &args.Pattern) != nil || args.Pattern == "" {
+		return listArguments{}, fmt.Errorf("decode Glob arguments: pattern must be a non-empty string")
+	}
 	if rawPath, ok := fields["path"]; ok {
 		if string(rawPath) == "null" {
 			return listArguments{}, fmt.Errorf("decode Glob arguments: path must be a string")
@@ -113,4 +128,24 @@ func decodeListArguments(rawArguments string) (listArguments, error) {
 		}
 	}
 	return args, nil
+}
+
+func globMatch(pattern, name string) bool {
+	pattern = path.Clean(strings.ReplaceAll(pattern, `\`, "/"))
+	name = path.Clean(strings.ReplaceAll(name, `\`, "/"))
+	return globSegments(strings.Split(pattern, "/"), strings.Split(name, "/"))
+}
+
+func globSegments(pattern, name []string) bool {
+	if len(pattern) == 0 {
+		return len(name) == 0
+	}
+	if pattern[0] == "**" {
+		return globSegments(pattern[1:], name) || (len(name) > 0 && globSegments(pattern, name[1:]))
+	}
+	if len(name) == 0 {
+		return false
+	}
+	matched, err := path.Match(pattern[0], name[0])
+	return err == nil && matched && globSegments(pattern[1:], name[1:])
 }

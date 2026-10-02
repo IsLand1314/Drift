@@ -23,14 +23,14 @@ func TestList(t *testing.T) {
 		}
 	}
 	t.Run("lists files sorted and limits relative directory", func(t *testing.T) {
-		got, err := List(root, `{}`)
+		got, err := List(root, `{"pattern":"**/*"}`)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if got != "a.txt\nnested/a.txt\nnested/b.txt\nz.txt" {
 			t.Fatalf("List() = %q", got)
 		}
-		got, err = List(root, `{"path":"nested"}`)
+		got, err = List(root, `{"pattern":"**/*","path":"nested"}`)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -52,10 +52,10 @@ func TestList(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(dotenvDir, "sub", "secret.txt"), []byte("x"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := List(root, `{"path":".env.private"}`); err == nil {
+		if _, err := List(root, `{"pattern":"**/*","path":".env.private"}`); err == nil {
 			t.Fatal("List(.env.private) error = nil")
 		}
-		if _, err := List(root, `{"path":".env.private/sub"}`); err == nil {
+		if _, err := List(root, `{"pattern":"**/*","path":".env.private/sub"}`); err == nil {
 			t.Fatal("List(.env.private/sub) error = nil")
 		}
 		if err := os.Symlink("a.txt", filepath.Join(root, "link.txt")); err != nil {
@@ -64,7 +64,7 @@ func TestList(t *testing.T) {
 			}
 			t.Fatal(err)
 		}
-		got, err := List(root, `{}`)
+		got, err := List(root, `{"pattern":"**/*"}`)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -74,7 +74,7 @@ func TestList(t *testing.T) {
 	})
 	for _, path := range []string{"..", "../outside", filepath.Join(root, "a.txt"), ".env", "a.txt"} {
 		t.Run("reject "+path, func(t *testing.T) {
-			if _, err := List(root, `{"path":"`+filepath.ToSlash(path)+`"}`); err == nil {
+			if _, err := List(root, `{"pattern":"**/*","path":"`+filepath.ToSlash(path)+`"}`); err == nil {
 				t.Fatalf("List(%q) error = nil", path)
 			}
 		})
@@ -85,7 +85,7 @@ func TestList(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		got, err := List(root, `{}`)
+		got, err := List(root, `{"pattern":"**/*"}`)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -106,7 +106,7 @@ func TestList(t *testing.T) {
 		if tool.Name() != "Glob" {
 			t.Fatal(tool.Name())
 		}
-		if _, err := tool.Execute(context.Background(), root, `{}`); err != nil {
+		if _, err := tool.Execute(context.Background(), root, `{"pattern":"**/*"}`); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -128,7 +128,30 @@ func TestListDefinition(t *testing.T) {
 	if err := json.Unmarshal(definition.Function, &function); err != nil {
 		t.Fatal(err)
 	}
-	if function.Name != "Glob" || function.Parameters.Type != "object" || function.Parameters.Properties["path"] == nil || function.Parameters.AdditionalProperties {
+	if function.Name != "Glob" || function.Parameters.Type != "object" || function.Parameters.Properties["pattern"] == nil || function.Parameters.Properties["path"] == nil || function.Parameters.AdditionalProperties {
 		t.Fatalf("schema = %s", definition.Function)
+	}
+}
+
+func TestGlobMatchesPatternsAndRejectsLegacyArguments(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "internal", "app"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"main.go", filepath.Join("internal", "app", "chat.go"), "README.md"} {
+		path := filepath.Join(root, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := List(root, `{"pattern":"**/*.go"}`)
+	if err != nil || got != "internal/app/chat.go\nmain.go" {
+		t.Fatalf("Glob = %q, %v", got, err)
+	}
+	if _, err := List(root, `{"query":"*.go"}`); err == nil {
+		t.Fatal("legacy query argument unexpectedly accepted")
 	}
 }

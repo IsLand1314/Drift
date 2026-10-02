@@ -28,7 +28,7 @@ func TestSearch(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	got, err := Search(root, `{"query":"needle"}`)
+	got, err := Search(root, `{"pattern":"needle"}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,24 +36,24 @@ func TestSearch(t *testing.T) {
 	if got != want {
 		t.Fatalf("Search() = %q, want %q", got, want)
 	}
-	got, err = Search(root, `{"query":"needle","path":"nested"}`)
+	got, err = Search(root, `{"pattern":"needle","path":"nested"}`)
 	if err != nil || got != "nested/b.txt:1: needle nested" {
 		t.Fatalf("relative Search() = %q, %v", got, err)
 	}
-	for _, raw := range []string{`{"query":""}`, `{"path":"x"}`, `{"query":null}`, `{"query":1}`, `{"query":"x","path":null}`, `{"query":"x","path":1}`, `{"query":"x","extra":true}`, `null`, `[]`, `{"query":"x"} {}`} {
+	for _, raw := range []string{`{"pattern":""}`, `{"path":"x"}`, `{"pattern":null}`, `{"pattern":1}`, `{"pattern":"x","path":null}`, `{"pattern":"x","path":1}`, `{"pattern":"x","extra":true}`, `null`, `[]`, `{"pattern":"x"} {}`} {
 		if _, err := Search(root, raw); err == nil {
 			t.Errorf("Search(%s) error = nil", raw)
 		}
 	}
 	for _, path := range []string{"..", "../x", filepath.ToSlash(root), ".env", ".env.local", "nested/.env.private"} {
-		if _, err := Search(root, `{"query":"x","path":"`+path+`"}`); err == nil {
+		if _, err := Search(root, `{"pattern":"x","path":"`+path+`"}`); err == nil {
 			t.Errorf("Search path %q error = nil", path)
 		}
 	}
 	if err := os.WriteFile(filepath.Join(root, "binary"), []byte("needle\x00needle\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got, err = Search(root, `{"query":"needle"}`)
+	got, err = Search(root, `{"pattern":"needle"}`)
 	if err != nil || strings.Contains(got, "binary") {
 		t.Fatalf("binary result = %q, %v", got, err)
 	}
@@ -65,7 +65,7 @@ func TestSearch(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(root, "longdir", "long.txt"), []byte(line+"\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		got, err := Search(root, `{"query":"needle","path":"longdir"}`)
+		got, err := Search(root, `{"pattern":"needle","path":"longdir"}`)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -76,7 +76,7 @@ func TestSearch(t *testing.T) {
 		if err := os.WriteFile(tooLong, []byte(strings.Repeat("x", 65<<10)+"needle\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := Search(root, `{"query":"needle","path":"longdir"}`); err == nil {
+		if _, err := Search(root, `{"pattern":"needle","path":"longdir"}`); err == nil {
 			t.Fatal("Search() error = nil for scanner token-too-long")
 		}
 		if err := os.Remove(tooLong); err != nil {
@@ -84,7 +84,7 @@ func TestSearch(t *testing.T) {
 		}
 	})
 	t.Run("regular file root rejected", func(t *testing.T) {
-		if _, err := Search(root, `{"query":"x","path":"z.txt"}`); err == nil {
+		if _, err := Search(root, `{"pattern":"x","path":"z.txt"}`); err == nil {
 			t.Fatal("regular root accepted")
 		}
 	})
@@ -95,7 +95,7 @@ func TestSearch(t *testing.T) {
 			}
 			t.Fatal(err)
 		}
-		got, err := Search(root, `{"query":"needle"}`)
+		got, err := Search(root, `{"pattern":"needle"}`)
 		if err != nil || strings.Contains(got, "link.txt") {
 			t.Fatalf("symlink result = %q, %v", got, err)
 		}
@@ -105,14 +105,14 @@ func TestSearch(t *testing.T) {
 		if tool.Name() != "Grep" {
 			t.Fatal(tool.Name())
 		}
-		if _, err := tool.Execute(context.Background(), root, `{"query":"needle"}`); err != nil {
+		if _, err := tool.Execute(context.Background(), root, `{"pattern":"needle"}`); err != nil {
 			t.Fatal(err)
 		}
 	})
 	t.Run("cancellation is returned", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		if _, err := (searchTextTool{}).Execute(ctx, root, `{"query":"needle"}`); !errors.Is(err, context.Canceled) {
+		if _, err := (searchTextTool{}).Execute(ctx, root, `{"pattern":"needle"}`); !errors.Is(err, context.Canceled) {
 			t.Fatalf("Execute() error = %v", err)
 		}
 	})
@@ -125,7 +125,7 @@ func TestSearchLimitsAndDefinition(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	got, err := Search(root, `{"query":"needle"}`)
+	got, err := Search(root, `{"pattern":"needle"}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +139,7 @@ func TestSearchLimitsAndDefinition(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		got, err := Search(dir, `{"query":"needle"}`)
+		got, err := Search(dir, `{"pattern":"needle"}`)
 		if err != nil || !strings.Contains(got, "truncated") {
 			t.Fatalf("result = %q, %v", got, err)
 		}
@@ -151,7 +151,7 @@ func TestSearchLimitsAndDefinition(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		got, err := Search(dir, `{"query":"needle"}`)
+		got, err := Search(dir, `{"pattern":"needle"}`)
 		if err != nil || !strings.Contains(got, "truncated") {
 			t.Fatalf("result = %q, %v", got, err)
 		}
@@ -164,7 +164,7 @@ func TestSearchLimitsAndDefinition(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		got, err := Search(dir, `{"query":"needle"}`)
+		got, err := Search(dir, `{"pattern":"needle"}`)
 		if err != nil || !strings.Contains(got, "truncated") || len(got) > MaxSearchBytes {
 			t.Fatalf("len/result = %d/%q, %v", len(got), got, err)
 		}
@@ -181,7 +181,27 @@ func TestSearchLimitsAndDefinition(t *testing.T) {
 	if err := json.Unmarshal(definition.Function, &fn); err != nil {
 		t.Fatal(err)
 	}
-	if definition.Type != "function" || fn.Name != "Grep" || len(fn.Parameters.Required) != 1 || fn.Parameters.Required[0] != "query" || fn.Parameters.Properties["path"] == nil || fn.Parameters.Properties["query"] == nil || fn.Parameters.AdditionalProperties {
+	if definition.Type != "function" || fn.Name != "Grep" || len(fn.Parameters.Required) != 1 || fn.Parameters.Required[0] != "pattern" || fn.Parameters.Properties["path"] == nil || fn.Parameters.Properties["pattern"] == nil || fn.Parameters.Properties["include"] == nil || fn.Parameters.AdditionalProperties {
 		t.Fatalf("schema = %s", definition.Function)
+	}
+}
+
+func TestGrepUsesRegexpAndInclude(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte("timeout\ndeadline\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "notes.txt"), []byte("timeout\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Search(root, `{"pattern":"timeout|deadline","include":"*.go"}`)
+	if err != nil || got != "main.go:1: timeout\nmain.go:2: deadline" {
+		t.Fatalf("Grep = %q, %v", got, err)
+	}
+	if _, err := Search(root, `{"pattern":"[invalid"}`); err == nil {
+		t.Fatal("invalid regexp unexpectedly accepted")
+	}
+	if _, err := Search(root, `{"query":"timeout"}`); err == nil {
+		t.Fatal("legacy query argument unexpectedly accepted")
 	}
 }

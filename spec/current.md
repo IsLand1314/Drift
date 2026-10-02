@@ -1,6 +1,26 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M3.10。M3.9 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M3.11。M3.10 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+
+## M3.11：Glob 与 Grep
+
+M3.11 将两个只读发现工具升级为模式匹配和正则搜索，不扩大 workspace 边界或读取预算。
+
+### 当前范围
+
+- `Glob(pattern, path)` 支持 `*.go`、`**/*.go`、`internal/**/*.go`；只返回普通文件，跳过受保护/缓存目录，最多返回 200 条。
+- `Grep(pattern, path, include)` 使用 Go 正则表达式；`include` 按文件名 glob 过滤，输出相对路径、行号和匹配行。
+- 非法正则或非法 include glob 返回明确工具错误；0 次匹配返回空结果，不视为工具失败。
+- 旧 `Glob` 的 `path` 列目录参数和旧 `Grep` 的 `query` 参数不兼容；旧名称/参数不自动改写。
+
+### 验收
+
+| ID | 验证方法 | 通过阈值 | 证据类型 | 失败判定 |
+| --- | --- | --- | --- | --- |
+| AC-M311-001 | `go test ./internal/tool -run 'TestGlob|TestGrep' -count=1` | 模式、正则、include、非法输入和限制测试通过 | 测试日志 | 任一边界错误 |
+| AC-M311-002 | 临时 workspace 功能测试 | Glob/Grep 结果、行号、过滤和 0 匹配符合预期；越界/受保护目录拒绝 | 功能测试日志 | 访问越界或结果错误 |
+| AC-M311-003 | 旧记录检查 | 历史 JSONL/change set 可读取；不再生成旧公开工具名 | 测试日志 | 旧记录被破坏或新记录混用旧名 |
+| AC-M311-004 | `go test ./...`、`go vet ./...`、build、diff check | 全部退出码为 0 | 命令日志 | 任一命令失败 |
 
 ## M3.10：工具公开名称统一
 

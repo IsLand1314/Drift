@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/fs"
 	"path"
+	"regexp"
 	"strings"
 
 	"github.com/IsLand1314/Drift/internal/llm"
@@ -34,8 +35,9 @@ func (searchTextTool) Execute(ctx context.Context, root, rawArguments string) (s
 }
 
 type searchArguments struct {
-	Query string
-	Path  string
+	Pattern string
+	Path    string
+	Include string
 }
 
 func decodeSearchArguments(raw string) (searchArguments, error) {
@@ -55,29 +57,35 @@ func decodeSearchArguments(raw string) (searchArguments, error) {
 		return searchArguments{}, fmt.Errorf("decode Grep arguments: %w", err)
 	}
 	for name := range fields {
-		if name != "query" && name != "path" {
+		if name != "pattern" && name != "path" && name != "include" {
 			return searchArguments{}, fmt.Errorf("decode Grep arguments: unknown field %q", name)
 		}
 	}
 	var args searchArguments
-	rawQuery, ok := fields["query"]
-	if !ok || string(rawQuery) == "null" || json.Unmarshal(rawQuery, &args.Query) != nil || args.Query == "" {
-		return searchArguments{}, fmt.Errorf("Grep query must be a non-empty string")
+	rawPattern, ok := fields["pattern"]
+	if !ok || string(rawPattern) == "null" || json.Unmarshal(rawPattern, &args.Pattern) != nil || args.Pattern == "" {
+		return searchArguments{}, fmt.Errorf("Grep pattern must be a non-empty string")
 	}
 	if rawPath, ok := fields["path"]; ok {
 		if string(rawPath) == "null" || json.Unmarshal(rawPath, &args.Path) != nil {
 			return searchArguments{}, fmt.Errorf("Grep path must be a string")
 		}
 	}
+	if rawInclude, ok := fields["include"]; ok {
+		if string(rawInclude) == "null" || json.Unmarshal(rawInclude, &args.Include) != nil {
+			return searchArguments{}, fmt.Errorf("Grep include must be a string")
+		}
+	}
 	return args, nil
 }
 
 func SearchDefinition() llm.ToolDefinition {
-	function := map[string]any{"name": "Grep", "description": "Search literal text in regular files below the workspace root.", "parameters": map[string]any{
+	function := map[string]any{"name": "Grep", "description": "Search regular files with a regular expression.", "parameters": map[string]any{
 		"type": "object", "properties": map[string]any{
-			"query": map[string]any{"type": "string", "description": "Literal text to find."},
-			"path":  map[string]any{"type": "string", "description": "Optional relative directory below the workspace root."},
-		}, "required": []string{"query"}, "additionalProperties": false,
+			"pattern": map[string]any{"type": "string", "description": "Regular expression to find."},
+			"path":    map[string]any{"type": "string", "description": "Optional relative directory below the workspace root."},
+			"include": map[string]any{"type": "string", "description": "Optional filename glob such as *.go."},
+		}, "required": []string{"pattern"}, "additionalProperties": false,
 	}}
 	raw, err := json.Marshal(function)
 	if err != nil {
@@ -98,6 +106,15 @@ func searchWithContext(ctx context.Context, root, rawArguments string) (string, 
 	if err := validateRelativePath(args.Path, true); err != nil {
 		return "", fmt.Errorf("Grep path is invalid: %w", err)
 	}
+	re, err := regexp.Compile(args.Pattern)
+	if err != nil {
+		return "", fmt.Errorf("Grep pattern is invalid: %w", err)
+	}
+	if args.Include != "" {
+		if _, err := path.Match(args.Include, ""); err != nil {
+			return "", fmt.Errorf("Grep include is invalid: %w", err)
+		}
+	}
 	workspace, err := openWorkspace(root)
 	if err != nil {
 		return "", fmt.Errorf("open Grep root: %w", err)
@@ -115,6 +132,15 @@ func searchWithContext(ctx context.Context, root, rawArguments string) (string, 
 		if files > MaxSearchFiles {
 			truncated = true
 			return stop
+		}
+		if args.Include != "" {
+			matched, matchErr := path.Match(args.Include, path.Base(filePath))
+			if matchErr != nil {
+				return fmt.Errorf("Grep include is invalid: %w", matchErr)
+			}
+			if !matched {
+				return nil
+			}
 		}
 		file, err := workspace.Open(filePath)
 		if err != nil {
@@ -140,7 +166,7 @@ func searchWithContext(ctx context.Context, root, rawArguments string) (string, 
 			}
 			lineNo++
 			line := scanner.Text()
-			if !strings.Contains(line, args.Query) {
+			if !re.MatchString(line) {
 				continue
 			}
 			matches++

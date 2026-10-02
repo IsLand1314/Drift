@@ -348,7 +348,7 @@ func TestRunRejectsASCIIDSMLText(t *testing.T) {
 }
 
 func TestRunRejectsDSMLTextAfterNativeToolCall(t *testing.T) {
-	call := llm.ToolCall{ID: "call-list", Type: "function", Name: "Glob", Arguments: `{}`}
+	call := llm.ToolCall{ID: "call-list", Type: "function", Name: "Glob", Arguments: `{"pattern":"**/*"}`}
 	client := &scriptedClient{steps: []scriptedStep{
 		{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{call}}, FinishReason: "tool_calls"}},
 		{events: []llm.StreamEvent{{Text: "<｜｜DSML｜｜ calls>"}}, completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "<｜｜DSML｜｜ calls>"}, FinishReason: "stop"}},
@@ -368,7 +368,7 @@ func TestRunRejectsDSMLTextAfterNativeToolCall(t *testing.T) {
 }
 
 func TestRunRetriesDSMLAfterNativeToolCallWithPlainFinal(t *testing.T) {
-	call := llm.ToolCall{ID: "call-list", Type: "function", Name: "Glob", Arguments: `{}`}
+	call := llm.ToolCall{ID: "call-list", Type: "function", Name: "Glob", Arguments: `{"pattern":"**/*"}`}
 	client := &scriptedClient{steps: []scriptedStep{
 		{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{call}}, FinishReason: "tool_calls"}},
 		{events: []llm.StreamEvent{{Text: "<｜｜DSML｜｜ calls>"}}, completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "<｜｜DSML｜｜ calls>"}, FinishReason: "stop"}},
@@ -451,8 +451,8 @@ func TestRunMultiTurnExplorationPreservesContextAndTools(t *testing.T) {
 		t.Fatal(err)
 	}
 	calls := []llm.ToolCall{
-		{ID: "call-list", Type: "function", Name: "Glob", Arguments: `{}`},
-		{ID: "call-search", Type: "function", Name: "Grep", Arguments: `{"query":"needle"}`},
+		{ID: "call-list", Type: "function", Name: "Glob", Arguments: `{"pattern":"**/*"}`},
+		{ID: "call-search", Type: "function", Name: "Grep", Arguments: `{"pattern":"needle"}`},
 		{ID: "call-read", Type: "function", Name: "ReadFile", Arguments: `{"path":"README.md"}`},
 	}
 	client := &scriptedClient{steps: []scriptedStep{
@@ -494,7 +494,7 @@ func TestRunMultiTurnExplorationPreservesContextAndTools(t *testing.T) {
 }
 
 func TestRunRequestBudgetStopsAfterFourthToolCompletion(t *testing.T) {
-	call := llm.ToolCall{ID: "call-list", Type: "function", Name: "Glob", Arguments: `{}`}
+	call := llm.ToolCall{ID: "call-list", Type: "function", Name: "Glob", Arguments: `{"pattern":"**/*"}`}
 	steps := make([]scriptedStep, MaxModelRequests)
 	for i := range steps {
 		steps[i] = scriptedStep{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{call}}, FinishReason: "tool_calls"}}
@@ -512,7 +512,7 @@ func TestRunRequestBudgetStopsAfterFourthToolCompletion(t *testing.T) {
 func TestRunToolBudgetUsesToolFreeFinalRequest(t *testing.T) {
 	calls := make([]llm.ToolCall, MaxToolCalls+1)
 	for i := range calls {
-		calls[i] = llm.ToolCall{ID: string(rune('a' + i)), Type: "function", Name: "Glob", Arguments: `{}`}
+		calls[i] = llm.ToolCall{ID: string(rune('a' + i)), Type: "function", Name: "Glob", Arguments: `{"pattern":"**/*"}`}
 	}
 	client := &scriptedClient{steps: []scriptedStep{
 		{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: calls}, FinishReason: "tool_calls"}},
@@ -555,7 +555,7 @@ func TestRunToolBudgetUsesToolFreeFinalRequest(t *testing.T) {
 func TestRunRetriesToolFreeFinalResponseAfterModelRequestsTool(t *testing.T) {
 	calls := make([]llm.ToolCall, MaxToolCalls)
 	for i := range calls {
-		calls[i] = llm.ToolCall{ID: string(rune('a' + i)), Type: "function", Name: "Glob", Arguments: `{}`}
+		calls[i] = llm.ToolCall{ID: string(rune('a' + i)), Type: "function", Name: "Glob", Arguments: `{"pattern":"**/*"}`}
 	}
 	ignoredCall := llm.ToolCall{ID: "ignored", Type: "function", Name: "ReadFile", Arguments: `{"path":"README.md"}`}
 	client := &scriptedClient{steps: []scriptedStep{
@@ -579,7 +579,7 @@ func TestRunRetriesToolFreeFinalResponseAfterModelRequestsTool(t *testing.T) {
 }
 
 func TestRunReservesFinalResponseAttempts(t *testing.T) {
-	toolCall := llm.ToolCall{ID: "list", Type: "function", Name: "Glob", Arguments: `{}`}
+	toolCall := llm.ToolCall{ID: "list", Type: "function", Name: "Glob", Arguments: `{"pattern":"**/*"}`}
 	steps := make([]scriptedStep, MaxModelRequests)
 	for i := 0; i < MaxModelRequests-2; i++ {
 		steps[i] = scriptedStep{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{toolCall}}, FinishReason: "tool_calls"}}
@@ -608,7 +608,7 @@ func TestRunReservesFinalResponseAttempts(t *testing.T) {
 }
 
 func TestRunRetriesPseudoToolTextDuringReservedFinalResponse(t *testing.T) {
-	toolCall := llm.ToolCall{ID: "list", Type: "function", Name: "Glob", Arguments: `{}`}
+	toolCall := llm.ToolCall{ID: "list", Type: "function", Name: "Glob", Arguments: `{"pattern":"**/*"}`}
 	steps := make([]scriptedStep, MaxModelRequests)
 	for i := 0; i < MaxModelRequests-finalResponseReserve; i++ {
 		steps[i] = scriptedStep{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{toolCall}}, FinishReason: "tool_calls"}}
@@ -629,7 +629,7 @@ func TestRunRetriesPseudoToolTextDuringReservedFinalResponse(t *testing.T) {
 }
 
 func TestRunIncludesSystemContextOnEveryRequest(t *testing.T) {
-	call := llm.ToolCall{ID: "list", Type: "function", Name: "Glob", Arguments: `{}`}
+	call := llm.ToolCall{ID: "list", Type: "function", Name: "Glob", Arguments: `{"pattern":"**/*"}`}
 	steps := make([]scriptedStep, MaxModelRequests)
 	for i := 0; i < MaxModelRequests-finalResponseReserve; i++ {
 		steps[i] = scriptedStep{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{call}}, FinishReason: "tool_calls"}}
@@ -654,7 +654,7 @@ func TestRunIncludesSystemContextOnEveryRequest(t *testing.T) {
 func TestRunExactToolBudgetAddsLimitInstruction(t *testing.T) {
 	calls := make([]llm.ToolCall, MaxToolCalls)
 	for i := range calls {
-		calls[i] = llm.ToolCall{ID: string(rune('a' + i)), Type: "function", Name: "Glob", Arguments: `{}`}
+		calls[i] = llm.ToolCall{ID: string(rune('a' + i)), Type: "function", Name: "Glob", Arguments: `{"pattern":"**/*"}`}
 	}
 	client := &scriptedClient{steps: []scriptedStep{
 		{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: calls}, FinishReason: "tool_calls"}},
@@ -935,7 +935,7 @@ func TestRunRejectsUnsupportedToolCallStates(t *testing.T) {
 	}{
 		{
 			name:        "unknown tool",
-			calls:       []llm.ToolCall{{ID: "one", Type: "function", Name: "DeleteFile", Arguments: `{}`}},
+			calls:       []llm.ToolCall{{ID: "one", Type: "function", Name: "DeleteFile", Arguments: `{"pattern":"**/*"}`}},
 			finish:      "tool_calls",
 			wantError:   "unsupported tool",
 			wantRequest: 1,
@@ -1046,7 +1046,7 @@ func TestRunStopsWhenToolExecutionCancelsContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	call := llm.ToolCall{ID: "cancel", Type: "function", Name: "cancel_tool", Arguments: `{}`}
+	call := llm.ToolCall{ID: "cancel", Type: "function", Name: "cancel_tool", Arguments: `{"pattern":"**/*"}`}
 	client := &scriptedClient{steps: []scriptedStep{{
 		completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{call}}, FinishReason: "tool_calls"},
 	}}}
@@ -1065,7 +1065,7 @@ func TestRunEventsToolCancellationRollsBackCurrentTurn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	call := llm.ToolCall{ID: "cancel", Type: "function", Name: "cancel_tool", Arguments: `{}`}
+	call := llm.ToolCall{ID: "cancel", Type: "function", Name: "cancel_tool", Arguments: `{"pattern":"**/*"}`}
 	client := &scriptedClient{steps: []scriptedStep{{
 		completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{call}}, FinishReason: "tool_calls"},
 	}}}
@@ -1174,7 +1174,7 @@ func TestRunCompatibilityWrapperEmitsOnlyFinalText(t *testing.T) {
 }
 
 func TestRunWithRegistryUsesRegisteredTool(t *testing.T) {
-	call := llm.ToolCall{ID: "call-fake", Type: "function", Name: "fake_tool", Arguments: `{}`}
+	call := llm.ToolCall{ID: "call-fake", Type: "function", Name: "fake_tool", Arguments: `{"pattern":"**/*"}`}
 	client := &scriptedClient{steps: []scriptedStep{
 		{
 			completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{call}}, FinishReason: "tool_calls"},
@@ -1209,7 +1209,7 @@ func TestRunWithRegistryUsesRegisteredTool(t *testing.T) {
 }
 
 func TestRunDeniedPreviewDoesNotExecuteWrite(t *testing.T) {
-	call := llm.ToolCall{ID: "call-write", Type: "function", Name: "WriteFile", Arguments: `{}`}
+	call := llm.ToolCall{ID: "call-write", Type: "function", Name: "WriteFile", Arguments: `{"pattern":"**/*"}`}
 	client := &scriptedClient{steps: []scriptedStep{
 		{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{call}}, FinishReason: "tool_calls"}},
 		{events: []llm.StreamEvent{{Text: "write denied"}}, completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "write denied"}, FinishReason: "stop"}},
