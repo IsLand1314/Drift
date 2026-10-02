@@ -60,3 +60,31 @@ git diff --check
 ```
 
 结果：全部通过。
+
+## 真实 workspace 验收（2026-10-02）
+
+目标 workspace：`F:\code\drift-m33-manual`
+
+实际 change set：
+
+```text
+F:\code\drift-m33-manual\.drift\changes\2026\10\02\change-2026-10-02T08-20-49Z-e7197ce76a7c
+```
+
+输入命令：
+
+```powershell
+go run F:\code\drift\cmd\drift change restore `
+  -w F:\code\drift-m33-manual `
+  F:\code\drift-m33-manual\.drift\changes\2026\10\02\change-2026-10-02T08-20-49Z-e7197ce76a7c `
+  --yes
+```
+
+实际输出：
+
+```text
+已恢复 change set： F:\code\drift-m33-manual\.drift\changes\2026\10\02\change-2026-10-02T08-20-49Z-e7197ce76a7c
+TARGET_REMOVED
+```
+
+结论：`m37-demo.txt` 已成功恢复为创建前状态，即文件不存在。
