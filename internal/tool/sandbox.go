@@ -1,10 +1,14 @@
 package tool
 
 import (
+	"context"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 )
 
 type SandboxMode string
@@ -50,9 +54,54 @@ func DetectSandbox() SandboxCapabilities {
 	if _, err := exec.LookPath(backend); err != nil {
 		return SandboxCapabilities{}
 	}
-	// Detection is deliberately conservative: a binary's presence does not
-	// prove that Drift has compiled and tested a safe profile for this host.
+	if backend == "bwrap" {
+		probe := exec.Command("bwrap", "--die-with-parent", "--new-session", "--unshare-net", "--ro-bind", "/", "/", "true")
+		probeTimeout := time.AfterFunc(2*time.Second, func() { _ = probe.Process.Kill() })
+		err := probe.Run()
+		probeTimeout.Stop()
+		if err == nil {
+			return SandboxCapabilities{Backend: backend, Reliable: true, Capabilities: []string{"workspace-write", "network-isolated", "process-tree"}}
+		}
+	}
 	return SandboxCapabilities{Backend: backend, Reliable: false}
+}
+
+func bwrapArguments(root, cwd, command string) []string {
+	workspace, _ := filepath.Abs(root)
+	workdir := "/workspace"
+	if cwd != "." && cwd != "" {
+		workdir = filepath.Join(workdir, filepath.FromSlash(cwd))
+	}
+	args := []string{
+		"--die-with-parent",
+		"--new-session",
+		"--unshare-net",
+		"--ro-bind", "/", "/",
+		"--tmpfs", "/home",
+		"--tmpfs", "/root",
+		"--tmpfs", "/tmp",
+		"--proc", "/proc",
+		"--dev", "/dev",
+		"--dir", "/workspace",
+		"--bind", workspace, "/workspace",
+	}
+	for _, protected := range []string{".drift", ".git"} {
+		if _, err := os.Stat(filepath.Join(workspace, protected)); err == nil {
+			args = append(args, "--tmpfs", filepath.Join("/workspace", protected))
+		}
+	}
+	args = append(args, "--chdir", workdir, "/bin/sh", "-c", command)
+	return args
+}
+
+func sandboxCommand(ctx context.Context, command, root, cwd string, decision SandboxDecision) *exec.Cmd {
+	if decision.Available && decision.Backend == "bwrap" {
+		return exec.CommandContext(ctx, "bwrap", bwrapArguments(root, cwd, command)...)
+	}
+	if runtime.GOOS == "windows" {
+		return exec.CommandContext(ctx, "cmd.exe", "/d", "/s", "/c", command)
+	}
+	return exec.CommandContext(ctx, "/bin/sh", "-c", command)
 }
 
 func SelectSandbox(mode SandboxMode, capabilities SandboxCapabilities) (SandboxDecision, error) {

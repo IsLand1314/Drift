@@ -29,7 +29,8 @@ M3.9 增加会话级权限模式，复用现有审批回调和工具安全校验
 - `run_command` 接受 `sandbox_mode`：`off`、`auto`、`required`，默认 `off`。
 - `auto` 在没有已验证后端时继续执行，但结果必须记录 `sandboxed=false`；`required` 不得静默降级。
 - 当前阶段只做能力检测和 fail-closed 契约，不把 Windows Job Object 当作文件/网络沙箱。
-- Linux 的 `bwrap`、macOS 的 `sandbox-exec` 仅在后续完成并验证 profile 后才可标记为可靠后端。
+- Linux 已实现 `bwrap` 包装参数和能力探针；当前 Windows 只完成 Linux 目标编译检查，尚未完成 Linux runtime 验证。
+- macOS 的 `sandbox-exec` 仍未实现可靠 profile。
 - 权限模式 `bypassPermissions` 不得关闭或绕过 OS 沙箱策略。
 
 ## M3.8：命令与测试执行收敛

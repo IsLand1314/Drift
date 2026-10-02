@@ -3,7 +3,6 @@ package tool
 import (
 	"context"
 	"os/exec"
-	"runtime"
 	"time"
 )
 
@@ -14,13 +13,8 @@ type commandProcessHandle struct {
 	close      func() error
 }
 
-func newCommandProcess(ctx context.Context, command string) *commandProcessHandle {
-	var cmd *exec.Cmd
-	if runtime.GOOS == "windows" {
-		cmd = exec.CommandContext(ctx, "cmd.exe", "/d", "/s", "/c", command)
-	} else {
-		cmd = exec.CommandContext(ctx, "/bin/sh", "-c", command)
-	}
+func newCommandProcess(ctx context.Context, command, root, cwd string, sandbox SandboxDecision) *commandProcessHandle {
+	cmd := sandboxCommand(ctx, command, root, cwd, sandbox)
 	handle := newPlatformCommandProcess(cmd)
 	cmd.Cancel = handle.cancel
 	cmd.WaitDelay = 2 * time.Second

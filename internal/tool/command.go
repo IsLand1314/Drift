@@ -152,7 +152,7 @@ func ExecuteCommand(parent context.Context, root string, preview Preview) (strin
 	}
 	ctx, cancel := context.WithTimeout(parent, preview.Timeout)
 	defer cancel()
-	process := newCommandProcess(ctx, preview.Command)
+	process := newCommandProcess(ctx, preview.Command, root, preview.CWD, preview.Sandbox)
 	cmd := process.cmd
 	cmd.Dir = filepath.Join(root, filepath.FromSlash(preview.CWD))
 	limit := preview.OutputLimit

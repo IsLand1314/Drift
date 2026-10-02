@@ -1,6 +1,10 @@
 package tool
 
-import "testing"
+import (
+	"path/filepath"
+	"strings"
+	"testing"
+)
 
 func TestParseSandboxMode(t *testing.T) {
 	for _, want := range []SandboxMode{SandboxOff, SandboxAuto, SandboxRequired} {
@@ -32,5 +36,16 @@ func TestSelectSandboxUsesReliableBackend(t *testing.T) {
 	decision, err := SelectSandbox(SandboxRequired, SandboxCapabilities{Backend: "test", Reliable: true, Capabilities: []string{"filesystem"}})
 	if err != nil || !decision.Available || decision.Backend != "test" {
 		t.Fatalf("available decision=%+v err=%v", decision, err)
+	}
+}
+
+func TestBwrapArgumentsBindWorkspaceAndDisableNetwork(t *testing.T) {
+	args := bwrapArguments("/work/project", ".", "printf ok")
+	joined := strings.Join(args, " ")
+	workspace, _ := filepath.Abs("/work/project")
+	for _, want := range []string{"--die-with-parent", "--unshare-net", "--ro-bind / /", "--bind " + workspace + " /workspace", "--chdir /workspace", "printf ok"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("bwrap args missing %q: %q", want, joined)
+		}
 	}
 }
