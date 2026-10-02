@@ -51,10 +51,22 @@ func parsePermissionModeCommand(command string) (permissionMode, bool, error) {
 		return "", true, nil
 	}
 	const prefix = "/permissions mode "
-	if !strings.HasPrefix(command, prefix) {
+	if strings.HasPrefix(command, prefix) {
+		mode, err := parsePermissionMode(strings.TrimSpace(strings.TrimPrefix(command, prefix)))
+		if err != nil {
+			return "", true, err
+		}
+		return mode, true, nil
+	}
+	const directPrefix = "/permissions "
+	if !strings.HasPrefix(command, directPrefix) {
 		return "", false, nil
 	}
-	mode, err := parsePermissionMode(strings.TrimSpace(strings.TrimPrefix(command, prefix)))
+	value := strings.TrimSpace(strings.TrimPrefix(command, directPrefix))
+	if value == "clear" {
+		return "", false, nil
+	}
+	mode, err := parsePermissionMode(value)
 	if err != nil {
 		return "", true, err
 	}

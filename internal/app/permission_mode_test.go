@@ -49,3 +49,13 @@ func TestParsePermissionMode(t *testing.T) {
 		t.Fatal("parsePermissionMode accepted unknown mode")
 	}
 }
+
+func TestParsePermissionModeCommandAcceptsDirectModeName(t *testing.T) {
+	mode, handled, err := parsePermissionModeCommand("/permissions plan")
+	if err != nil || !handled || mode != permissionModePlan {
+		t.Fatalf("parsePermissionModeCommand = %q, %v, %v", mode, handled, err)
+	}
+	if _, handled, _ := parsePermissionModeCommand("/permissions clear"); handled {
+		t.Fatal("/permissions clear should remain the persistence command")
+	}
+}
