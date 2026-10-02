@@ -32,6 +32,7 @@ type ttyChatModel struct {
 	interrupt          *interruptCoordinator
 	permissionMemory   *permissionMemory
 	permissionPolicy   *permissionPolicy
+	permissionMode     *permissionMode
 	pendingPermissions map[string]agent.PermissionRequest
 
 	textarea      textarea.Model
@@ -106,7 +107,11 @@ func newTTYChatModel(ctx context.Context, runner *agent.Runner, audit session.Wr
 			policy = newPermissionPolicy(status.Workspace)
 		}
 	}
-	m := ttyChatModel{ctx: ctx, runner: runner, audit: audit, trace: trace, persistence: persistence, status: status, interrupt: interrupt, permissionMemory: newPermissionMemory(), permissionPolicy: policy, pendingPermissions: make(map[string]agent.PermissionRequest), textarea: ta, toolStarted: make(map[string]toolProgressTUI), events: make(chan tea.Msg, 32), followBottom: true, width: 80, height: 24}
+	mode := status.PermissionMode
+	if mode == "" {
+		mode = permissionModeDefault
+	}
+	m := ttyChatModel{ctx: ctx, runner: runner, audit: audit, trace: trace, persistence: persistence, status: status, interrupt: interrupt, permissionMemory: newPermissionMemory(), permissionPolicy: policy, permissionMode: &mode, pendingPermissions: make(map[string]agent.PermissionRequest), textarea: ta, toolStarted: make(map[string]toolProgressTUI), events: make(chan tea.Msg, 32), followBottom: true, width: 80, height: 24}
 	if persistence != nil && persistence.persistent {
 		m.lines = append(m.lines, ttySessionHeader(persistence)...)
 		m.lines = append(m.lines, transcriptFromLLMMessages(persistence.snapshot.Messages)...)
@@ -118,6 +123,9 @@ func newTTYChatModel(ctx context.Context, runner *agent.Runner, audit session.Wr
 	}
 	if runner != nil {
 		runner.SetPermissionPrompt(func(promptCtx context.Context, request agent.PermissionRequest) (agent.PermissionDecision, error) {
+			if decision := decidePermission(*m.permissionMode, request); decision.Reason != "approval_required" {
+				return decision, nil
+			}
 			if permissionAlreadyAllowed(m.permissionMemory, m.permissionPolicy, request) {
 				return agent.PermissionDecision{Allow: true, Reason: "session_pattern_approved"}, nil
 			}
@@ -223,6 +231,22 @@ func (m *ttyChatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *ttyChatModel) handleCommand(text string) bool {
+	if mode, handled, modeErr := parsePermissionModeCommand(text); handled {
+		if modeErr != nil {
+			m.lines = append(m.lines, "✖ "+modeErr.Error())
+		} else if mode == "" {
+			current := m.status.PermissionMode
+			if current == "" {
+				current = permissionModeDefault
+			}
+			m.lines = append(m.lines, "当前权限模式： "+string(current))
+		} else {
+			*m.permissionMode = mode
+			m.status.PermissionMode = mode
+			m.lines = append(m.lines, "已切换权限模式： "+string(mode))
+		}
+		return true
+	}
 	if message, handled := handlePermissionCommand(m.permissionPolicy, text); handled {
 		m.lines = append(m.lines, message)
 		return true

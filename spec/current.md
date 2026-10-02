@@ -1,6 +1,28 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M3.8。M3.7 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M3.9。M3.8 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+
+## M3.9：会话权限模式
+
+M3.9 增加会话级权限模式，复用现有审批回调和工具安全校验，不改变 workspace 边界。
+
+### 当前范围
+
+- `default`：保持现有行为，写入、编辑、删除和命令默认询问。
+- `acceptEdits`：自动允许写入和编辑；删除、命令仍需询问。
+- `plan`：允许读取，拒绝所有写入、编辑、删除和命令。
+- `bypassPermissions`：自动允许普通变更和命令，但只跳过审批，不绕过 workspace、`.drift`、路径/符号链接/特殊文件校验、危险命令硬拒绝或 `-p` 只读边界。
+- 启动参数 `--permission-mode` 只作用于当前 chat；`/permissions mode` 可在当前 chat 查询或切换，不落盘、不跨会话继承。
+
+### 验收
+
+| ID | 验证方法 | 通过阈值 | 证据类型 | 失败判定 |
+| --- | --- | --- | --- | --- |
+| AC-M39-001 | `go test ./internal/app -run TestPermissionMode -count=1` | 四种模式判定和非法值校验通过 | 测试日志 | 模式矩阵错误 |
+| AC-M39-002 | chat 使用 `--permission-mode plan` | 读取可用，变更/命令不执行且无审批 | 人工记录、审计 | 发生副作用 |
+| AC-M39-003 | chat 使用 `--permission-mode acceptEdits` | 写入/编辑免审批，删除/命令仍审批 | 人工记录、审计 | 权限扩大 |
+| AC-M39-004 | chat 使用 `--permission-mode bypassPermissions` | 普通操作免审批；越界、`.drift`、危险命令仍拒绝 | 测试日志、人工记录 | 绕过硬边界 |
+| AC-M39-005 | `go test ./...`、`go vet ./...`、build、diff check | 全部退出码为 0 | 命令日志 | 任一命令失败 |
 
 ## M3.8：命令与测试执行收敛
 

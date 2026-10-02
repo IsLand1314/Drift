@@ -22,9 +22,10 @@ func runChatLoop(ctx context.Context, runner *agent.Runner, audit session.Writer
 }
 
 type chatStatus struct {
-	Model     string
-	Workspace string
-	ToolCount int
+	Model          string
+	Workspace      string
+	ToolCount      int
+	PermissionMode permissionMode
 }
 
 type chatPersistence struct {
@@ -140,6 +141,10 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 		return runTTYChatLoop(ctx, runner, audit, traceSink, persistence, status, interrupt, in, out)
 	}
 	permissionMemory := newPermissionMemory()
+	permissionMode := status.PermissionMode
+	if permissionMode == "" {
+		permissionMode = permissionModeDefault
+	}
 	pendingPermissions := make(map[string]agent.PermissionRequest)
 	var permissionPolicyStore *permissionPolicy
 	if status.Workspace != "" {
@@ -161,7 +166,7 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 					currentActivity.Start()
 				}
 			}()
-			decision, decisionErr := confirmWrite(promptCtx, input, out, permissionMemory, permissionPolicyStore, request)
+			decision, decisionErr := confirmWrite(promptCtx, input, out, permissionMode, permissionMemory, permissionPolicyStore, request)
 			if decisionErr == nil && decision.Reason == "persistent_pattern_pending" {
 				pendingPermissions[permissionRuleKey(permissionRuleFromRequest(request))] = request
 			}
@@ -214,6 +219,19 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 		}
 		if prompt == "compact" {
 			fmt.Fprintln(out, "如需压缩上下文，请输入 /compact")
+			continue
+		}
+		if mode, handled, modeErr := parsePermissionModeCommand(prompt); handled {
+			if modeErr != nil {
+				fmt.Fprintln(out, "✖", modeErr)
+				continue
+			}
+			if mode != "" {
+				permissionMode = mode
+				fmt.Fprintln(out, "已切换权限模式：", mode)
+			} else {
+				fmt.Fprintln(out, "当前权限模式：", permissionMode)
+			}
 			continue
 		}
 		if message, handled := handlePermissionCommand(permissionPolicyStore, prompt); handled {
@@ -564,7 +582,10 @@ func permissionAlreadyAllowed(memory *permissionMemory, policy *permissionPolicy
 	return memory.Allow(request) || policy.allows(request)
 }
 
-func confirmWrite(ctx context.Context, input chatInput, out io.Writer, memory *permissionMemory, policy *permissionPolicy, request agent.PermissionRequest) (agent.PermissionDecision, error) {
+func confirmWrite(ctx context.Context, input chatInput, out io.Writer, mode permissionMode, memory *permissionMemory, policy *permissionPolicy, request agent.PermissionRequest) (agent.PermissionDecision, error) {
+	if decision := decidePermission(mode, request); decision.Reason != "approval_required" {
+		return decision, nil
+	}
 	if permissionAlreadyAllowed(memory, policy, request) {
 		return agent.PermissionDecision{Allow: true, Reason: "session_pattern_approved"}, nil
 	}
@@ -671,6 +692,11 @@ func writeChatStatus(out io.Writer, runner *agent.Runner, persistence *chatPersi
 	}
 	writeChatStatusRow(out, "Tokens", tokenText, tokenStyle)
 	writeChatStatusRow(out, "Tools", fmt.Sprintf("%d enabled", status.ToolCount), "")
+	mode := status.PermissionMode
+	if mode == "" {
+		mode = permissionModeDefault
+	}
+	writeChatStatusRow(out, "Permission", string(mode), "")
 	writeChatStatusRow(out, "Workspace", status.Workspace, chatStatusAccent(out))
 }
 
