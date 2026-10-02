@@ -1,0 +1,16 @@
+command: ["git", "diff", "--check"]
+cwd: "F:\\code\\drift"
+output_encoding: utf-8
+exit_code: 0
+
+--- stdout ---
+
+
+--- stderr ---
+warning: in the working copy of 'internal/app/app.go', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'internal/changes/manifest.go', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'internal/tool/delete.go', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'internal/tool/edit.go', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'internal/tool/tool.go', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'internal/tool/write.go', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'spec/current.md', LF will be replaced by CRLF the next time Git touches it

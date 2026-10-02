@@ -1,0 +1,10 @@
+command: ["go", "vet", "./..."]
+cwd: "F:\\code\\drift"
+output_encoding: utf-8
+exit_code: 0
+
+--- stdout ---
+
+
+--- stderr ---
+

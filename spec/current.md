@@ -1,6 +1,21 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M3.6。M3.5 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M3.7。M3.6 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+
+## M3.7：Change Set 恢复
+
+M3.7 为现有文件变更记录增加安全恢复能力。它恢复 Drift change set，不执行 Git 回滚。
+
+### 验收
+
+| ID | 验证方法 | 通过阈值 | 证据类型 | 证据路径 | 失败判定 |
+| --- | --- | --- | --- | --- | --- |
+| AC-M37-001 | `go test ./internal/changes -run TestRestoreCreateAndEdit` | 创建文件被撤销，编辑内容恢复 | 测试日志 | `artifacts/verification/m3.7/tdd-tests.txt` | 任一文件状态错误 |
+| AC-M37-002 | `go test ./internal/changes -run TestRestoreCreateAndEdit` | 编辑/覆盖回到变更前内容 | 测试日志 | `artifacts/verification/m3.7/tdd-tests.txt` | 旧内容缺失或错误 |
+| AC-M37-003 | `go test ./internal/changes -run TestRestoreDeletedFile` | 删除前内容恢复 | 测试日志 | `artifacts/verification/m3.7/tdd-tests.txt` | `.before` 不存在或恢复错误 |
+| AC-M37-004 | `go test ./internal/changes -run TestRestoreRefusesStaleTargetWithoutChanges` | 外部修改时拒绝且不改动目标 | 测试日志 | `artifacts/verification/m3.7/tdd-tests.txt` | 发生部分恢复 |
+| AC-M37-005 | `go test ./... -count=1` | 工具、入口和安全校验全部通过 | 测试日志 | `artifacts/verification/m3.7/tdd-tests.txt` | 任一测试失败 |
+| AC-M37-006 | vet、build、diff check | 全部退出码为 0 | 命令日志 | `artifacts/verification/m3.7/final-check.txt` | 任一命令失败 |
 
 ## M3.6：工作区权限策略持久化
 

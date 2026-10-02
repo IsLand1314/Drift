@@ -61,6 +61,9 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 	if len(args) > 0 && args[0] == "session" {
 		return runSessionCommand(args[1:], out, stderr)
 	}
+	if len(args) > 0 && args[0] == "change" {
+		return runChangeCommand(args[1:], out, stderr)
+	}
 	if len(args) > 0 && args[0] == "audit" {
 		return runAuditCommand(args[1:], out, stderr)
 	}

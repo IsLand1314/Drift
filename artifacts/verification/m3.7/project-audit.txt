@@ -1,0 +1,39 @@
+command: ["python", "C:\\Users\\千\\.codex\\skills\\dev-session-audit\\scripts\\project_audit.py", "--workspace-root", "F:\\code\\drift", "--mode", "session", "--baseline", "F:\\code\\drift\\.codex-temp\\dev-session-audit\\baseline.json"]
+cwd: "F:\\code\\drift"
+output_encoding: utf-8
+exit_code: 0
+
+--- stdout ---
+Workspace: F:\code\drift
+Modes: audit=session delete_safe=False all_text=False
+Status: WARN
+Audited text files: 158
+Deleted safe targets: 0
+Git state: head
+Findings: 8
+- [untracked-ownership-required] doc/Process/getting-started.md: Untracked file requires ownership confirmation (removed)
+- [untracked-ownership-required] doc/read-agent.md: Untracked file requires ownership confirmation (removed)
+- [untracked-ownership-required] docs/superpowers/plans/2026-10-02-m37-change-recovery.md: Untracked file requires ownership confirmation (new)
+- [untracked-ownership-required] docs/superpowers/specs/2026-10-02-m37-change-recovery-design.md: Untracked file requires ownership confirmation (new)
+- [untracked-ownership-required] internal/app/change_command.go: Untracked file requires ownership confirmation (new)
+- [untracked-ownership-required] internal/app/change_command_test.go: Untracked file requires ownership confirmation (new)
+- [untracked-ownership-required] internal/changes/restore.go: Untracked file requires ownership confirmation (new)
+- [untracked-ownership-required] internal/changes/restore_test.go: Untracked file requires ownership confirmation (new)
+Git status:
+-  M internal/app/app.go
+-  M internal/changes/manifest.go
+-  M internal/tool/delete.go
+-  M internal/tool/edit.go
+-  M internal/tool/tool.go
+-  M internal/tool/write.go
+-  M spec/current.md
+- ?? artifacts/verification/m3.7/
+- ?? docs/superpowers/plans/2026-10-02-m37-change-recovery.md
+- ?? docs/superpowers/specs/2026-10-02-m37-change-recovery-design.md
+- ?? internal/app/change_command.go
+- ?? internal/app/change_command_test.go
+- ?? internal/changes/restore.go
+- ?? internal/changes/restore_test.go
+
+--- stderr ---
+

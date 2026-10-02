@@ -75,7 +75,7 @@ func Delete(root, raw string) (Preview, error) {
 	if bytesContainNUL(old) {
 		return Preview{}, fmt.Errorf("delete_file target is binary")
 	}
-	return Preview{Operation: "delete_file", Path: args.Path, Content: old, OldBytes: len(old), NewBytes: 0, Diff: writeDiff(args.Path, old, nil)}, nil
+	return Preview{Operation: "delete_file", Content: old, Before: append([]byte(nil), old...), BeforeExists: true, Path: args.Path, OldBytes: len(old), NewBytes: 0, Diff: writeDiff(args.Path, old, nil)}, nil
 }
 
 func CommitDelete(ctx context.Context, root string, preview Preview) (string, error) {

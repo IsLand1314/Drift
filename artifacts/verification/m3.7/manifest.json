@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "session_id": "m3.7-2026-10-02",
+  "generated_at": "2026-10-02T08:12:00Z",
+  "git_revision": "3200e0c19d556762f2c1b4fb230f0a0c361a9a46",
+  "environment": {"os": "windows", "shell": "powershell"},
+  "entries": [
+    {"acceptance_id":"AC-M37-001","artifact":"artifacts/verification/m3.7/tdd-tests.txt","evidence_level":"test-log","command":"go test ./... -count=1","captured_at":"2026-10-02T08:11:04Z","exit_code":0,"sha256":"67ac26ca6b7a65efbd399098553664d8786345f3bec1e5140723933be2622fc8","size_bytes":886},
+    {"acceptance_id":"AC-M37-002","artifact":"artifacts/verification/m3.7/tdd-tests.txt","evidence_level":"test-log","command":"go test ./... -count=1","captured_at":"2026-10-02T08:11:04Z","exit_code":0,"sha256":"67ac26ca6b7a65efbd399098553664d8786345f3bec1e5140723933be2622fc8","size_bytes":886},
+    {"acceptance_id":"AC-M37-003","artifact":"artifacts/verification/m3.7/tdd-tests.txt","evidence_level":"test-log","command":"go test ./... -count=1","captured_at":"2026-10-02T08:11:04Z","exit_code":0,"sha256":"67ac26ca6b7a65efbd399098553664d8786345f3bec1e5140723933be2622fc8","size_bytes":886},
+    {"acceptance_id":"AC-M37-004","artifact":"artifacts/verification/m3.7/tdd-tests.txt","evidence_level":"test-log","command":"go test ./... -count=1","captured_at":"2026-10-02T08:11:04Z","exit_code":0,"sha256":"67ac26ca6b7a65efbd399098553664d8786345f3bec1e5140723933be2622fc8","size_bytes":886},
+    {"acceptance_id":"AC-M37-005","artifact":"artifacts/verification/m3.7/tdd-tests.txt","evidence_level":"test-log","command":"go test ./... -count=1","captured_at":"2026-10-02T08:11:04Z","exit_code":0,"sha256":"67ac26ca6b7a65efbd399098553664d8786345f3bec1e5140723933be2622fc8","size_bytes":886},
+    {"acceptance_id":"AC-M37-006","artifact":"artifacts/verification/m3.7/final-check.txt","evidence_level":"command-log","command":"go test ./... -count=1; go vet ./...; go build ./cmd/drift; git diff --check","captured_at":"2026-10-02T08:12:00Z","exit_code":0,"sha256":"A788FF11F5BF840971C09B818D59517CF6DBF1F1EFD5F5170B39152A4148CE69","size_bytes":416}
+  ]
+}

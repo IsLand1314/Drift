@@ -90,7 +90,7 @@ func Edit(root, raw string) (Preview, error) {
 	if len(next) > MaxWriteBytes {
 		return Preview{}, fmt.Errorf("edit_file content exceeds %d bytes", MaxWriteBytes)
 	}
-	return Preview{Operation: "edit_file", Path: args.Path, Content: next, OldBytes: len(old), NewBytes: len(next), Diff: writeDiff(args.Path, old, next)}, nil
+	return Preview{Operation: "edit_file", Path: args.Path, Content: next, Before: append([]byte(nil), old...), BeforeExists: true, OldBytes: len(old), NewBytes: len(next), Diff: writeDiff(args.Path, old, next)}, nil
 }
 
 func CommitEdit(ctx context.Context, root string, preview Preview) (string, error) {

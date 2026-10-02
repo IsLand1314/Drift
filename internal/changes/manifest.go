@@ -62,6 +62,12 @@ func Begin(root string, started time.Time) (*ChangeSet, error) {
 }
 
 func (c *ChangeSet) Record(manifest Manifest, diff string, content []byte, name string) error {
+	return c.RecordMutation(manifest, diff, nil, false, content, name)
+}
+
+// RecordMutation stores both sides of a file mutation. The legacy Record method
+// remains for compatibility with older callers and tests.
+func (c *ChangeSet) RecordMutation(manifest Manifest, diff string, before []byte, beforeExists bool, after []byte, name string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	manifest.Time = c.manifest.Time
@@ -71,8 +77,14 @@ func (c *ChangeSet) Record(manifest Manifest, diff string, content []byte, name 
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	if err := os.WriteFile(path, content, 0o600); err != nil {
+	if err := os.WriteFile(path, after, 0o600); err != nil {
 		return err
+	}
+	if beforeExists {
+		beforePath := path + ".before"
+		if err := os.WriteFile(beforePath, before, 0o600); err != nil {
+			return err
+		}
 	}
 	return c.flushLocked()
 }
@@ -107,6 +119,10 @@ func NewID() (string, error) {
 }
 
 func Record(root string, started time.Time, id string, manifest Manifest, diff string, content []byte, name string) (string, error) {
+	return RecordMutation(root, started, id, manifest, diff, nil, false, content, name)
+}
+
+func RecordMutation(root string, started time.Time, id string, manifest Manifest, diff string, before []byte, beforeExists bool, after []byte, name string) (string, error) {
 	changeDir := filepath.Join(layout.DateDir(filepath.Join(root, ".drift", "changes"), started), "change-"+layout.FileTimestamp(started)+"-"+id)
 	workDir := filepath.Join(changeDir, "work")
 	if err := os.MkdirAll(workDir, 0o700); err != nil {
@@ -123,8 +139,17 @@ func Record(root string, started time.Time, id string, manifest Manifest, diff s
 	if err := os.WriteFile(filepath.Join(changeDir, "diff.patch"), []byte(diff), 0o600); err != nil {
 		return "", fmt.Errorf("changes: write diff: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(workDir, filepath.Base(name)), content, 0o600); err != nil {
+	path := filepath.Join(workDir, filepath.FromSlash(name))
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return "", fmt.Errorf("changes: create work directory: %w", err)
+	}
+	if err := os.WriteFile(path, after, 0o600); err != nil {
 		return "", fmt.Errorf("changes: write work content: %w", err)
+	}
+	if beforeExists {
+		if err := os.WriteFile(path+".before", before, 0o600); err != nil {
+			return "", fmt.Errorf("changes: write before content: %w", err)
+		}
 	}
 	return changeDir, nil
 }

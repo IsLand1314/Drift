@@ -111,7 +111,7 @@ func Write(root, rawArguments string) (Preview, error) {
 	} else if !os.IsNotExist(statErr) {
 		return Preview{}, fmt.Errorf("stat write_file target: %w", statErr)
 	}
-	return Preview{Operation: operation, Path: args.Path, Content: append([]byte(nil), content...), OldBytes: len(old), NewBytes: len(content), Diff: writeDiff(args.Path, old, content)}, nil
+	return Preview{Operation: operation, Path: args.Path, Content: append([]byte(nil), content...), Before: append([]byte(nil), old...), BeforeExists: statErr == nil, OldBytes: len(old), NewBytes: len(content), Diff: writeDiff(args.Path, old, content)}, nil
 }
 
 func validateWritePath(path string) error {
@@ -157,10 +157,10 @@ func commitTextPreview(ctx context.Context, root string, preview Preview) (strin
 	started := time.Now().UTC()
 	manifest := changes.Manifest{Operation: preview.Operation, Path: preview.Path, OldBytes: preview.OldBytes, NewBytes: preview.NewBytes, Decision: "allow"}
 	if set := changes.FromContext(ctx); set != nil {
-		if err := set.Record(manifest, preview.Diff, preview.Content, filepath.ToSlash(preview.Path)); err != nil {
+		if err := set.RecordMutation(manifest, preview.Diff, preview.Before, preview.BeforeExists, preview.Content, filepath.ToSlash(preview.Path)); err != nil {
 			return "", err
 		}
-	} else if _, err := changes.Record(root, started, id, manifest, preview.Diff, preview.Content, filepath.Base(filepath.FromSlash(preview.Path))); err != nil {
+	} else if _, err := changes.RecordMutation(root, started, id, manifest, preview.Diff, preview.Before, preview.BeforeExists, preview.Content, filepath.ToSlash(preview.Path)); err != nil {
 		return "", err
 	}
 	tempPath := filepath.Join(filepath.Dir(preview.Path), ".drift-write-"+id)

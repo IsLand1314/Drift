@@ -1,0 +1,13 @@
+M3.7 final verification
+=======================
+
+go test ./... -count=1       PASS
+go vet ./...                 PASS
+go build ./cmd/drift         PASS
+git diff --check             PASS
+
+Restore-specific tests:
+go test ./internal/changes -run TestRestore -count=1       PASS
+go test ./internal/app -run TestChangeRestoreCommand -count=1 PASS
+
+Verification commands completed successfully before evidence publication.
