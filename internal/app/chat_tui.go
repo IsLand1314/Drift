@@ -23,15 +23,16 @@ import (
 // ttyChatModel is the sole owner of a real terminal chat screen. Runtime code
 // communicates through messages; it never writes transcript text directly.
 type ttyChatModel struct {
-	ctx              context.Context
-	runner           *agent.Runner
-	audit            session.Writer
-	trace            agent.EventSink
-	persistence      *chatPersistence
-	status           chatStatus
-	interrupt        *interruptCoordinator
-	permissionMemory *permissionMemory
-	permissionPolicy *permissionPolicy
+	ctx                context.Context
+	runner             *agent.Runner
+	audit              session.Writer
+	trace              agent.EventSink
+	persistence        *chatPersistence
+	status             chatStatus
+	interrupt          *interruptCoordinator
+	permissionMemory   *permissionMemory
+	permissionPolicy   *permissionPolicy
+	pendingPermissions map[string]agent.PermissionRequest
 
 	textarea      textarea.Model
 	viewport      viewport.Model
@@ -102,7 +103,7 @@ func newTTYChatModel(ctx context.Context, runner *agent.Runner, audit session.Wr
 			policy = newPermissionPolicy(status.Workspace)
 		}
 	}
-	m := ttyChatModel{ctx: ctx, runner: runner, audit: audit, trace: trace, persistence: persistence, status: status, interrupt: interrupt, permissionMemory: newPermissionMemory(), permissionPolicy: policy, textarea: ta, toolStarted: make(map[string]toolProgressTUI), events: make(chan tea.Msg, 32), followBottom: true, width: 80, height: 24}
+	m := ttyChatModel{ctx: ctx, runner: runner, audit: audit, trace: trace, persistence: persistence, status: status, interrupt: interrupt, permissionMemory: newPermissionMemory(), permissionPolicy: policy, pendingPermissions: make(map[string]agent.PermissionRequest), textarea: ta, toolStarted: make(map[string]toolProgressTUI), events: make(chan tea.Msg, 32), followBottom: true, width: 80, height: 24}
 	if persistence != nil && persistence.persistent {
 		m.lines = append(m.lines, ttySessionHeader(persistence)...)
 		m.lines = append(m.lines, transcriptFromLLMMessages(persistence.snapshot.Messages)...)
@@ -326,6 +327,17 @@ func (m *ttyChatModel) applyEvent(e agent.Event) {
 		m.lines = append(m.lines, "● "+toolLabel(e.ToolName)+formatToolPath(path)+" ...")
 		m.toolStarted[e.ToolCallID] = toolProgressTUI{started: time.Now(), path: path, lineIdx: len(m.lines) - 1}
 	case agent.EventToolResult:
+		requestKey := permissionRuleKey(permissionRuleFromRequest(agent.PermissionRequest{ToolName: e.ToolName, Operation: e.Operation, Path: e.Path, Command: e.Command, CWD: e.CWD}))
+		if e.ErrorSummary == "" {
+			if request, ok := m.pendingPermissions[requestKey]; ok {
+				delete(m.pendingPermissions, requestKey)
+				if m.permissionPolicy != nil {
+					if err := m.permissionPolicy.remember(request); err != nil {
+						m.lines = append(m.lines, "⚠ 本次已允许，但权限策略持久化失败")
+					}
+				}
+			}
+		}
 		progress, ok := m.toolStarted[e.ToolCallID]
 		if ok {
 			delete(m.toolStarted, e.ToolCallID)
@@ -381,7 +393,11 @@ func (m *ttyChatModel) handleApproval(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyDown:
 		a.selected = (a.selected + 1) % 3
 	case tea.KeyEnter:
-		a.reply <- approvalDecision(a.selected, m.permissionMemory, a.request)
+		decision := approvalDecision(a.selected, m.permissionMemory, a.request)
+		if decision.Reason == "persistent_pattern_pending" {
+			m.pendingPermissions[permissionRuleKey(permissionRuleFromRequest(a.request))] = a.request
+		}
+		a.reply <- decision
 		m.approval = nil
 	case tea.KeyEscape, tea.KeyCtrlC:
 		a.reply <- agent.PermissionDecision{Reason: "user_denied"}
@@ -391,8 +407,7 @@ func (m *ttyChatModel) handleApproval(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 func approvalDecision(selected int, memory *permissionMemory, request agent.PermissionRequest) agent.PermissionDecision {
 	if selected == 1 {
-		memory.Remember(request)
-		return agent.PermissionDecision{Allow: true, Reason: "session_pattern_approved"}
+		return agent.PermissionDecision{Allow: true, Reason: "persistent_pattern_pending"}
 	}
 	if selected == 0 {
 		return agent.PermissionDecision{Allow: true, Reason: "user_approved"}

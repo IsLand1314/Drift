@@ -140,6 +140,7 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 		return runTTYChatLoop(ctx, runner, audit, traceSink, persistence, status, interrupt, in, out)
 	}
 	permissionMemory := newPermissionMemory()
+	pendingPermissions := make(map[string]agent.PermissionRequest)
 	var permissionPolicyStore *permissionPolicy
 	if status.Workspace != "" {
 		var policyErr error
@@ -160,7 +161,11 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 					currentActivity.Start()
 				}
 			}()
-			return confirmWrite(promptCtx, input, out, permissionMemory, permissionPolicyStore, request)
+			decision, decisionErr := confirmWrite(promptCtx, input, out, permissionMemory, permissionPolicyStore, request)
+			if decisionErr == nil && decision.Reason == "persistent_pattern_pending" {
+				pendingPermissions[permissionRuleKey(permissionRuleFromRequest(request))] = request
+			}
+			return decision, decisionErr
 		})
 	}
 	interactiveInput := false
@@ -387,6 +392,17 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 			if persistence != nil {
 				persistence.usage.add(event)
 			}
+			if event.Type == agent.EventToolResult && event.ErrorSummary == "" {
+				key := permissionRuleKey(permissionRuleFromRequest(agent.PermissionRequest{ToolName: event.ToolName, Operation: event.Operation, Path: event.Path, Command: event.Command, CWD: event.CWD}))
+				if request, ok := pendingPermissions[key]; ok {
+					delete(pendingPermissions, key)
+					if permissionPolicyStore != nil {
+						if persistErr := permissionPolicyStore.remember(request); persistErr != nil {
+							fmt.Fprintln(out, "⚠ 本次已允许，但权限策略持久化失败")
+						}
+					}
+				}
+			}
 			if interactiveInput {
 				switch event.Type {
 				case agent.EventToolCall:
@@ -557,8 +573,7 @@ func confirmWrite(ctx context.Context, input chatInput, out io.Writer, memory *p
 		case approveOnce:
 			return agent.PermissionDecision{Allow: true, Reason: "user_approved"}, nil
 		case approvePattern:
-			memory.Remember(request)
-			return agent.PermissionDecision{Allow: true, Reason: "session_pattern_approved"}, nil
+			return agent.PermissionDecision{Allow: true, Reason: "persistent_pattern_pending"}, nil
 		default:
 			return agent.PermissionDecision{Reason: "user_denied"}, nil
 		}
@@ -577,8 +592,7 @@ func confirmWrite(ctx context.Context, input chatInput, out io.Writer, memory *p
 		return agent.PermissionDecision{Allow: true, Reason: "user_approved"}, nil
 	}
 	if choice == approvePattern {
-		memory.Remember(request)
-		return agent.PermissionDecision{Allow: true, Reason: "session_pattern_approved"}, nil
+		return agent.PermissionDecision{Allow: true, Reason: "persistent_pattern_pending"}, nil
 	}
 	return agent.PermissionDecision{Reason: "user_denied"}, nil
 }

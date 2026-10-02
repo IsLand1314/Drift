@@ -122,7 +122,11 @@ func (p *permissionPolicy) remember(request agent.PermissionRequest) error {
 	}
 	rule.CreatedAt = time.Now().UTC().Format(time.RFC3339)
 	p.rules = append(p.rules, rule)
-	return p.saveLocked()
+	if err := p.saveLocked(); err != nil {
+		p.rules = p.rules[:len(p.rules)-1]
+		return err
+	}
+	return nil
 }
 
 func (p *permissionPolicy) clear() error {

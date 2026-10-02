@@ -157,6 +157,39 @@ func TestTTYChatCancellationUsesSafeMessage(t *testing.T) {
 	}
 }
 
+func TestApprovalDecisionDefersPersistentPolicyUntilSuccess(t *testing.T) {
+	memory := newPermissionMemory()
+	request := agent.PermissionRequest{ToolName: "write_file", Operation: "create_file", Path: "tmp/hello.txt"}
+	decision := approvalDecision(1, memory, request)
+	if decision.Reason != "persistent_pattern_pending" {
+		t.Fatalf("reason=%q, want persistent_pattern_pending", decision.Reason)
+	}
+	if memory.Allow(request) {
+		t.Fatal("remembered approval was added before the operation succeeded")
+	}
+}
+
+func TestTTYApprovalPersistsOnlyAfterSuccessfulToolResult(t *testing.T) {
+	root := t.TempDir()
+	request := agent.PermissionRequest{ToolName: "write_file", Operation: "create_file", Path: "tmp/hello.txt"}
+	m := newTTYChatModel(context.Background(), nil, nil, nil, nil, chatStatus{Workspace: root}, nil)
+	m.pendingPermissions[permissionRuleKey(permissionRuleFromRequest(request))] = request
+	m.applyEvent(agent.Event{Type: agent.EventToolResult, ToolName: "write_file", Operation: "create_file", Path: "tmp/hello.txt", Result: "ok"})
+	loaded, err := loadPermissionPolicy(root)
+	if err != nil || !loaded.allows(request) {
+		t.Fatalf("successful operation did not persist policy: err=%v", err)
+	}
+
+	failedRoot := t.TempDir()
+	failed := newTTYChatModel(context.Background(), nil, nil, nil, nil, chatStatus{Workspace: failedRoot}, nil)
+	failed.pendingPermissions[permissionRuleKey(permissionRuleFromRequest(request))] = request
+	failed.applyEvent(agent.Event{Type: agent.EventToolResult, ToolName: "write_file", Operation: "create_file", Path: "tmp/hello.txt", ErrorSummary: "failed"})
+	failedLoaded, err := loadPermissionPolicy(failedRoot)
+	if err != nil || failedLoaded.allows(request) {
+		t.Fatalf("failed operation unexpectedly persisted policy: err=%v", err)
+	}
+}
+
 func TestTTYWrapTextUsesTerminalWidth(t *testing.T) {
 	wrapped := wrapTUIText("你好世界abcdefgh", 8)
 	if strings.Count(wrapped, "\n") < 1 {
