@@ -418,9 +418,11 @@ func (m ttyChatModel) View() string {
 	panelRows := strings.Count(panel, "\n") + 1
 	footer := tuiFooter(m.status.Model, m.width)
 	footerRows := strings.Count(footer, "\n") + 1
+	availableRows := maxTUI(1, m.height-panelRows-footerRows-2)
+	contentRows := tuiTextRows(content, m.width)
 	m.viewport.SetContent(styleTranscript(content))
 	m.viewport.Width = maxTUI(1, m.width)
-	m.viewport.Height = maxTUI(1, m.height-panelRows-footerRows-2)
+	m.viewport.Height = minTUI(availableRows, maxTUI(1, contentRows))
 	m.viewport.GotoBottom()
 	var b strings.Builder
 	b.WriteString(m.viewport.View())
@@ -446,13 +448,13 @@ func styleTranscript(content string) string {
 	for i, line := range lines {
 		switch {
 		case strings.HasPrefix(line, "❯ "):
-			lines[i] = tuiAccent.Render("❯") + " " + tuiUser.Render(line[2:])
+			lines[i] = tuiAccent.Render("❯") + " " + tuiUser.Render(strings.TrimPrefix(line, "❯ "))
 		case strings.HasPrefix(line, "● "):
-			lines[i] = tuiAI.Render("●") + " " + tuiUser.Render(line[2:])
+			lines[i] = tuiAI.Render("●") + " " + tuiUser.Render(strings.TrimPrefix(line, "● "))
 		case strings.HasPrefix(line, "✓ "):
-			lines[i] = tuiOK.Render("✓") + " " + tuiMuted.Render(line[2:])
+			lines[i] = tuiOK.Render("✓") + " " + tuiMuted.Render(strings.TrimPrefix(line, "✓ "))
 		case strings.HasPrefix(line, "✖ "):
-			lines[i] = tuiError.Render("✖") + " " + tuiError.Render(line[2:])
+			lines[i] = tuiError.Render("✖") + " " + tuiError.Render(strings.TrimPrefix(line, "✖ "))
 		case strings.HasPrefix(line, "Done -"):
 			lines[i] = tuiMuted.Render(line)
 		case strings.HasPrefix(line, "Session ID:") || strings.HasPrefix(line, "注意：") || strings.HasPrefix(line, "已禁用完整会话"):
@@ -477,6 +479,16 @@ func tuiFooter(model string, width int) string {
 		return tuiMuted.Render(left) + strings.Repeat(" ", width-lipgloss.Width(left)-lipgloss.Width(model)) + tuiMuted.Render(model)
 	}
 	return tuiMuted.Render(left) + "\n" + strings.Repeat(" ", maxTUI(1, width-lipgloss.Width(model))) + tuiMuted.Render(model)
+}
+
+func tuiTextRows(content string, width int) int {
+	width = maxTUI(1, width)
+	rows := 0
+	for _, line := range strings.Split(content, "\n") {
+		lineWidth := lipgloss.Width(line)
+		rows += maxTUI(1, (lineWidth+width-1)/width)
+	}
+	return maxTUI(1, rows)
 }
 
 func resizeTTYTextarea(m *ttyChatModel) {
@@ -536,6 +548,13 @@ func renderTUIResume(r tuiResume) string {
 }
 func maxTUI(a, b int) int {
 	if a > b {
+		return a
+	}
+	return b
+}
+
+func minTUI(a, b int) int {
+	if a < b {
 		return a
 	}
 	return b

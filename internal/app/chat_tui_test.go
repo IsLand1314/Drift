@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/IsLand1314/Drift/internal/agent"
 )
@@ -74,5 +75,25 @@ func TestTTYChatLayoutKeepsLongModelName(t *testing.T) {
 	view := m.View()
 	if !strings.Contains(view, name) {
 		t.Fatalf("model name was truncated: %q", view)
+	}
+}
+
+func TestStyleTranscriptPreservesUnicodeAfterMarker(t *testing.T) {
+	view := styleTranscript("❯ 你好\n● Drift 回复")
+	if !utf8.ValidString(view) || strings.Contains(view, "�") {
+		t.Fatalf("unicode marker was split: %q", view)
+	}
+	if !strings.Contains(view, "你好") || !strings.Contains(view, "Drift 回复") {
+		t.Fatalf("transcript text was lost: %q", view)
+	}
+}
+
+func TestTTYChatViewKeepsFooterAfterLongAnswer(t *testing.T) {
+	m := newTTYChatModel(context.Background(), nil, nil, nil, nil, chatStatus{Model: "deepseek-v4-flash"}, nil)
+	m.width, m.height = 80, 24
+	m.lines = []string{"❯ 你好，请介绍一下你自己", "● " + strings.Repeat("这是助手的回答。", 80), "Done - 3.4s"}
+	view := m.View()
+	if !strings.Contains(view, "Enter 发送 · Ctrl+C 取消") || !strings.Contains(view, "deepseek-v4-flash") {
+		t.Fatalf("footer disappeared after long answer: %q", view)
 	}
 }
