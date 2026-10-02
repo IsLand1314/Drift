@@ -1,6 +1,33 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M3.5。M3.4 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M3.6。M3.5 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+
+## M3.6：工作区权限策略持久化
+
+M3.6 在 M3.3–M3.5 的审批基础上，持久化用户明确选择“允许此类操作”的精确授权，同时保持默认 `ask` 和现有工具安全校验。
+
+### 当前范围
+
+- 授权只写入当前 workspace 的 `.drift/permissions.json`，不跨 workspace 或用户目录共享。
+- 只持久化第二项 `Yes, and don't ask again for this pattern`；第一项只对当前操作有效，`No` 和取消不写入。
+- 匹配必须同时满足工具、操作、相对路径，或命令与 cwd；不支持 glob、前缀、正则和 `allow all`。
+- 策略文件使用版本 `1`、目录 `0700`、文件 `0600`，通过同目录临时文件和原子替换保存。
+- 缺失、损坏、未知版本、重复规则或保存失败均安全降级为 `ask`，不得自动放行。
+- `/permissions` 显示脱敏摘要，`/permissions clear` 清除当前 workspace 的持久化授权。
+
+### 非目标
+
+- 不提供用户级全局授权、跨 workspace 授权、命令白名单、通配符策略、权限继承或永久 `allow all`。
+- 不改变现有路径、符号链接、隐藏目录、特殊文件和命令 cwd 安全校验。
+
+### 验收
+
+| ID | 验证方法 | 通过阈值 | 证据类型 | 证据路径 | 失败判定 |
+| --- | --- | --- | --- | --- | --- |
+| AC-M36-001 | 权限策略单元测试与新 workspace chat | 无策略时写入/编辑/删除/命令默认每次 ask | 测试日志、人工记录 | `artifacts/verification/m3.6/permission-policy-tests.txt` | 无策略自动放行 |
+| AC-M36-002 | 第一项与第二项审批测试 | 第一项不跨进程保留；第二项成功后可跨进程精确命中 | 测试日志、人工记录 | `artifacts/verification/m3.6/manual-acceptance.md` | 授权范围扩大或失败操作落盘 |
+| AC-M36-003 | 精确匹配、损坏配置和清除测试 | 任一字段改变、配置损坏或 clear 后重新 ask | 测试日志 | `artifacts/verification/m3.6/permission-policy-tests.txt` | 错误命中或安全降级失败 |
+| AC-M36-004 | 全量回归 | `go test ./...`、`go vet ./...`、build、diff 检查全部退出码为 0 | 命令日志 | `artifacts/verification/m3.6/final-check.txt` | 任一命令失败 |
 
 ## M3.5：命令取消与进程树终止
 

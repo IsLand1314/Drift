@@ -1,0 +1,9 @@
+M3.6 final verification
+=======================
+
+go test ./... -count=1       PASS
+go vet ./...                 PASS
+go build ./cmd/drift         PASS
+git diff --check             PASS
+
+Verification commands completed successfully before evidence publication.

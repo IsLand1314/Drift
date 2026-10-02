@@ -1,0 +1,18 @@
+M3.6 focused verification
+==========================
+
+Command:
+  go test ./internal/app -run 'PermissionPolicy|Permission|Approval' -count=1
+
+Result:
+  PASS
+
+Covered:
+  - missing policy is empty and does not allow;
+  - exact file and command/cwd matching;
+  - changed path/cwd does not match;
+  - corrupt/unknown version fails closed;
+  - duplicate rules are de-duplicated and clear removes them;
+  - approval choice 2 remains pending until successful tool result;
+  - failed tool result does not persist a rule;
+  - /permissions summary and /permissions clear.
