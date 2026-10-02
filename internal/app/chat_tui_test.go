@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/IsLand1314/Drift/internal/agent"
@@ -140,6 +141,19 @@ func TestTTYChatViewportScrollsAndKeepsManualPosition(t *testing.T) {
 	scrolled.View()
 	if scrolled.viewport.YOffset == 0 {
 		t.Fatalf("view reset manually scrolled viewport")
+	}
+}
+
+func TestTTYChatCancellationUsesSafeMessage(t *testing.T) {
+	m := newTTYChatModel(context.Background(), nil, nil, nil, nil, chatStatus{}, nil)
+	m.started = time.Now()
+	m.finishTurn(context.Canceled)
+	joined := strings.Join(m.lines, "\n")
+	if !strings.Contains(joined, "当前轮已取消；会话仍可继续") {
+		t.Fatalf("safe cancellation message missing: %q", joined)
+	}
+	if strings.Contains(joined, "context canceled") {
+		t.Fatalf("raw cancellation error leaked: %q", joined)
 	}
 }
 

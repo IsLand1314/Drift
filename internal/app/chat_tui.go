@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -352,7 +353,11 @@ func (m *ttyChatModel) finishTurn(err error) {
 		m.lines = append(m.lines, "● "+m.stream)
 	}
 	if err != nil {
-		m.lines = append(m.lines, "✖ "+err.Error())
+		if errors.Is(err, context.Canceled) {
+			m.lines = append(m.lines, "✖ 当前轮已取消；会话仍可继续")
+		} else {
+			m.lines = append(m.lines, "✖ "+err.Error())
+		}
 	}
 	m.lines = append(m.lines, fmt.Sprintf("Done - %.1fs", time.Since(m.started).Seconds()))
 	m.running = false
