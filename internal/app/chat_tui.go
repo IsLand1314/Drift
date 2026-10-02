@@ -35,20 +35,21 @@ type ttyChatModel struct {
 	permissionMode     *permissionMode
 	pendingPermissions map[string]agent.PermissionRequest
 
-	textarea      textarea.Model
-	viewport      viewport.Model
-	width, height int
-	lines         []string
-	stream        string
-	toolStarted   map[string]toolProgressTUI
-	events        chan tea.Msg
-	running       bool
-	followBottom  bool
-	started       time.Time
-	spinner       int
-	approval      *tuiApproval
-	resume        *tuiResume
-	exitCode      int
+	textarea         textarea.Model
+	viewport         viewport.Model
+	width, height    int
+	lines            []string
+	stream           string
+	toolStarted      map[string]toolProgressTUI
+	events           chan tea.Msg
+	running          bool
+	followBottom     bool
+	started          time.Time
+	spinner          int
+	approval         *tuiApproval
+	resume           *tuiResume
+	permissionPicker *permissionPicker
+	exitCode         int
 }
 
 type tuiAgentEvent struct{ event agent.Event }
@@ -66,6 +67,10 @@ type tuiApproval struct {
 type tuiResume struct {
 	items  []conversation.Metadata
 	cursor int
+}
+type permissionPicker struct {
+	options []permissionMode
+	cursor  int
 }
 type toolProgressTUI struct {
 	started time.Time
@@ -185,6 +190,9 @@ func (m *ttyChatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.resume != nil {
 			return m.handleResume(key)
 		}
+		if m.permissionPicker != nil {
+			return m.handlePermissionPicker(key)
+		}
 		if m.running {
 			if key.Type == tea.KeyCtrlC && m.interrupt != nil {
 				m.interrupt.mu.Lock()
@@ -216,6 +224,11 @@ func (m *ttyChatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if text == "exit" || text == "/exit" || text == "quit" {
 				return m, tea.Quit
 			}
+			if strings.HasPrefix(text, "/permissions") {
+				if m.handleCommand(text) {
+					return m, nil
+				}
+			}
 			m.lines = append(m.lines, "❯ "+text)
 			if m.handleCommand(text) {
 				return m, nil
@@ -231,6 +244,10 @@ func (m *ttyChatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *ttyChatModel) handleCommand(text string) bool {
+	if text == "/permissions" {
+		m.permissionPicker = newPermissionPicker(*m.permissionMode)
+		return true
+	}
 	if mode, handled, modeErr := parsePermissionModeCommand(text); handled {
 		if modeErr != nil {
 			m.lines = append(m.lines, "✖ "+modeErr.Error())
@@ -239,11 +256,11 @@ func (m *ttyChatModel) handleCommand(text string) bool {
 			if current == "" {
 				current = permissionModeDefault
 			}
-			m.lines = append(m.lines, "当前权限模式： "+string(current))
+			m.lines = append(m.lines, tuiMuted.Render("权限模式： "+string(current)))
 		} else {
 			*m.permissionMode = mode
 			m.status.PermissionMode = mode
-			m.lines = append(m.lines, "已切换权限模式： "+string(mode))
+			m.lines = append(m.lines, tuiMuted.Render("权限模式已切换为 "+string(mode)))
 		}
 		return true
 	}
@@ -302,6 +319,44 @@ func (m *ttyChatModel) handleCommand(text string) bool {
 		return true
 	}
 	return false
+}
+
+func newPermissionPicker(current permissionMode) *permissionPicker {
+	options := []permissionMode{permissionModeDefault, permissionModeAcceptEdits, permissionModePlan, permissionModeBypass}
+	picker := &permissionPicker{options: options}
+	for i, mode := range options {
+		if mode == current {
+			picker.cursor = i
+			break
+		}
+	}
+	return picker
+}
+
+func (m *ttyChatModel) handlePermissionPicker(key tea.KeyMsg) (tea.Model, tea.Cmd) {
+	p := m.permissionPicker
+	if p == nil {
+		return m, nil
+	}
+	switch key.Type {
+	case tea.KeyUp:
+		if p.cursor > 0 {
+			p.cursor--
+		}
+	case tea.KeyDown:
+		if p.cursor+1 < len(p.options) {
+			p.cursor++
+		}
+	case tea.KeyEnter:
+		mode := p.options[p.cursor]
+		*m.permissionMode = mode
+		m.status.PermissionMode = mode
+		m.lines = append(m.lines, tuiMuted.Render("权限模式已切换为 "+string(mode)))
+		m.permissionPicker = nil
+	case tea.KeyEscape, tea.KeyCtrlC:
+		m.permissionPicker = nil
+	}
+	return m, nil
 }
 
 func (m *ttyChatModel) startTurn(prompt string) {
@@ -511,9 +566,11 @@ func (m *ttyChatModel) View() string {
 		panel = renderTUIApproval(*m.approval)
 	} else if m.resume != nil {
 		panel = renderTUIResume(*m.resume)
+	} else if m.permissionPicker != nil {
+		panel = renderTUIPermissionPicker(*m.permissionPicker)
 	}
 	panelRows := strings.Count(panel, "\n") + 1
-	footer := tuiFooter(m.status.Model, m.width)
+	footer := tuiFooter(m.status.Model, m.width, *m.permissionMode)
 	footerRows := strings.Count(footer, "\n") + 1
 	availableRows := maxTUI(1, m.height-panelRows-footerRows-2)
 	wrappedContent := wrapTUIText(content, m.width)
@@ -585,8 +642,12 @@ func tuiRule(width int) string {
 	return tuiRuleStyle.Render(strings.Repeat("─", maxTUI(1, width)))
 }
 
-func tuiFooter(model string, width int) string {
-	left := "  Enter 发送 · Ctrl+C 取消"
+func tuiFooter(model string, width int, modes ...permissionMode) string {
+	mode := permissionModeDefault
+	if len(modes) > 0 && modes[0] != "" {
+		mode = modes[0]
+	}
+	left := "  权限：" + string(mode)
 	if model == "" {
 		return tuiMuted.Render(left)
 	}
@@ -594,6 +655,40 @@ func tuiFooter(model string, width int) string {
 		return tuiMuted.Render(left) + strings.Repeat(" ", width-lipgloss.Width(left)-lipgloss.Width(model)-1) + tuiMuted.Render(model)
 	}
 	return tuiMuted.Render(left) + "\n" + strings.Repeat(" ", maxTUI(1, width-lipgloss.Width(model)-1)) + tuiMuted.Render(model)
+}
+
+func renderTUIPermissionPicker(p permissionPicker) string {
+	var b strings.Builder
+	b.WriteString(tuiAccent.Bold(true).Render("Permission mode") + "\n" + tuiMuted.Render("↑/↓ 选择 · Enter 确认 · Esc 取消") + "\n\n")
+	for i, mode := range p.options {
+		prefix := "  "
+		if i == p.cursor {
+			prefix = tuiAccent.Render("❯") + " "
+		}
+		name := string(mode)
+		if i == p.cursor {
+			name = lipgloss.NewStyle().Foreground(lipgloss.Color("255")).Background(lipgloss.Color("236")).Render(name)
+		} else {
+			name = tuiUser.Render(name)
+		}
+		b.WriteString(prefix + name + "  " + tuiMuted.Render(permissionModeDescription(mode)) + "\n")
+	}
+	return strings.TrimSuffix(b.String(), "\n")
+}
+
+func permissionModeDescription(mode permissionMode) string {
+	switch mode {
+	case permissionModeDefault:
+		return "写入、编辑、删除和命令需要确认"
+	case permissionModeAcceptEdits:
+		return "自动允许写入和编辑，删除和命令仍确认"
+	case permissionModePlan:
+		return "只读计划模式，拒绝所有变更和命令"
+	case permissionModeBypass:
+		return "跳过普通审批，但不越过安全边界"
+	default:
+		return "未知模式"
+	}
 }
 
 func wrapTUIText(content string, width int) string {

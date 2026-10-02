@@ -24,7 +24,7 @@ func TestTTYChatViewKeepsTranscriptAndSingleFooter(t *testing.T) {
 	if strings.Count(view, "first request") != 1 || strings.Count(view, "second request") != 1 {
 		t.Fatalf("transcript was not preserved: %q", view)
 	}
-	if strings.Count(view, "Enter 发送 · Ctrl+C 取消") != 1 {
+	if strings.Count(view, "权限：default") != 1 {
 		t.Fatalf("expected one persistent footer: %q", view)
 	}
 	if strings.Count(view, "test-model") != 1 {
@@ -123,7 +123,7 @@ func TestTTYChatViewKeepsFooterAfterLongAnswer(t *testing.T) {
 	m.width, m.height = 80, 24
 	m.lines = []string{"❯ 你好，请介绍一下你自己", "● " + strings.Repeat("这是助手的回答。", 80), "Done - 3.4s"}
 	view := m.View()
-	if !strings.Contains(view, "Enter 发送 · Ctrl+C 取消") || !strings.Contains(view, "deepseek-v4-flash") {
+	if !strings.Contains(view, "权限：default") || !strings.Contains(view, "deepseek-v4-flash") {
 		t.Fatalf("footer disappeared after long answer: %q", view)
 	}
 }
@@ -215,5 +215,31 @@ func TestTTYWrapTextUsesTerminalWidth(t *testing.T) {
 		if lipgloss.Width(line) > 8 {
 			t.Fatalf("wrapped line exceeds width: %q", line)
 		}
+	}
+}
+
+func TestPermissionPickerListsModesAndDescriptions(t *testing.T) {
+	picker := newPermissionPicker(permissionModeAcceptEdits)
+	view := renderTUIPermissionPicker(*picker)
+	for _, want := range []string{"default", "acceptEdits", "plan", "bypassPermissions", "自动允许写入和编辑"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("permission picker missing %q in %q", want, view)
+		}
+	}
+}
+
+func TestPermissionPickerChangesModeWithoutTranscriptCommand(t *testing.T) {
+	m := newTTYChatModel(context.Background(), nil, nil, nil, nil, chatStatus{}, nil)
+	if !m.handleCommand("/permissions") || m.permissionPicker == nil {
+		t.Fatal("/permissions did not open picker")
+	}
+	model, _ := m.handlePermissionPicker(tea.KeyMsg{Type: tea.KeyDown})
+	model, _ = model.(*ttyChatModel).handlePermissionPicker(tea.KeyMsg{Type: tea.KeyEnter})
+	got := model.(*ttyChatModel)
+	if *got.permissionMode != permissionModeAcceptEdits {
+		t.Fatalf("selected mode = %q, want %q", *got.permissionMode, permissionModeAcceptEdits)
+	}
+	if len(got.lines) != 1 || !strings.Contains(got.lines[0], "权限模式已切换为 acceptEdits") {
+		t.Fatalf("unexpected transcript: %#v", got.lines)
 	}
 }
