@@ -71,7 +71,9 @@ type toolProgressTUI struct {
 
 func runTTYChatLoop(ctx context.Context, runner *agent.Runner, audit session.Writer, trace agent.EventSink, persistence *chatPersistence, status chatStatus, interrupt *interruptCoordinator, in io.Reader, out io.Writer) int {
 	m := newTTYChatModel(ctx, runner, audit, trace, persistence, status, interrupt)
-	final, err := tea.NewProgram(&m, tea.WithContext(ctx), tea.WithInput(in), tea.WithOutput(out), tea.WithAltScreen(), tea.WithoutSignalHandler(), tea.WithoutSignals()).Run()
+	// Inline mode keeps the terminal's main buffer and native scrollback. Mouse
+	// reporting stays disabled so selection and paste remain owned by the terminal.
+	final, err := tea.NewProgram(&m, tea.WithContext(ctx), tea.WithInput(in), tea.WithOutput(out), tea.WithoutSignalHandler(), tea.WithoutSignals()).Run()
 	if err != nil {
 		return 1
 	}
