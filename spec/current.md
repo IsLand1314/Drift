@@ -15,11 +15,11 @@ M3.15-A 只交付平台能力检测和 fail-closed 契约，不把 Windows Job O
 
 ### 验收
 
-| ID | 验证方法 | 通过阈值 | 证据类型 | 失败判定 |
-| --- | --- | --- | --- | --- |
-| AC-M315A-001 | Windows: `go test ./internal/tool -run TestWindowsSandboxBackendIsUnavailableBeforeAppContainerProbe -count=1` | Windows 后端为空且 `Reliable=false` | TDD 测试日志 | 错误报告 Windows 沙箱可靠 |
-| AC-M315A-002 | Windows/macOS: `GOOS=windows/darwin GOARCH=amd64 go test -c ./internal/tool` | 两个平台目标均可编译，macOS 测试断言无后端 | 交叉编译日志 | 任一目标编译失败 |
-| AC-M315A-003 | `go test ./... -count=1`、`go vet ./...`、`go build ./cmd/drift`、`git diff --check` | 全部退出码为 0 | 命令日志 | 任一命令失败 |
+| ID | 验证方法 | 通过阈值 | 证据类型 | 证据路径 | 失败判定 |
+| --- | --- | --- | --- | --- | --- |
+| AC-M315A-001 | Windows: `go test ./internal/tool -run TestWindowsSandboxBackendIsUnavailableBeforeAppContainerProbe -count=1` | Windows 后端为空且 `Reliable=false` | TDD RED/GREEN 日志 | `artifacts/verification/m3.15-a/tdd-red-green.txt` | 错误报告 Windows 沙箱可靠 |
+| AC-M315A-002 | Windows/macOS: `GOOS=windows/darwin GOARCH=amd64 go test -c ./internal/tool` | 两个平台目标均可编译，macOS 测试断言无后端 | 交叉编译日志 | `artifacts/verification/m3.15-a/cross-compile.txt` | 任一目标编译失败 |
+| AC-M315A-003 | `go test ./... -count=1`、`go vet ./...`、`go build ./cmd/drift`、`git diff --check` | 全部退出码为 0 | 命令日志 | `artifacts/verification/m3.15-a/regression.txt` | 任一命令失败 |
 
 ## M3.14：沙箱进程树取消与超时
 

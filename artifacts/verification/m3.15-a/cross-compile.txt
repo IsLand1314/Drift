@@ -1,0 +1,11 @@
+command: ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", ".codex-temp/m315-cross-compile.ps1"]
+cwd: "F:\\code\\drift"
+output_encoding: utf-8
+exit_code: 0
+
+--- stdout ---
+windows/amd64 cross compile: PASS
+darwin/amd64 cross compile: PASS
+
+--- stderr ---
+

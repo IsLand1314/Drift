@@ -1,0 +1,13 @@
+M3.15-A TDD RED/GREEN 记录
+
+RED（先写测试，尚未实现平台后端）：
+命令：go test ./internal/tool -run TestWindowsSandboxBackendIsUnavailableBeforeAppContainerProbe -count=1
+结果：FAIL
+关键输出：undefined: detectWindowsSandbox
+
+GREEN（加入最小 Windows 后端占位实现后）：
+命令：go test ./internal/tool -run TestWindowsSandboxBackendIsUnavailableBeforeAppContainerProbe -count=1
+结果：PASS
+关键输出：ok github.com/IsLand1314/Drift/internal/tool
+
+测试意图：在 Windows 尚未接入 AppContainer 前，能力检测必须明确返回不可用；不能伪报可靠沙箱。

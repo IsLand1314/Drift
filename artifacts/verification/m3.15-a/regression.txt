@@ -1,0 +1,28 @@
+command: ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", ".codex-temp/m315-regression.ps1"]
+cwd: "F:\\code\\drift"
+output_encoding: utf-8
+exit_code: 0
+
+--- stdout ---
+?   	github.com/IsLand1314/Drift/cmd/drift	[no test files]
+ok  	github.com/IsLand1314/Drift/internal/agent	0.348s
+ok  	github.com/IsLand1314/Drift/internal/app	1.690s
+ok  	github.com/IsLand1314/Drift/internal/changes	0.574s
+ok  	github.com/IsLand1314/Drift/internal/config	0.587s
+ok  	github.com/IsLand1314/Drift/internal/conversation	0.854s
+ok  	github.com/IsLand1314/Drift/internal/layout	0.460s
+?   	github.com/IsLand1314/Drift/internal/llm	[no test files]
+ok  	github.com/IsLand1314/Drift/internal/llm/anthropic	0.570s
+ok  	github.com/IsLand1314/Drift/internal/llm/openai	0.453s
+ok  	github.com/IsLand1314/Drift/internal/session	0.642s
+ok  	github.com/IsLand1314/Drift/internal/skill	0.419s
+ok  	github.com/IsLand1314/Drift/internal/tool	3.607s
+go test ./...: PASS
+go vet ./...: PASS
+go build ./cmd/drift: PASS
+git diff --check: PASS
+
+--- stderr ---
+warning: in the working copy of 'doc/m3.6-permission-persistence.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/superpowers/specs/2026-10-02-m315-windows-sandbox-design.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'spec/current.md', LF will be replaced by CRLF the next time Git touches it

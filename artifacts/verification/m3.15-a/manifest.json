@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "session_id": "m3.15-a-2026-10-02",
+  "generated_at": "2026-10-02T12:35:05.756391Z",
+  "git_revision": "52c8b01da8380d35e296556abd9e510e4b54ef7d",
+  "environment": {"os": "windows", "shell": "powershell"},
+  "entries": [
+    {
+      "acceptance_id": "AC-M315A-001",
+      "artifact": "artifacts/verification/m3.15-a/tdd-red-green.txt",
+      "evidence_level": "tdd-log",
+      "command": "go test ./internal/tool -run TestWindowsSandboxBackendIsUnavailableBeforeAppContainerProbe -count=1",
+      "captured_at": "2026-10-02T12:35:05.756391Z",
+      "exit_code": 0,
+      "sha256": "168C2312A829BDF007F270E760CFE46BBA994B8767FE40255E330F4275ED5D5B",
+      "size_bytes": 623
+    },
+    {
+      "acceptance_id": "AC-M315A-002",
+      "artifact": "artifacts/verification/m3.15-a/cross-compile.txt",
+      "evidence_level": "command-log",
+      "command": "GOOS=windows/darwin GOARCH=amd64 go test -c ./internal/tool",
+      "captured_at": "2026-10-02T12:35:05.756391Z",
+      "exit_code": 0,
+      "sha256": "C059C01CB4D59949A12A4C2F451C26A13626CD3DFE85AB24AEA48480827821EB",
+      "size_bytes": 274
+    },
+    {
+      "acceptance_id": "AC-M315A-003",
+      "artifact": "artifacts/verification/m3.15-a/regression.txt",
+      "evidence_level": "command-log",
+      "command": "go test ./... -count=1; go vet ./...; go build ./cmd/drift; git diff --check",
+      "captured_at": "2026-10-02T12:35:05.756391Z",
+      "exit_code": 0,
+      "sha256": "4D17675E5D7E0D151EE141D3A06222A1E2048268FA8E5B3E8484C883C41A5E74",
+      "size_bytes": 1433
+    }
+  ]
+}

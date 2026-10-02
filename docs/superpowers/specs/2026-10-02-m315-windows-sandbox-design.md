@@ -124,3 +124,9 @@ macOS 使用 `sandbox_backend=`、`sandboxed=false`、`sandbox_probe=unavailable
 ## 10. M3.15-A 交付状态
 
 M3.15-A 已交付：平台检测边界已显式化，Windows 和 macOS 在没有完整后端时均 fail-closed，Linux `bwrap` 行为保持不变。AppContainer token、workspace ACL、网络隔离和 Windows runtime 验收均明确留到 M3.15-B/C。
+
+## 11. CubeSandbox 参考边界
+
+CubeSandbox 采用 KVM MicroVM、独立控制面/执行面、快照回滚和 egress 网关，适合作为未来远程 Linux 执行后端；它要求 x86_64 Linux 与 KVM，不是 Windows 本地沙箱替代品。Drift 当前不引入 CubeSandbox、云服务器、远程 workspace 同步或新的 `SandboxExecutor` 抽象；只有明确进入远程执行阶段后再单独立项。
+
+参考：<https://github.com/TencentCloud/CubeSandbox/blob/master/docs/architecture/overview.md>
