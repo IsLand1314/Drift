@@ -160,9 +160,23 @@ func (m ttyChatModel) waitEvent() tea.Cmd { return func() tea.Msg { return <-m.e
 func (m *ttyChatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if size, ok := msg.(tea.WindowSizeMsg); ok {
 		m.width, m.height = size.Width, size.Height
-		m.textarea.SetWidth(maxTUI(1, size.Width-2))
+		m.textarea.SetWidth(maxTUI(1, size.Width-3))
 		resizeTTYTextarea(m)
-		m.viewport = viewport.New(maxTUI(1, size.Width), maxTUI(1, size.Height-5))
+		viewportWidth := maxTUI(1, size.Width)
+		viewportHeight := maxTUI(1, size.Height-5)
+		if m.viewport.Width == 0 && m.viewport.Height == 0 {
+			m.viewport = viewport.New(viewportWidth, viewportHeight)
+		} else {
+			atBottom := m.viewport.AtBottom()
+			offset := m.viewport.YOffset
+			m.viewport.Width = viewportWidth
+			m.viewport.Height = viewportHeight
+			if atBottom {
+				m.followBottom = true
+			} else {
+				m.viewport.SetYOffset(offset)
+			}
+		}
 		return m, nil
 	}
 	switch v := msg.(type) {
@@ -553,6 +567,8 @@ func transcriptFromLLMMessages(messages []llm.Message) []string {
 	return lines
 }
 func (m *ttyChatModel) View() string {
+	m.textarea.SetWidth(maxTUI(1, m.width-3))
+	resizeTTYTextarea(m)
 	content := strings.Join(m.lines, "\n")
 	if m.running {
 		if m.stream != "" {
@@ -573,10 +589,11 @@ func (m *ttyChatModel) View() string {
 	footer := tuiFooter(m.status.Model, m.width, *m.permissionMode)
 	footerRows := strings.Count(footer, "\n") + 1
 	availableRows := maxTUI(1, m.height-panelRows-footerRows-2)
-	wrappedContent := wrapTUIText(content, m.width)
+	renderWidth := inlineRenderWidth(m.width)
+	wrappedContent := wrapTUIText(content, renderWidth)
 	contentRows := strings.Count(wrappedContent, "\n") + 1
 	m.viewport.SetContent(styleTranscript(wrappedContent))
-	m.viewport.Width = maxTUI(1, m.width)
+	m.viewport.Width = renderWidth
 	m.viewport.Height = minTUI(availableRows, maxTUI(1, contentRows))
 	if m.followBottom {
 		m.viewport.GotoBottom()
@@ -639,7 +656,14 @@ func styleTranscript(content string) string {
 }
 
 func tuiRule(width int) string {
-	return tuiRuleStyle.Render(strings.Repeat("─", maxTUI(1, width)))
+	return tuiRuleStyle.Render(strings.Repeat("─", inlineRenderWidth(width)))
+}
+
+// inlineRenderWidth leaves the terminal's last column unused. A line that
+// reaches the last column can wrap physically in the main screen buffer;
+// after a Windows resize Bubble Tea cannot reliably erase that extra row.
+func inlineRenderWidth(width int) int {
+	return maxTUI(1, width-1)
 }
 
 func tuiFooter(model string, width int, modes ...permissionMode) string {
@@ -730,7 +754,7 @@ func isTTYViewportKey(key tea.KeyMsg) bool {
 }
 
 func resizeTTYTextarea(m *ttyChatModel) {
-	width := maxTUI(1, m.width-2)
+	width := maxTUI(1, m.width-3)
 	rows := 1
 	for _, line := range strings.Split(m.textarea.Value(), "\n") {
 		lineWidth := lipgloss.Width(line)

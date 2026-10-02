@@ -78,7 +78,7 @@ func TestTTYChatLayoutUsesFullWidthRulesAndWrappedInput(t *testing.T) {
 	}
 	m.lines = []string{"❯ /resume"}
 	view := m.View()
-	if !strings.Contains(view, strings.Repeat("─", 24)) {
+	if !strings.Contains(view, strings.Repeat("─", 23)) {
 		t.Fatalf("separator did not span terminal width: %q", view)
 	}
 	if !strings.Contains(view, "/resume") {
@@ -143,6 +143,37 @@ func TestTTYChatViewportScrollsAndKeepsManualPosition(t *testing.T) {
 	scrolled.View()
 	if scrolled.viewport.YOffset == 0 {
 		t.Fatalf("view reset manually scrolled viewport")
+	}
+}
+
+func TestTTYChatResizePreservesManualViewportPosition(t *testing.T) {
+	m := newTTYChatModel(context.Background(), nil, nil, nil, nil, chatStatus{Model: "model"}, nil)
+	m.width, m.height = 40, 10
+	for i := 0; i < 40; i++ {
+		m.lines = append(m.lines, fmt.Sprintf("line %d", i))
+	}
+	m.View()
+	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyPgUp})
+	m = *model.(*ttyChatModel)
+	before := m.viewport.YOffset
+	if before == 0 {
+		t.Fatal("page up did not create a manual scroll position")
+	}
+	m.Update(tea.WindowSizeMsg{Width: 60, Height: 12})
+	m.View()
+	if m.viewport.YOffset == 0 {
+		t.Fatalf("resize reset manual viewport position: before=%d after=%d", before, m.viewport.YOffset)
+	}
+}
+
+func TestTTYChatInlineViewLeavesTerminalLastColumnFree(t *testing.T) {
+	m := newTTYChatModel(context.Background(), nil, nil, nil, nil, chatStatus{Model: "model"}, nil)
+	m.width, m.height = 24, 12
+	m.lines = []string{"❯ " + strings.Repeat("x", 80)}
+	for _, line := range strings.Split(m.View(), "\n") {
+		if lipgloss.Width(line) >= m.width {
+			t.Fatalf("inline frame line reaches terminal edge (width=%d): %q", m.width, line)
+		}
 	}
 }
 
