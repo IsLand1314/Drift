@@ -80,7 +80,7 @@ func TestRunCommandReportsNonZeroExit(t *testing.T) {
 
 func TestRunCommandSandboxModeIsRecorded(t *testing.T) {
 	root := t.TempDir()
-	preview, err := RunCommandPreview(root, `{"command":"echo ok","sandbox_mode":"auto"}`)
+	preview, err := RunCommandPreviewWithSandbox(root, `{"command":"echo ok"}`, SandboxAuto)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,32 @@ func TestRunCommandSandboxModeIsRecorded(t *testing.T) {
 
 func TestRunCommandRequiredSandboxFailsClosedWithoutBackend(t *testing.T) {
 	root := t.TempDir()
-	if _, err := RunCommandPreview(root, `{"command":"echo blocked","sandbox_mode":"required"}`); err == nil {
+	if _, err := RunCommandPreviewWithSandbox(root, `{"command":"echo blocked"}`, SandboxRequired); err == nil {
 		t.Fatal("required sandbox unexpectedly accepted without reliable backend")
+	}
+}
+
+func TestRunCommandRejectsModelControlledSandboxMode(t *testing.T) {
+	root := t.TempDir()
+	if _, err := (runCommandTool{sandboxMode: SandboxRequired}).Preview(context.Background(), root, `{"command":"echo blocked","sandbox_mode":"off"}`); err == nil {
+		t.Fatal("model-controlled sandbox_mode was accepted")
+	}
+}
+
+func TestRunCommandUsesConfiguredSandboxMode(t *testing.T) {
+	root := t.TempDir()
+	preview, err := (runCommandTool{sandboxMode: SandboxAuto}).Preview(context.Background(), root, `{"command":"echo ok"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.SandboxMode != SandboxAuto {
+		t.Fatalf("sandbox mode = %q, want %q", preview.SandboxMode, SandboxAuto)
+	}
+}
+
+func TestRunCommandSchemaDoesNotExposeSandboxModeToModel(t *testing.T) {
+	definition := string(RunCommandDefinition().Function)
+	if strings.Contains(definition, "sandbox_mode") {
+		t.Fatalf("sandbox policy leaked into model schema: %s", definition)
 	}
 }

@@ -52,7 +52,13 @@ func NewDefaultRegistry() Registry {
 
 // NewChatRegistry returns the read-only tools plus the confirmation-gated writer.
 func NewChatRegistry() Registry {
-	result, err := NewRegistry(listFilesTool{}, searchTextTool{}, readFileTool{}, writeFileTool{}, editFileTool{}, deleteFileTool{}, runCommandTool{})
+	return NewChatRegistryWithSandbox(SandboxOff)
+}
+
+// NewChatRegistryWithSandbox returns the chat tools with a user-selected,
+// control-plane sandbox policy fixed into run_command.
+func NewChatRegistryWithSandbox(sandboxMode SandboxMode) Registry {
+	result, err := NewRegistry(listFilesTool{}, searchTextTool{}, readFileTool{}, writeFileTool{}, editFileTool{}, deleteFileTool{}, runCommandTool{sandboxMode: sandboxMode})
 	if err != nil {
 		panic(err)
 	}

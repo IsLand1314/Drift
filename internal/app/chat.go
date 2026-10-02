@@ -15,6 +15,7 @@ import (
 	"github.com/IsLand1314/Drift/internal/conversation"
 	"github.com/IsLand1314/Drift/internal/llm"
 	"github.com/IsLand1314/Drift/internal/session"
+	"github.com/IsLand1314/Drift/internal/tool"
 )
 
 func runChatLoop(ctx context.Context, runner *agent.Runner, audit session.Writer, traceSink agent.EventSink, in io.Reader, out, stderr io.Writer) int {
@@ -26,6 +27,7 @@ type chatStatus struct {
 	Workspace      string
 	ToolCount      int
 	PermissionMode permissionMode
+	SandboxMode    tool.SandboxMode
 }
 
 type chatPersistence struct {
@@ -697,6 +699,11 @@ func writeChatStatus(out io.Writer, runner *agent.Runner, persistence *chatPersi
 		mode = permissionModeDefault
 	}
 	writeChatStatusRow(out, "Permission", string(mode), "")
+	sandboxMode := status.SandboxMode
+	if sandboxMode == "" {
+		sandboxMode = tool.SandboxOff
+	}
+	writeChatStatusRow(out, "Sandbox", string(sandboxMode), "")
 	writeChatStatusRow(out, "Workspace", status.Workspace, chatStatusAccent(out))
 }
 

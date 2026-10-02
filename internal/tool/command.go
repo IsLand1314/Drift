@@ -22,18 +22,22 @@ const (
 	MaxCommandOutputBytes = 32 << 10
 )
 
-type runCommandTool struct{}
+type runCommandTool struct{ sandboxMode SandboxMode }
 
 func (runCommandTool) Name() string                   { return "run_command" }
 func (runCommandTool) Definition() llm.ToolDefinition { return RunCommandDefinition() }
 func (runCommandTool) Execute(context.Context, string, string) (string, error) {
 	return "", fmt.Errorf("run_command requires permission confirmation")
 }
-func (runCommandTool) Preview(ctx context.Context, root, raw string) (Preview, error) {
+func (t runCommandTool) Preview(ctx context.Context, root, raw string) (Preview, error) {
 	if err := ctx.Err(); err != nil {
 		return Preview{}, err
 	}
-	return RunCommandPreview(root, raw)
+	mode := t.sandboxMode
+	if mode == "" {
+		mode = SandboxOff
+	}
+	return RunCommandPreviewWithSandbox(root, raw, mode)
 }
 func (runCommandTool) ExecutePreview(ctx context.Context, root string, preview Preview) (string, error) {
 	return ExecuteCommand(ctx, root, preview)
@@ -44,7 +48,6 @@ type commandArguments struct {
 	CWD            string `json:"cwd"`
 	TimeoutMS      int    `json:"timeout_ms"`
 	MaxOutputBytes int    `json:"max_output_bytes"`
-	SandboxMode    string `json:"sandbox_mode"`
 }
 
 func RunCommandDefinition() llm.ToolDefinition {
@@ -58,7 +61,6 @@ func RunCommandDefinition() llm.ToolDefinition {
 				"cwd":              map[string]any{"type": "string", "description": "Optional workspace-relative working directory."},
 				"timeout_ms":       map[string]any{"type": "integer", "description": "Optional timeout from 1 to 60000 milliseconds."},
 				"max_output_bytes": map[string]any{"type": "integer", "description": "Optional combined stdout/stderr limit from 256 to 32768 bytes."},
-				"sandbox_mode":     map[string]any{"type": "string", "enum": []string{"off", "auto", "required"}, "description": "OS sandbox policy. Default is off."},
 			},
 			"required":             []string{"command"},
 			"additionalProperties": false,
@@ -72,6 +74,10 @@ func RunCommandDefinition() llm.ToolDefinition {
 }
 
 func RunCommandPreview(root, raw string) (Preview, error) {
+	return RunCommandPreviewWithSandbox(root, raw, SandboxOff)
+}
+
+func RunCommandPreviewWithSandbox(root, raw string, sandboxMode SandboxMode) (Preview, error) {
 	var args commandArguments
 	decoder := json.NewDecoder(strings.NewReader(raw))
 	decoder.DisallowUnknownFields()
@@ -130,14 +136,6 @@ func RunCommandPreview(root, raw string) (Preview, error) {
 			return Preview{}, fmt.Errorf("run_command max_output_bytes must be between 256 and %d", MaxCommandOutputBytes)
 		}
 		maxOutput = args.MaxOutputBytes
-	}
-	sandboxMode := SandboxOff
-	if strings.TrimSpace(args.SandboxMode) != "" {
-		var parseErr error
-		sandboxMode, parseErr = ParseSandboxMode(args.SandboxMode)
-		if parseErr != nil {
-			return Preview{}, fmt.Errorf("run_command sandbox_mode: %w", parseErr)
-		}
 	}
 	sandbox, err := SelectSandbox(sandboxMode, DetectSandbox())
 	if err != nil {

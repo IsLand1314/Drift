@@ -67,6 +67,7 @@ M3.9 交付策略契约、能力检测、模式解析、审计字段和 fail-clo
 ## 第一阶段实现状态（2026-10-02）
 
 - 已实现 `off`、`auto`、`required` 模式解析与能力选择。
+- 沙箱策略由 Drift 控制层的 `--sandbox` 固定注入 `run_command`，不再作为模型可控的工具参数。
 - `run_command` 预览和结果记录沙箱模式、后端及 `sandboxed` 状态。
 - 当前 Windows 无可靠 OS 后端，`required` 安全拒绝，`auto` 明确记录未沙箱执行。
 - 已实现 Linux `bwrap` 包装参数：根文件系统只读、workspace 映射到 `/workspace`、网络隔离、独立 `/tmp` 和进程树跟随；只有探针命令成功时才标记后端可靠。
