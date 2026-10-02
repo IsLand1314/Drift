@@ -490,22 +490,35 @@ func styleTranscript(content string) string {
 		return content
 	}
 	lines := strings.Split(content, "\n")
+	role := "plain"
 	for i, line := range lines {
 		switch {
 		case strings.HasPrefix(line, "❯ "):
+			role = "user"
 			lines[i] = tuiAccent.Render("❯") + " " + tuiUser.Render(strings.TrimPrefix(line, "❯ "))
 		case strings.HasPrefix(line, "● "):
+			role = "assistant"
 			lines[i] = tuiAI.Render("●") + " " + tuiAssistant.Render(strings.TrimPrefix(line, "● "))
 		case strings.HasPrefix(line, "✓ "):
+			role = "plain"
 			lines[i] = tuiOK.Render("✓") + " " + tuiMuted.Render(strings.TrimPrefix(line, "✓ "))
 		case strings.HasPrefix(line, "✖ "):
+			role = "plain"
 			lines[i] = tuiError.Render("✖") + " " + tuiError.Render(strings.TrimPrefix(line, "✖ "))
 		case strings.HasPrefix(line, "Done -"):
+			role = "plain"
 			lines[i] = tuiMuted.Render(line)
 		case strings.HasPrefix(line, "Session ID:") || strings.HasPrefix(line, "注意：") || strings.HasPrefix(line, "已禁用完整会话"):
+			role = "plain"
 			lines[i] = tuiMuted.Render(line)
 		default:
-			lines[i] = tuiUser.Render(line)
+			if role == "assistant" {
+				lines[i] = tuiAssistant.Render(line)
+			} else if role == "user" {
+				lines[i] = tuiUser.Render(line)
+			} else {
+				lines[i] = tuiUser.Render(line)
+			}
 		}
 	}
 	return strings.Join(lines, "\n")
