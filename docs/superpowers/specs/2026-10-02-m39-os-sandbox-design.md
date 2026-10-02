@@ -70,3 +70,10 @@ M3.9 交付策略契约、能力检测、模式解析、审计字段和 fail-clo
 - `run_command` 预览和结果记录沙箱模式、后端及 `sandboxed` 状态。
 - 当前 Windows 无可靠 OS 后端，`required` 安全拒绝，`auto` 明确记录未沙箱执行。
 - 尚未把 `bwrap` 或 `sandbox-exec` 标记为可靠后端；后续必须先提供并验证受限 profile，再启用实际包装执行。
+
+## Linux 远程验证（2026-10-02）
+
+- 已连接用户提供的 Linux 服务器，确认内核为 `Linux 5.15.0-126-generic x86_64`。
+- 服务器未安装 `bwrap`，因此本轮不能声称真实 Linux OS 沙箱已启用；`required` 应保持 fail-closed。
+- 仅在 `/tmp/drift-m39-*` 下创建探针目录和文件，验证后删除并确认 `cleanup=ok`；未修改服务器其他文件。
+- 服务器没有 Go 工具链，无法在服务器直接运行 Drift 测试；本地 Windows 全量 Go 验收仍通过。
