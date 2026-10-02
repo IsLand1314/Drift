@@ -39,6 +39,7 @@ type ttyChatModel struct {
 	toolStarted   map[string]time.Time
 	events        chan tea.Msg
 	running       bool
+	followBottom  bool
 	started       time.Time
 	spinner       int
 	approval      *tuiApproval
@@ -65,11 +66,11 @@ type tuiResume struct {
 
 func runTTYChatLoop(ctx context.Context, runner *agent.Runner, audit session.Writer, trace agent.EventSink, persistence *chatPersistence, status chatStatus, interrupt *interruptCoordinator, in io.Reader, out io.Writer) int {
 	m := newTTYChatModel(ctx, runner, audit, trace, persistence, status, interrupt)
-	final, err := tea.NewProgram(&m, tea.WithContext(ctx), tea.WithInput(in), tea.WithOutput(out), tea.WithAltScreen(), tea.WithoutSignalHandler(), tea.WithoutSignals()).Run()
+	final, err := tea.NewProgram(&m, tea.WithContext(ctx), tea.WithInput(in), tea.WithOutput(out), tea.WithAltScreen(), tea.WithMouseCellMotion(), tea.WithoutSignalHandler(), tea.WithoutSignals()).Run()
 	if err != nil {
 		return 1
 	}
-	if model, ok := final.(ttyChatModel); ok {
+	if model, ok := final.(*ttyChatModel); ok {
 		return model.exitCode
 	}
 	return m.exitCode
@@ -85,7 +86,7 @@ func newTTYChatModel(ctx context.Context, runner *agent.Runner, audit session.Wr
 	ta.FocusedStyle.Prompt = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
 	ta.FocusedStyle.Placeholder = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	ta.Focus()
-	m := ttyChatModel{ctx: ctx, runner: runner, audit: audit, trace: trace, persistence: persistence, status: status, interrupt: interrupt, permissionMemory: newPermissionMemory(), textarea: ta, toolStarted: make(map[string]time.Time), events: make(chan tea.Msg, 32), width: 80, height: 24}
+	m := ttyChatModel{ctx: ctx, runner: runner, audit: audit, trace: trace, persistence: persistence, status: status, interrupt: interrupt, permissionMemory: newPermissionMemory(), textarea: ta, toolStarted: make(map[string]time.Time), events: make(chan tea.Msg, 32), followBottom: true, width: 80, height: 24}
 	if persistence != nil && persistence.persistent {
 		m.lines = append(m.lines, ttySessionHeader(persistence)...)
 		m.lines = append(m.lines, transcriptFromLLMMessages(persistence.snapshot.Messages)...)
@@ -120,11 +121,11 @@ func tickTUI() tea.Cmd {
 }
 func (m ttyChatModel) waitEvent() tea.Cmd { return func() tea.Msg { return <-m.events } }
 
-func (m ttyChatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *ttyChatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if size, ok := msg.(tea.WindowSizeMsg); ok {
 		m.width, m.height = size.Width, size.Height
 		m.textarea.SetWidth(maxTUI(1, size.Width-2))
-		resizeTTYTextarea(&m)
+		resizeTTYTextarea(m)
 		m.viewport = viewport.New(maxTUI(1, size.Width), maxTUI(1, size.Height-5))
 		return m, nil
 	}
@@ -136,12 +137,14 @@ func (m ttyChatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case tuiAgentEvent:
 		m.applyEvent(v.event)
+		m.followBottom = true
 		return m, m.waitEvent()
 	case tuiPermission:
 		m.approval = &tuiApproval{request: v.request, reply: v.reply}
 		return m, m.waitEvent()
 	case tuiTurnDone:
 		m.finishTurn(v.err)
+		m.followBottom = true
 		return m, m.waitEvent()
 	}
 	if key, ok := msg.(tea.KeyMsg); ok {
@@ -162,6 +165,12 @@ func (m ttyChatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+		if isTTYViewportKey(key) {
+			m.followBottom = false
+			var cmd tea.Cmd
+			m.viewport, cmd = m.viewport.Update(msg)
+			return m, cmd
+		}
 		switch key.Type {
 		case tea.KeyCtrlC:
 			m.exitCode = 130
@@ -172,7 +181,7 @@ func (m ttyChatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.textarea.Reset()
-			resizeTTYTextarea(&m)
+			resizeTTYTextarea(m)
 			if text == "exit" || text == "/exit" || text == "quit" {
 				return m, tea.Quit
 			}
@@ -184,9 +193,15 @@ func (m ttyChatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tickTUI()
 		}
 	}
+	if _, ok := msg.(tea.MouseMsg); ok && !m.running && m.approval == nil && m.resume == nil {
+		m.followBottom = false
+		var cmd tea.Cmd
+		m.viewport, cmd = m.viewport.Update(msg)
+		return m, cmd
+	}
 	var cmd tea.Cmd
 	m.textarea, cmd = m.textarea.Update(msg)
-	resizeTTYTextarea(&m)
+	resizeTTYTextarea(m)
 	return m, cmd
 }
 
@@ -323,7 +338,7 @@ func (m *ttyChatModel) finishTurn(err error) {
 		_ = m.persistence.saveRunner(m.runner)
 	}
 }
-func (m ttyChatModel) handleApproval(key tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *ttyChatModel) handleApproval(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	a := m.approval
 	switch key.Type {
 	case tea.KeyUp:
@@ -349,7 +364,7 @@ func approvalDecision(selected int, memory *permissionMemory, request agent.Perm
 	}
 	return agent.PermissionDecision{Reason: "user_denied"}
 }
-func (m ttyChatModel) handleResume(key tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *ttyChatModel) handleResume(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if len(m.resume.items) == 0 {
 		m.resume = nil
 		return m, nil
@@ -400,7 +415,7 @@ func transcriptFromLLMMessages(messages []llm.Message) []string {
 	}
 	return lines
 }
-func (m ttyChatModel) View() string {
+func (m *ttyChatModel) View() string {
 	content := strings.Join(m.lines, "\n")
 	if m.running {
 		if m.stream != "" {
@@ -423,7 +438,10 @@ func (m ttyChatModel) View() string {
 	m.viewport.SetContent(styleTranscript(content))
 	m.viewport.Width = maxTUI(1, m.width)
 	m.viewport.Height = minTUI(availableRows, maxTUI(1, contentRows))
-	m.viewport.GotoBottom()
+	if m.followBottom {
+		m.viewport.GotoBottom()
+		m.followBottom = false
+	}
 	var b strings.Builder
 	b.WriteString(m.viewport.View())
 	b.WriteString("\n" + tuiRule(m.width) + "\n" + panel + "\n" + tuiRule(m.width) + "\n" + footer)
@@ -489,6 +507,17 @@ func tuiTextRows(content string, width int) int {
 		rows += maxTUI(1, (lineWidth+width-1)/width)
 	}
 	return maxTUI(1, rows)
+}
+
+func isTTYViewportKey(key tea.KeyMsg) bool {
+	switch key.Type {
+	case tea.KeyPgUp, tea.KeyPgDown:
+		return true
+	case tea.KeyCtrlU, tea.KeyCtrlD:
+		return true
+	default:
+		return false
+	}
 }
 
 func resizeTTYTextarea(m *ttyChatModel) {

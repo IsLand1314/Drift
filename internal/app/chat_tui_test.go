@@ -2,11 +2,13 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"unicode/utf8"
 
 	"github.com/IsLand1314/Drift/internal/agent"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestTTYChatViewKeepsTranscriptAndSingleFooter(t *testing.T) {
@@ -42,7 +44,7 @@ func TestTTYChatTextEventsSurviveBubbleTeaModelCopies(t *testing.T) {
 	m := newTTYChatModel(context.Background(), nil, nil, nil, nil, chatStatus{}, nil)
 	model, _ := m.Update(tuiAgentEvent{event: agent.Event{Type: agent.EventTextDelta, Text: "first"}})
 	model, _ = model.Update(tuiAgentEvent{event: agent.Event{Type: agent.EventTextDelta, Text: " second"}})
-	modelValue := model.(ttyChatModel)
+	modelValue := model.(*ttyChatModel)
 	got := modelValue.stream
 	if got != "first second" {
 		t.Fatalf("stream = %q, want %q", got, "first second")
@@ -95,5 +97,23 @@ func TestTTYChatViewKeepsFooterAfterLongAnswer(t *testing.T) {
 	view := m.View()
 	if !strings.Contains(view, "Enter 发送 · Ctrl+C 取消") || !strings.Contains(view, "deepseek-v4-flash") {
 		t.Fatalf("footer disappeared after long answer: %q", view)
+	}
+}
+
+func TestTTYChatViewportScrollsAndKeepsManualPosition(t *testing.T) {
+	m := newTTYChatModel(context.Background(), nil, nil, nil, nil, chatStatus{Model: "model"}, nil)
+	m.width, m.height = 40, 10
+	for i := 0; i < 40; i++ {
+		m.lines = append(m.lines, fmt.Sprintf("line %d", i))
+	}
+	m.View()
+	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyPgUp})
+	scrolled := model.(*ttyChatModel)
+	if scrolled.viewport.YOffset == 0 {
+		t.Fatalf("page up did not move viewport")
+	}
+	scrolled.View()
+	if scrolled.viewport.YOffset == 0 {
+		t.Fatalf("view reset manually scrolled viewport")
 	}
 }
