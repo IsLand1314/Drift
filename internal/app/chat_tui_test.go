@@ -107,7 +107,7 @@ func TestTTYFooterLeavesRightMarginForModelName(t *testing.T) {
 
 func TestStyleTranscriptPreservesUnicodeAfterMarker(t *testing.T) {
 	view := styleTranscript("❯ 你好\n● Drift 回复")
-	if !utf8.ValidString(view) || strings.Contains(view, "�") {
+	if !utf8.ValidString(view) || strings.Contains(view, "\uFFFD") {
 		t.Fatalf("unicode marker was split: %q", view)
 	}
 	if !strings.Contains(view, "你好") || !strings.Contains(view, "Drift 回复") {

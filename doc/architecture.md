@@ -276,7 +276,7 @@ Provider 层可以使用官方 SDK，但不要让 SDK 类型越过 `internal/llm
 - [Pi 仓库](https://github.com/earendil-works/pi)：拆分 AI API、Agent Core、Coding Agent、TUI 四类职责。
 - [Pi Coding Agent](https://github.com/earendil-works/pi/tree/main/packages/coding-agent)：默认仅少量工具，采用扩展、Skills、Prompts 和包系统承载额外工作流。
 - [Pi Agent Core](https://github.com/earendil-works/pi/tree/main/packages/agent)：AgentMessage 与 LLM Message 分离，并以事件流连接上层应用。
-- [FoxCode](../../foxcode/README.md)：参考其 Go Provider、工具注册、上下文治理、权限和会话工程经验；不照搬其已成熟后的包数量。
+- FoxCode（仓库外部参考项目）：参考其 Go Provider、工具注册、上下文治理、权限和会话工程经验；不照搬其已成熟后的包数量。
 - [Go Release History](https://go.dev/doc/devel/release)：确认 Go 版本支持范围。
 
 当前决策可以概括为一句话：**先把 Drift 做成一个安全、可审计、只读的本地 Runtime；任何有副作用的能力都不从旧草案直接继承。**
