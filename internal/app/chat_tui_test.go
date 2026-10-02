@@ -40,6 +40,18 @@ func TestTTYChatToolResultDoesNotRenderProbeFailure(t *testing.T) {
 	}
 }
 
+func TestTTYChatToolProgressReplacesStartLine(t *testing.T) {
+	m := newTTYChatModel(context.Background(), nil, nil, nil, nil, chatStatus{}, nil)
+	m.applyEvent(agent.Event{Type: agent.EventToolCall, ToolCallID: "call-1", ToolName: "read_file", Arguments: `{"path":"README.md"}`})
+	if len(m.lines) != 1 || !strings.Contains(m.lines[0], "● Read README.md ...") {
+		t.Fatalf("tool start line missing: %#v", m.lines)
+	}
+	m.applyEvent(agent.Event{Type: agent.EventToolResult, ToolCallID: "call-1", ToolName: "read_file", Path: "README.md", Result: "hello"})
+	if len(m.lines) != 1 || !strings.Contains(m.lines[0], "✓ Read README.md") || strings.Contains(m.lines[0], "●") {
+		t.Fatalf("tool result did not replace start line: %#v", m.lines)
+	}
+}
+
 func TestTTYChatTextEventsSurviveBubbleTeaModelCopies(t *testing.T) {
 	m := newTTYChatModel(context.Background(), nil, nil, nil, nil, chatStatus{}, nil)
 	model, _ := m.Update(tuiAgentEvent{event: agent.Event{Type: agent.EventTextDelta, Text: "first"}})

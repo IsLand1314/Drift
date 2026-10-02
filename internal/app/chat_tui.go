@@ -36,7 +36,7 @@ type ttyChatModel struct {
 	width, height int
 	lines         []string
 	stream        string
-	toolStarted   map[string]time.Time
+	toolStarted   map[string]toolProgressTUI
 	events        chan tea.Msg
 	running       bool
 	followBottom  bool
@@ -63,6 +63,11 @@ type tuiResume struct {
 	items  []conversation.Metadata
 	cursor int
 }
+type toolProgressTUI struct {
+	started time.Time
+	path    string
+	lineIdx int
+}
 
 func runTTYChatLoop(ctx context.Context, runner *agent.Runner, audit session.Writer, trace agent.EventSink, persistence *chatPersistence, status chatStatus, interrupt *interruptCoordinator, in io.Reader, out io.Writer) int {
 	m := newTTYChatModel(ctx, runner, audit, trace, persistence, status, interrupt)
@@ -86,7 +91,7 @@ func newTTYChatModel(ctx context.Context, runner *agent.Runner, audit session.Wr
 	ta.FocusedStyle.Prompt = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
 	ta.FocusedStyle.Placeholder = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	ta.Focus()
-	m := ttyChatModel{ctx: ctx, runner: runner, audit: audit, trace: trace, persistence: persistence, status: status, interrupt: interrupt, permissionMemory: newPermissionMemory(), textarea: ta, toolStarted: make(map[string]time.Time), events: make(chan tea.Msg, 32), followBottom: true, width: 80, height: 24}
+	m := ttyChatModel{ctx: ctx, runner: runner, audit: audit, trace: trace, persistence: persistence, status: status, interrupt: interrupt, permissionMemory: newPermissionMemory(), textarea: ta, toolStarted: make(map[string]toolProgressTUI), events: make(chan tea.Msg, 32), followBottom: true, width: 80, height: 24}
 	if persistence != nil && persistence.persistent {
 		m.lines = append(m.lines, ttySessionHeader(persistence)...)
 		m.lines = append(m.lines, transcriptFromLLMMessages(persistence.snapshot.Messages)...)
@@ -312,15 +317,36 @@ func (m *ttyChatModel) applyEvent(e agent.Event) {
 	case agent.EventTextDelta:
 		m.stream += e.Text
 	case agent.EventToolCall:
-		m.toolStarted[e.ToolCallID] = time.Now()
+		path := safeToolPath(e.Arguments)
+		m.lines = append(m.lines, "● "+toolLabel(e.ToolName)+formatToolPath(path)+" ...")
+		m.toolStarted[e.ToolCallID] = toolProgressTUI{started: time.Now(), path: path, lineIdx: len(m.lines) - 1}
 	case agent.EventToolResult:
-		if shouldRenderToolResult(e) {
-			elapsed := time.Duration(0)
-			if started, ok := m.toolStarted[e.ToolCallID]; ok {
-				elapsed = time.Since(started)
-				delete(m.toolStarted, e.ToolCallID)
+		progress, ok := m.toolStarted[e.ToolCallID]
+		if ok {
+			delete(m.toolStarted, e.ToolCallID)
+		}
+		path := e.Path
+		if path == "" {
+			path = progress.path
+		}
+		elapsed := time.Duration(0)
+		if ok {
+			elapsed = time.Since(progress.started)
+		}
+		if ok && progress.lineIdx < len(m.lines) {
+			if shouldRenderToolResult(e) {
+				m.lines[progress.lineIdx] = chatToolResultLine(nil, e, path, elapsed)
+			} else {
+				m.lines = append(m.lines[:progress.lineIdx], m.lines[progress.lineIdx+1:]...)
+				for id, item := range m.toolStarted {
+					if item.lineIdx > progress.lineIdx {
+						item.lineIdx--
+						m.toolStarted[id] = item
+					}
+				}
 			}
-			m.lines = append(m.lines, chatToolResultLine(nil, e, e.Path, elapsed))
+		} else if shouldRenderToolResult(e) {
+			m.lines = append(m.lines, chatToolResultLine(nil, e, path, elapsed))
 		}
 	case agent.EventPermissionRequest: /* callback supplies overlay */
 	}
@@ -450,7 +476,8 @@ func (m *ttyChatModel) View() string {
 
 var (
 	tuiAccent    = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
-	tuiUser      = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+	tuiUser      = lipgloss.NewStyle().Foreground(lipgloss.Color("255")).Bold(true)
+	tuiAssistant = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
 	tuiAI        = lipgloss.NewStyle().Foreground(lipgloss.Color("99"))
 	tuiOK        = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
 	tuiError     = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
@@ -468,7 +495,7 @@ func styleTranscript(content string) string {
 		case strings.HasPrefix(line, "❯ "):
 			lines[i] = tuiAccent.Render("❯") + " " + tuiUser.Render(strings.TrimPrefix(line, "❯ "))
 		case strings.HasPrefix(line, "● "):
-			lines[i] = tuiAI.Render("●") + " " + tuiUser.Render(strings.TrimPrefix(line, "● "))
+			lines[i] = tuiAI.Render("●") + " " + tuiAssistant.Render(strings.TrimPrefix(line, "● "))
 		case strings.HasPrefix(line, "✓ "):
 			lines[i] = tuiOK.Render("✓") + " " + tuiMuted.Render(strings.TrimPrefix(line, "✓ "))
 		case strings.HasPrefix(line, "✖ "):
