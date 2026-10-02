@@ -1,6 +1,25 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M3.12。M3.11 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M3.13。M3.12 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+
+## M3.13：Linux bwrap 运行时验收
+
+M3.13 不扩大沙箱策略，只把已实现的 Linux `bwrap` 包装从“参数和能力探针”推进到可重复的运行时验收。
+
+### 当前范围
+
+- Linux 集成测试仅在 `DetectSandbox()` 报告可靠 `bwrap` 时执行；其他平台不伪造通过，明确跳过并保留跨平台编译检查。
+- `required` 模式下命令可写入 workspace，workspace 外部路径不能落盘，`.drift` 和 `.git` 内容不能被修改。
+- `--unshare-net` 运行时没有可用路由；`--die-with-parent`、workspace bind 和保护目录隔离继续由参数测试覆盖。
+- 不新增远程服务器验证、不引入 Node runtime、不改变 Windows `auto/required` 的既有 fail-open/fail-closed 契约。
+
+### 验收
+
+| ID | 验证方法 | 通过阈值 | 证据类型 | 失败判定 |
+| --- | --- | --- | --- | --- |
+| AC-M313-001 | Linux: `go test ./internal/tool -run TestRequiredBwrapWritesOnlyWorkspace -count=1` | bwrap 可用时 workspace 写入成功，外部、`.drift`、`.git` 不落盘，网络路由为空 | 集成测试日志 | 任一边界被绕过 |
+| AC-M313-002 | Windows: `GOOS=linux GOARCH=amd64 go test -c ./internal/tool` | Linux-only 集成测试可交叉编译；Windows 不误报 runtime 通过 | 构建日志 | 编译失败或伪造通过 |
+| AC-M313-003 | `go test ./... -count=1`、`go vet ./...`、`go build ./cmd/drift`、`git diff --check` | 全部退出码为 0 | 命令日志 | 任一命令失败 |
 
 ## M3.12：写入前文件状态校验
 
