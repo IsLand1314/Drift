@@ -1,6 +1,24 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M3.13。M3.12 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M3.14。M3.13 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+
+## M3.14：沙箱进程树取消与超时
+
+M3.14 将已验证的 Linux `bwrap` 沙箱接入命令取消和超时验收，不增加新的沙箱后端。
+
+### 当前范围
+
+- `required` 模式下 Ctrl+C 取消命令时，`bwrap` 及其 shell 子进程一起终止。
+- 命令超时后子进程不能继续运行或在 workspace 写入残留文件。
+- 结果继续准确区分 `cancelled`、`timeout` 和 `failed`。
+- Windows 沙箱、Git worktree 和 Node runtime 不在本阶段范围内。
+
+### 验收
+
+| ID | 验证方法 | 通过阈值 | 证据类型 | 失败判定 |
+| --- | --- | --- | --- | --- |
+| AC-M314-001 | Linux: `go test ./internal/tool -run 'TestRequiredBwrap(WritesOnlyWorkspace|CancellationStopsChildProcess|TimeoutStopsChildProcess)$' -count=1` | workspace 边界、取消和超时测试全部通过，子进程不产生残留文件 | Linux 集成测试日志 | 子进程存活或状态错误 |
+| AC-M314-002 | Windows: `go test ./... -count=1`、`go vet ./...`、`go build ./cmd/drift`、`git diff --check` | 本地全量回归通过 | 命令日志 | 任一命令失败 |
 
 ## M3.13：Linux bwrap 运行时验收
 

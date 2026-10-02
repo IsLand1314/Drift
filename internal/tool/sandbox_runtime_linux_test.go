@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func requireBwrap(t *testing.T) {
@@ -90,5 +91,57 @@ func TestRequiredBwrapWritesOnlyWorkspace(t *testing.T) {
 
 	if output := runRequiredSandbox(t, root, "test ! -s /proc/net/route"); !strings.Contains(output, "status=success") {
 		t.Fatalf("network namespace appears to have routes: %s", output)
+	}
+}
+
+func TestRequiredBwrapCancellationStopsChildProcess(t *testing.T) {
+	requireBwrap(t)
+	root, err := os.MkdirTemp("/var/tmp", "drift-m314-cancel-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	marker := filepath.Join(root, "leaked.txt")
+	preview, err := RunCommandPreviewWithSandbox(root, `{"command":"(sleep 1; printf leaked > `+marker+` ) & wait"}`, SandboxRequired)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan string, 1)
+	go func() {
+		result, _ := ExecuteCommand(ctx, root, preview)
+		done <- result
+	}()
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+	result := <-done
+	if !strings.Contains(result, "status=cancelled") {
+		t.Fatalf("result=%q", result)
+	}
+	time.Sleep(1200 * time.Millisecond)
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("sandbox child survived cancellation and created %s", marker)
+	}
+}
+
+func TestRequiredBwrapTimeoutStopsChildProcess(t *testing.T) {
+	requireBwrap(t)
+	root, err := os.MkdirTemp("/var/tmp", "drift-m314-timeout-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	marker := filepath.Join(root, "leaked.txt")
+	preview, err := RunCommandPreviewWithSandbox(root, `{"command":"(sleep 1; printf leaked > `+marker+` ) & wait","timeout_ms":100}`, SandboxRequired)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := ExecuteCommand(context.Background(), root, preview)
+	if err != nil || !strings.Contains(result, "status=timeout") {
+		t.Fatalf("result=%q err=%v", result, err)
+	}
+	time.Sleep(1200 * time.Millisecond)
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("sandbox child survived timeout and created %s", marker)
 	}
 }
