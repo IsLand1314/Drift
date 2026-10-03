@@ -1,0 +1,17 @@
+M3.17 TDD 验收记录
+
+RED
+- go test ./internal/git -run 'TestPreflight' -count=1
+  结果：FAIL，PreflightRevert 未定义（预期红灯）。
+- go test ./internal/git -run 'TestRevert' -count=1
+  结果：FAIL，Revert 未定义（预期红灯）。
+- go test ./internal/app -run 'TestGitRevert' -count=1
+  结果：FAIL，runGitCommand 未定义（预期红灯）。
+
+GREEN
+- go test ./internal/git -run 'TestPreflight|TestRevert' -count=1
+  结果：PASS。
+- go test ./internal/app -run 'TestGitRevert' -count=1
+  结果：PASS；无沙箱后端的平台跳过执行成功用例，显式确认和拒绝路径仍验证。
+
+覆盖：干净仓库预检、短 SHA 解析、dirty worktree、非法目标、反向提交、显式 --yes、审计文件生成。

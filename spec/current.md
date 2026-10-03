@@ -1,6 +1,6 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M3.16。M3.15 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M3.17。M3.16 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
 
 ## M3.16：安全闭环收口
 
@@ -15,6 +15,21 @@ M3.16 统一四种用户可见权限模式（`default/acceptEdits/plan/bypassPer
 | AC-M316-003 | `go test ./internal/session -run TestJSONLWriterRecordsStructuredPermissionAndSandboxOutcome -count=1` | 审计含结构化字段且正文/结果继续脱敏 | 审计泄露正文或缺少沙箱字段 |
 | AC-M316-004 | `go test ./internal/changes -run 'TestRestore(CreateAndEdit|RefusesStaleTargetWithoutChanges|RefusesPartialChangeSetWithoutTouchingTarget|DeletedFile)' -count=1` | stale/partial change set 整体拒绝且不覆盖当前文件 | 发生部分恢复或覆盖外部修改 |
 | AC-M316-005 | `go test ./... -count=1`、`go vet ./...`、`go build ./cmd/drift`、Windows 交叉编译 | 全量测试、静态检查、构建和 Windows 目标编译通过 | 任一命令失败 |
+
+## M3.17：安全 Git 回滚
+
+M3.17 增加 `drift git revert [-w <workspace>] <commit> --yes`，只对已提交的普通 commit 创建 `git revert --no-edit` 反向提交。它与 Drift change set restore 独立，禁止 `git reset --hard`、`git clean`、强制 checkout、rebase、merge、远程 push 和自动 abort。
+
+### 验收
+
+| ID | 验证方法 | 通过阈值 | 失败判定 |
+| --- | --- | --- | --- |
+| AC-M317-001 | Git 预检测试 | 干净仓库解析唯一普通 commit 并生成预览 | 目标解析错误或未检查工作区 |
+| AC-M317-002 | 回滚执行测试 | 生成新的反向 commit，文件内容恢复 | 使用 reset 或丢失未提交内容 |
+| AC-M317-003 | dirty/invalid/merge 测试 | dirty、未跟踪、冲突、非法或 merge 目标执行前拒绝 | Git 工作树被改变 |
+| AC-M317-004 | 权限/沙箱/失败测试 | 未确认、沙箱拒绝、取消、冲突和 hook 失败均不误报成功 | 失败状态丢失或自动清理用户现场 |
+| AC-M317-005 | 审计测试 | 记录 commit、权限、沙箱、状态和失败原因，不含绝对路径、凭据和完整输出 | 审计泄露敏感信息 |
+| AC-M317-006 | 全量回归 | `go test ./...`、`go vet ./...`、build、Windows 目标编译和 staged diff check 通过 | 任一命令失败 |
 
 ## M3.15-C：Windows AppContainer 正式执行
 

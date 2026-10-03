@@ -1,0 +1,9 @@
+M3.17 最终验收记录
+
+- go test ./... -count=1：PASS
+- go vet ./...：PASS
+- go build ./cmd/drift：PASS
+- GOOS=windows GOARCH=amd64 go test -c ./internal/tool：PASS
+- git diff --cached --check：执行提交前通过
+
+安全结论：实现只调用 git revert --no-edit；dirty/非法/merge 目标在执行前拒绝；未实现 reset --hard、clean、强制 checkout、远程 push 或自动 abort。
