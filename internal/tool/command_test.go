@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"os"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -15,7 +17,7 @@ func TestRunCommandExecutesInWorkspace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if preview.Operation != "run_command" || preview.Command != "go version" || preview.CWD != "." {
+	if preview.Operation != "run_command" || preview.Command != "go version" || preview.CWD != "." || preview.Profile != SandboxProfileBash {
 		t.Fatalf("preview=%+v", preview)
 	}
 	result, err := ExecuteCommand(context.Background(), root, preview)
@@ -24,6 +26,34 @@ func TestRunCommandExecutesInWorkspace(t *testing.T) {
 	}
 	if !strings.Contains(result, "status=success") || !strings.Contains(result, "go version") {
 		t.Fatalf("result=%q", result)
+	}
+}
+
+func TestBashCommandEnvironmentDoesNotExposeProviderSecrets(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "test-openai-secret")
+	t.Setenv("ANTHROPIC_API_KEY", "test-anthropic-secret")
+	env := sanitizedCommandEnv()
+	for _, value := range env {
+		if strings.Contains(value, "OPENAI_API_KEY=") || strings.Contains(value, "ANTHROPIC_API_KEY=") {
+			t.Fatalf("provider secret remained in child environment: %q", value)
+		}
+	}
+}
+
+func TestBashExecutionDoesNotExposeProviderSecrets(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("OPENAI_API_KEY", "test-openai-secret")
+	command := `printf '%s' "$OPENAI_API_KEY"`
+	if runtime.GOOS == "windows" {
+		command = `echo %OPENAI_API_KEY%`
+	}
+	preview, err := RunCommandPreview(root, `{"command":`+strconv.Quote(command)+`}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := ExecuteCommand(context.Background(), root, preview)
+	if err != nil || strings.Contains(result, "test-openai-secret") {
+		t.Fatalf("provider secret leaked: result=%q err=%v", result, err)
 	}
 }
 

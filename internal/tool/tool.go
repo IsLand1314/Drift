@@ -7,6 +7,12 @@ import (
 	"github.com/IsLand1314/Drift/internal/llm"
 )
 
+type SandboxProfile string
+
+const (
+	SandboxProfileBash SandboxProfile = "bash"
+)
+
 // Preview describes a write that has not changed the target yet.
 type Preview struct {
 	Operation    string
@@ -17,6 +23,7 @@ type Preview struct {
 	OutputLimit  int
 	SandboxMode  SandboxMode
 	Sandbox      SandboxDecision
+	Profile      SandboxProfile
 	Content      []byte
 	Before       []byte
 	BeforeExists bool
