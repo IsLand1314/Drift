@@ -19,6 +19,7 @@ type Entry struct {
 	Path              string    `json:"path,omitempty"`
 	CWD               string    `json:"cwd,omitempty"`
 	CommandBytes      int       `json:"command_bytes,omitempty"`
+	Revision          string    `json:"revision,omitempty"`
 	Arguments         string    `json:"arguments,omitempty"`
 	ArgumentBytes     int       `json:"argument_bytes,omitempty"`
 	Result            string    `json:"result,omitempty"`

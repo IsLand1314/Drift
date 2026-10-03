@@ -69,6 +69,7 @@ type Event struct {
 	Path              string
 	Command           string
 	CWD               string
+	Revision          string
 	OldBytes          int
 	NewBytes          int
 	Allowed           bool

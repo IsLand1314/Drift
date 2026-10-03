@@ -1,0 +1,114 @@
+package app
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/IsLand1314/Drift/internal/agent"
+	gitops "github.com/IsLand1314/Drift/internal/git"
+	"github.com/IsLand1314/Drift/internal/layout"
+	"github.com/IsLand1314/Drift/internal/session"
+	"github.com/IsLand1314/Drift/internal/tool"
+)
+
+func runGitCommand(args []string, out, stderr io.Writer) int {
+	return runGitCommandContext(context.Background(), args, out, stderr)
+}
+
+func runGitCommandContext(ctx context.Context, args []string, out, stderr io.Writer) int {
+	if len(args) == 0 || args[0] != "revert" {
+		fmt.Fprintln(stderr, "用法：drift git revert [-w <workspace>] <commit> --yes")
+		return 2
+	}
+	root, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintln(stderr, "错误：无法获取当前目录：", err)
+		return 1
+	}
+	var target string
+	confirmed := false
+	for i := 1; i < len(args); i++ {
+		switch args[i] {
+		case "--yes":
+			confirmed = true
+		case "-w", "--workspace":
+			if i+1 >= len(args) || strings.TrimSpace(args[i+1]) == "" {
+				fmt.Fprintln(stderr, "用法：drift git revert [-w <workspace>] <commit> --yes")
+				return 2
+			}
+			root = args[i+1]
+			i++
+		default:
+			if target != "" {
+				fmt.Fprintln(stderr, "用法：drift git revert [-w <workspace>] <commit> --yes")
+				return 2
+			}
+			target = args[i]
+		}
+	}
+	if target == "" || !confirmed {
+		fmt.Fprintln(stderr, "用法：drift git revert [-w <workspace>] <commit> --yes")
+		return 2
+	}
+	root, err = filepath.Abs(root)
+	if err != nil {
+		fmt.Fprintln(stderr, "错误：workspace 路径无效：", err)
+		return 2
+	}
+	started := time.Now().UTC()
+	storage := layout.ForWorkspace(root)
+	if err := storage.Prepare(); err != nil {
+		fmt.Fprintln(stderr, "错误：无法准备审计目录：", err)
+		return 1
+	}
+	auditPath := filepath.Join(layout.DateDir(storage.Audits, started), "git-revert-"+layout.FileTimestamp(started)+".jsonl")
+	audit, err := session.NewJSONLWriterWithSecrets(auditPath, root)
+	if err != nil {
+		fmt.Fprintln(stderr, "错误：无法打开审计记录：", err)
+		return 1
+	}
+	defer audit.Close()
+	emit := func(event agent.Event) {
+		if err := audit.Append(event); err != nil {
+			fmt.Fprintln(stderr, "警告：审计记录失败：", err)
+		}
+	}
+	preflight, err := gitops.PreflightRevert(ctx, root, target)
+	if err != nil {
+		emit(agent.Event{Type: agent.EventToolResult, ToolName: "GitRevert", Revision: target, CWD: ".", ExecutionStatus: "denied", FailureReason: gitFailureReason(err)})
+		fmt.Fprintln(stderr, "回滚失败：", err)
+		return 1
+	}
+	emit(agent.Event{Type: agent.EventPermissionDecision, ToolName: "GitRevert", Command: "git revert --no-edit " + preflight.Commit, CWD: ".", Revision: preflight.Commit, Allowed: true, DecisionReason: "cli_explicit_confirmation", PermissionSource: agent.PermissionSourceUser, PermissionOutcome: agent.ApprovalAllowOnce, Policy: agent.PolicyAsk})
+	result, err := gitops.Revert(ctx, preflight, tool.SandboxRequired)
+	event := agent.Event{Type: agent.EventToolResult, ToolName: "GitRevert", Command: "git revert --no-edit " + preflight.Commit, CWD: ".", Revision: preflight.Commit, Result: result.Output, ExecutionStatus: result.Status, FailureReason: result.FailureReason, SandboxMode: string(tool.SandboxRequired)}
+	if err != nil && event.FailureReason == "" {
+		event.FailureReason = gitFailureReason(err)
+	}
+	emit(event)
+	if err != nil || result.Status != "success" {
+		if err != nil {
+			fmt.Fprintln(stderr, "回滚失败：", err)
+		} else {
+			fmt.Fprintln(stderr, "回滚失败：", result.FailureReason)
+		}
+		return 1
+	}
+	fmt.Fprintln(out, "已创建 Git 反向提交：", result.AfterHEAD)
+	return 0
+}
+
+func gitFailureReason(err error) string {
+	message := strings.ToLower(err.Error())
+	for _, reason := range []string{"invalid_target", "dirty_worktree", "merge_commit", "sandbox_denied", "not_git"} {
+		if strings.Contains(message, reason) {
+			return reason
+		}
+	}
+	return "failed"
+}

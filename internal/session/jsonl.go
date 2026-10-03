@@ -138,6 +138,7 @@ func entryFromEvent(event agent.Event, clean sanitizer) Entry {
 		Path:              path,
 		CWD:               cwd,
 		CommandBytes:      len(event.Command),
+		Revision:          clean.text(event.Revision),
 		Operation:         clean.text(event.Operation),
 		OldBytes:          event.OldBytes,
 		NewBytes:          event.NewBytes,
