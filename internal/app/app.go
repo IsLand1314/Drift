@@ -91,27 +91,51 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 	}
 	flags := flag.NewFlagSet("drift", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	// .env 是可选的本地配置；LoadDotEnv 找不到文件时返回空配置，不影响启动。
-	dotenv, err := config.LoadDotEnv(".env")
-	if err != nil {
-		fmt.Fprintln(stderr, err)
+	userConfigDir, configDirErr := config.DefaultUserConfigDir()
+	if configDirErr != nil {
+		fmt.Fprintln(stderr, "错误：", configDirErr)
 		return 2
 	}
-	// lookup 实现“非空进程环境变量覆盖 .env”的优先级。
+	userConfig, userConfigErr := config.LoadUserConfig(userConfigDir)
+	if userConfigErr != nil {
+		fmt.Fprintln(stderr, "错误：", userConfigErr)
+		return 2
+	}
+	var dotenv map[string]string
+	var err error
+	if !userConfig.ConfigPresent {
+		dotenv, err = config.LoadDotEnv(".env")
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
+	}
 	lookup := func(key string) string { return config.MergeLookup(dotenv, getenv, key) }
 	prompt := flags.String("p", "", "发送一次提示词并流式输出回复")
 	workspaceTarget := flags.String("w", "", "要分析的目录或文件（默认当前目录）")
 	skillName := flags.String("skill", "", "显式选择 workspace Skill")
 	trace := flags.Bool("trace", false, "将运行过程摘要输出到 stderr")
 	providerDefault := lookup("DRIFT_PROVIDER")
+	if userConfig.ConfigPresent && userConfig.Settings.DefaultProvider != "" {
+		providerDefault = userConfig.Settings.DefaultProvider
+	}
+	if userConfig.ConfigPresent && providerDefault == "" && len(userConfig.Providers) == 1 {
+		providerDefault = userConfig.Providers[0].Name
+	}
 	if providerDefault == "" {
 		providerDefault = "openai"
 	}
-	provider := flags.String("provider", providerDefault, "Provider（openai 或 anthropic）")
+	provider := flags.String("provider", providerDefault, "Provider profile")
 	model := flags.String("model", "", "模型名称（按 Provider 读取默认值）")
 	baseURL := flags.String("base-url", "", "API 根地址（按 Provider 读取默认值）")
-	permissionModeFlag := flags.String("permission-mode", string(permissionModeDefault), "chat 权限模式（default、acceptEdits、plan、bypassPermissions）")
-	sandboxFlag := flags.String("sandbox", string(tool.SandboxOff), "Bash 沙箱策略（off、auto、required）")
+	apiKeyFlag := flags.String("api-key", "", "本次运行使用的 API Key（不写入配置）")
+	permissionDefault := string(permissionModeDefault)
+	sandboxDefault := string(tool.SandboxOff)
+	if userConfig.ConfigPresent {
+		permissionDefault, sandboxDefault = userConfig.Settings.PermissionMode, userConfig.Settings.SandboxMode
+	}
+	permissionModeFlag := flags.String("permission-mode", permissionDefault, "chat 权限模式（default、acceptEdits、plan、bypassPermissions）")
+	sandboxFlag := flags.String("sandbox", sandboxDefault, "Bash 沙箱策略（off、auto、required）")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
@@ -126,6 +150,18 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 		}
 		return 2
 	}
+	if userConfig.ConfigPresent && len(userConfig.Providers) > 1 && chat && !flagWasSet(flags, "provider") {
+		selected, ok, pickerErr := runProviderPicker(runCtx, in, out, userConfig.Providers, providerDefault)
+		if pickerErr != nil {
+			fmt.Fprintln(stderr, "错误：Provider 选择器失败：", pickerErr)
+			return 1
+		}
+		if !ok {
+			fmt.Fprintln(stderr, "已取消 Provider 选择")
+			return 130
+		}
+		*provider = selected
+	}
 	permissionMode, err := parsePermissionMode(*permissionModeFlag)
 	if err != nil {
 		fmt.Fprintln(stderr, "错误：", err)
@@ -136,34 +172,64 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 		fmt.Fprintln(stderr, "错误：", err)
 		return 2
 	}
-	providerName := strings.ToLower(strings.TrimSpace(*provider))
+	providerName := strings.TrimSpace(*provider)
+	protocol := strings.ToLower(providerName)
 	var key string
-	switch providerName {
-	case "openai":
+	if userConfig.ConfigPresent {
+		profile, ok := userConfig.Provider(providerName)
+		if !ok {
+			fmt.Fprintln(stderr, "错误：未找到 Provider profile：", providerName)
+			return 2
+		}
+		protocol = profile.Protocol
 		if *model == "" {
-			*model = lookup("OPENAI_MODEL")
+			*model = profile.Model
 		}
 		if *baseURL == "" {
-			*baseURL = lookup("OPENAI_BASE_URL")
-			if *baseURL == "" {
-				*baseURL = "https://api.openai.com/v1"
+			*baseURL = profile.BaseURL
+		}
+		if *apiKeyFlag != "" {
+			key = strings.TrimSpace(*apiKeyFlag)
+		} else {
+			key = userConfig.APIKey(providerName, getenv)
+		}
+	} else {
+		providerName = strings.ToLower(providerName)
+		switch providerName {
+		case "openai":
+			if *model == "" {
+				*model = lookup("OPENAI_MODEL")
 			}
-		}
-		key = strings.TrimSpace(lookup("OPENAI_API_KEY"))
-	case "anthropic":
-		if *model == "" {
-			*model = lookup("ANTHROPIC_MODEL")
-		}
-		if *baseURL == "" {
-			*baseURL = lookup("ANTHROPIC_BASE_URL")
 			if *baseURL == "" {
-				*baseURL = "https://api.anthropic.com/v1"
+				*baseURL = lookup("OPENAI_BASE_URL")
+				if *baseURL == "" {
+					*baseURL = "https://api.openai.com/v1"
+				}
 			}
+			if *apiKeyFlag != "" {
+				key = strings.TrimSpace(*apiKeyFlag)
+			} else {
+				key = strings.TrimSpace(lookup("OPENAI_API_KEY"))
+			}
+		case "anthropic":
+			if *model == "" {
+				*model = lookup("ANTHROPIC_MODEL")
+			}
+			if *baseURL == "" {
+				*baseURL = lookup("ANTHROPIC_BASE_URL")
+				if *baseURL == "" {
+					*baseURL = "https://api.anthropic.com/v1"
+				}
+			}
+			if *apiKeyFlag != "" {
+				key = strings.TrimSpace(*apiKeyFlag)
+			} else {
+				key = strings.TrimSpace(lookup("ANTHROPIC_API_KEY"))
+			}
+		default:
+			fmt.Fprintln(stderr, "错误：不支持的 Provider，请使用 openai 或 anthropic")
+			return 2
 		}
-		key = strings.TrimSpace(lookup("ANTHROPIC_API_KEY"))
-	default:
-		fmt.Fprintln(stderr, "错误：不支持的 Provider，请使用 openai 或 anthropic")
-		return 2
 	}
 	launchDir, err := os.Getwd()
 	if err != nil {
@@ -188,16 +254,18 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 		}
 	}
 	if key == "" || strings.TrimSpace(*model) == "" {
-		if providerName == "anthropic" {
+		if !userConfig.ConfigPresent && providerName == "anthropic" {
 			fmt.Fprintln(stderr, "请设置 ANTHROPIC_API_KEY，并通过 ANTHROPIC_MODEL 或 -model 指定模型")
-		} else {
+		} else if !userConfig.ConfigPresent {
 			fmt.Fprintln(stderr, "请设置 OPENAI_API_KEY，并通过 OPENAI_MODEL 或 -model 指定模型")
+		} else {
+			fmt.Fprintln(stderr, "请配置所选 Provider 的 API Key 和模型")
 		}
 		return 2
 	}
 	// Provider 只负责 HTTP/SSE；workspace 读取和工具循环由 Agent 层负责。
 	var client llm.Client
-	if providerName == "anthropic" {
+	if protocol == "anthropic" {
 		client, err = anthropic.New(*baseURL, key)
 	} else {
 		client, err = openai.New(*baseURL, key)
@@ -355,4 +423,14 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 		}
 	}
 	return 0
+}
+
+func flagWasSet(flags *flag.FlagSet, name string) bool {
+	set := false
+	flags.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			set = true
+		}
+	})
+	return set
 }

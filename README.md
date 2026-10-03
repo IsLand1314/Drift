@@ -6,7 +6,34 @@
 
 ## 快速开始
 
-需要 Go 1.26+。推荐先复制可提交的配置模板，再在 PowerShell 中编辑本地 `.env`：
+需要 Go 1.26+。M5.1 推荐使用用户级配置目录（Windows 通常为 `%APPDATA%\Drift`）：
+
+```text
+settings.toml  # 行为默认值
+config.toml    # Provider 和模型
+auth.json      # API Key（仅本机保存）
+```
+
+示例 `config.toml`：
+
+```toml
+version = 1
+
+[[providers]]
+name = "deepseek"
+protocol = "openai-compat"
+base_url = "https://api.deepseek.com"
+model = "deepseek-chat"
+api_key_env = "DEEPSEEK_API_KEY"
+```
+
+示例 `auth.json`（不要提交真实密钥）：
+
+```json
+{"version":1,"providers":{"deepseek":{"type":"api_key","key":"sk-..."}}}
+```
+
+配置存在时，命令行 `-provider`、`-model`、`-base-url` 和 `-api-key` 只覆盖本次运行；认证优先级是 `-api-key` > `auth.json` > `api_key_env`。没有 `config.toml` 时仍兼容旧的 `.env`：
 
 ```powershell
 Copy-Item .env.example .env
@@ -85,7 +112,7 @@ go run ./cmd/drift audit show .drift/audits/run-<timestamp>.jsonl
 
 长对话达到上下文上限时，输入 `/clear` 可清空当前上下文；持久会话会先保存空快照，保存成功后才清理。普通文本 `clear` 不会清理上下文，只会提示使用 `/clear`。完整快照可能包含提示词、回答和工具结果，不是脱敏日志，不应上传或分享；`.drift/audits/` 只保存脱敏审计，永远不作为恢复来源。`session prune` 不带 `--yes` 时只预览，不会删除文件。
 
-配置优先级为：命令行 `-model`/`-base-url` > 进程环境变量 > 当前目录 `.env` > 内置默认值。API Key 没有命令行参数，只从环境变量或 `.env` 读取；缺少 Key 或模型时，请求不会发出。
+没有 `config.toml` 时，旧配置优先级为：命令行 `-model`/`-base-url` > 进程环境变量 > 当前目录 `.env` > 内置默认值。缺少 Key 或模型时，请求不会发出。OAuth/Codex 登录态不属于 M5.1。
 
 该示例会让模型按需探索并解释当前项目；stdout 只输出最终回答，同一次运行的安全审计事件会写入被 Git 忽略的 `.drift/audits/`。`chat` 中的写入过程记录在 `.drift/changes/YYYY/MM/DD/`，可能包含项目敏感内容，不应上传。需要观察过程时加 `--trace`，摘要会写入 stderr；需要查看完整会话时使用 `drift session list/show`，`drift session timeline <id>` 只显示消息角色、工具名、调用 ID 和字节数，不显示正文；需要查看脱敏审计时使用 `drift audit list/show`。这两套命令不互为别名，聊天输入区也不提供 `/audit`。新 JSONL 不保存提示词、原始工具参数、文件内容或回答正文，只保存安全的相对路径、脱敏占位符、字节数和结束原因。运行时为预算收敛或伪工具重试附加的控制提示只在当次 system context 中存在，不会伪装成用户输入写入完整会话；完整快照也不会保存 Provider 的 `reasoning_content`。失败事件含稳定的 `stage`，例如 `provider_timeout`、`provider_sse_invalid_json`、`agent_empty_response` 或 `agent_context_limit`。完整对话恢复和边界见 [M1.2 阶段说明](doc/m1.2-conversation-persistence.md)，消息完整性见 [M2.5 阶段说明](doc/m2.5-message-integrity.md)，安全写入见 [M3.1 阶段说明](doc/m3.1-safe-file-write.md)，进程内上下文规则见 [M1.1 阶段说明](doc/m1.1-context-control.md) 和 [M1.0 阶段说明](doc/m1.0-interactive-chat.md)。当前范围和验收标准见 [spec/current.md](spec/current.md)。
 

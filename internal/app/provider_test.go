@@ -39,6 +39,36 @@ func TestRunSelectsAnthropicProvider(t *testing.T) {
 	}
 }
 
+func TestRunUsesUserConfigTOMLAndAuthJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer config-secret" {
+			t.Errorf("authorization = %q", r.Header.Get("Authorization"))
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"config answer\"}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	defer server.Close()
+	configRoot := t.TempDir()
+	t.Setenv("APPDATA", configRoot)
+	driftDir := filepath.Join(configRoot, "Drift")
+	if err := os.MkdirAll(driftDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	configTOML := fmt.Sprintf("version = 1\n[[providers]]\nname = \"deepseek\"\nprotocol = \"openai-compat\"\nbase_url = \"%s\"\nmodel = \"deepseek-test\"\n", server.URL)
+	if err := os.WriteFile(filepath.Join(driftDir, "config.toml"), []byte(configTOML), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(driftDir, "auth.json"), []byte(`{"version":1,"providers":{"deepseek":{"type":"api_key","key":"config-secret"}}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	workspace := t.TempDir()
+	var out, stderr strings.Builder
+	code := RunWithInput(context.Background(), []string{"-provider", "deepseek", "-w", workspace, "-p", "hello"}, func(string) string { return "" }, strings.NewReader(""), &out, &stderr)
+	if code != 0 || out.String() != "config answer\n" {
+		t.Fatalf("code=%d out=%q stderr=%q", code, out.String(), stderr.String())
+	}
+}
+
 func TestRunRejectsUnknownProviderBeforeRequest(t *testing.T) {
 	var out, stderr strings.Builder
 	code := RunWithInput(context.Background(), []string{"-provider", "unknown", "-p", "hello"}, func(string) string { return "key" }, strings.NewReader(""), &out, &stderr)
