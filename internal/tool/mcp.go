@@ -33,7 +33,7 @@ type mcpTool struct {
 	client MCPClient
 }
 
-func AttachMCP(value Registry, server string, client MCPClient) error {
+func AttachMCP(ctx context.Context, value Registry, server string, client MCPClient) error {
 	registry, ok := value.(*registry)
 	if !ok {
 		return errors.New("tool: MCP requires chat registry")
@@ -41,7 +41,10 @@ func AttachMCP(value Registry, server string, client MCPClient) error {
 	if !mcpName.MatchString(server) || client == nil {
 		return errors.New("tool: invalid MCP server")
 	}
-	tools, err := client.ListTools(context.Background())
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	tools, err := client.ListTools(ctx)
 	if err != nil {
 		return fmt.Errorf("tool: list MCP tools: %w", err)
 	}

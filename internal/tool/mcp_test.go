@@ -16,9 +16,33 @@ func (fakeMCPClient) CallTool(context.Context, string, json.RawMessage) (mcp.Res
 	return mcp.Result{Text: "ok"}, nil
 }
 
+type contextMCPClient struct{ cancelled bool }
+
+func (c *contextMCPClient) ListTools(ctx context.Context) ([]mcp.Tool, error) {
+	<-ctx.Done()
+	c.cancelled = true
+	return nil, ctx.Err()
+}
+
+func (*contextMCPClient) CallTool(context.Context, string, json.RawMessage) (mcp.Result, error) {
+	return mcp.Result{}, nil
+}
+
+func TestAttachMCPUsesCallerContextForDiscovery(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	client := &contextMCPClient{}
+	if err := AttachMCP(ctx, NewChatRegistry(), "demo", client); err == nil {
+		t.Fatal("AttachMCP() error = nil, want cancelled discovery")
+	}
+	if !client.cancelled {
+		t.Fatal("AttachMCP() did not pass the cancelled context to discovery")
+	}
+}
+
 func TestAttachMCPAddsSearchableButDisabledTool(t *testing.T) {
 	registry := NewChatRegistry()
-	err := AttachMCP(registry, "demo", fakeMCPClient{tools: []mcp.Tool{{Name: "echo", Description: "Echo text", InputSchema: json.RawMessage(`{"type":"object"}`)}}})
+	err := AttachMCP(context.Background(), registry, "demo", fakeMCPClient{tools: []mcp.Tool{{Name: "echo", Description: "Echo text", InputSchema: json.RawMessage(`{"type":"object"}`)}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,13 +62,13 @@ func TestAttachMCPAddsSearchableButDisabledTool(t *testing.T) {
 func TestAttachMCPRejectsUnsafeOrDuplicateNames(t *testing.T) {
 	registry := NewChatRegistry()
 	valid := fakeMCPClient{tools: []mcp.Tool{{Name: "echo", Description: "Echo", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
-	if err := AttachMCP(registry, "bad/name", valid); err == nil {
+	if err := AttachMCP(context.Background(), registry, "bad/name", valid); err == nil {
 		t.Fatal("unsafe server accepted")
 	}
-	if err := AttachMCP(registry, "demo", valid); err != nil {
+	if err := AttachMCP(context.Background(), registry, "demo", valid); err != nil {
 		t.Fatal(err)
 	}
-	if err := AttachMCP(registry, "demo", valid); err == nil {
+	if err := AttachMCP(context.Background(), registry, "demo", valid); err == nil {
 		t.Fatal("duplicate tool accepted")
 	}
 }

@@ -57,7 +57,7 @@ func (m *mcpManager) Connect(ctx context.Context, name string) error {
 		m.record(name, "connection_failed", err)
 		return err
 	}
-	if err := tool.AttachMCP(m.registry, name, client); err != nil {
+	if err := tool.AttachMCP(ctx, m.registry, name, client); err != nil {
 		_ = client.Close()
 		m.record(name, "protocol_failed", err)
 		return err
