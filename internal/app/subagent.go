@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/IsLand1314/Drift/internal/agent"
+	gitops "github.com/IsLand1314/Drift/internal/git"
 	"github.com/IsLand1314/Drift/internal/llm"
 	"github.com/IsLand1314/Drift/internal/tool"
 )
@@ -35,5 +36,13 @@ func childTaskRunner(manager *agent.ChildManager, client llm.Client, root string
 			return nil, err
 		}
 		return childTaskHandle{handle: handle}, nil
+	}
+}
+
+func childTaskMerger(queue *gitops.MergeQueue) tool.TaskMerger {
+	return func(ctx context.Context, root string, task tool.TaskState) (tool.TaskMergeResult, error) {
+		worktree := filepath.Join(root, filepath.FromSlash(task.Worktree))
+		result, err := queue.Submit(ctx, root, task.ID, worktree)
+		return tool.TaskMergeResult{Status: result.Status, AfterHEAD: result.AfterHEAD, Conflicts: result.Conflicts}, err
 	}
 }

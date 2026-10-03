@@ -127,6 +127,53 @@ func TestTaskRunCompletesAndReturnsChildOutputInStatus(t *testing.T) {
 	}
 }
 
+func TestTaskRunAutomaticallyMergesCompletedWorktree(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".worktrees", "agent-1"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	registry := NewChatRegistry()
+	search, _ := registry.Lookup("ToolSearch")
+	if _, err := search.Execute(context.Background(), root, `{"query":"task","load":["TaskCreate","TaskRun","TaskStatus"]}`); err != nil {
+		t.Fatal(err)
+	}
+	create, _ := registry.Lookup("TaskCreate")
+	if _, err := create.Execute(context.Background(), root, `{"subject":"child","worktree":".worktrees/agent-1"}`); err != nil {
+		t.Fatal(err)
+	}
+	handle := newTestTaskHandle()
+	called := make(chan string, 1)
+	control := registry.(TaskRegistry)
+	control.SetTaskRunner(func(context.Context, TaskState, string, time.Duration) (TaskHandle, error) { return handle, nil })
+	control.SetTaskMerger(func(_ context.Context, mergeRoot string, task TaskState) (TaskMergeResult, error) {
+		called <- mergeRoot
+		return TaskMergeResult{Status: "success", AfterHEAD: "merge-1"}, nil
+	})
+	run, _ := registry.Lookup("TaskRun")
+	if _, err := run.Execute(context.Background(), root, `{"task_id":"task-1","prompt":"inspect"}`); err != nil {
+		t.Fatal(err)
+	}
+	handle.complete(TaskExecutionResult{State: "completed", Output: "verified"})
+	select {
+	case got := <-called:
+		if got != root {
+			t.Fatalf("merge root=%q", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("merge callback not called")
+	}
+	status, _ := registry.Lookup("TaskStatus")
+	for deadline := time.Now().Add(time.Second); time.Now().Before(deadline); {
+		got, _ := status.Execute(context.Background(), root, `{"task_id":"task-1"}`)
+		if strings.Contains(got, "merge: merged") && strings.Contains(got, "merge commit: merge-1") {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	got, _ := status.Execute(context.Background(), root, `{"task_id":"task-1"}`)
+	t.Fatalf("status=%q", got)
+}
+
 func TestTaskRunKeepsIndependentTaskResultsIsolated(t *testing.T) {
 	root := t.TempDir()
 	for _, name := range []string{"agent-1", "agent-2"} {

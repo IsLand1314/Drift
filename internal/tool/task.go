@@ -18,14 +18,17 @@ import (
 
 // TaskState is the durable state of one task in a chat session.
 type TaskState struct {
-	ID          string   `json:"id"`
-	Subject     string   `json:"subject"`
-	Description string   `json:"description,omitempty"`
-	Status      string   `json:"status"`
-	Worktree    string   `json:"worktree,omitempty"`
-	DependsOn   []string `json:"depends_on,omitempty"`
-	Result      string   `json:"result,omitempty"`
-	Error       string   `json:"error,omitempty"`
+	ID             string   `json:"id"`
+	Subject        string   `json:"subject"`
+	Description    string   `json:"description,omitempty"`
+	Status         string   `json:"status"`
+	Worktree       string   `json:"worktree,omitempty"`
+	DependsOn      []string `json:"depends_on,omitempty"`
+	Result         string   `json:"result,omitempty"`
+	Error          string   `json:"error,omitempty"`
+	MergeStatus    string   `json:"merge_status,omitempty"`
+	MergeCommit    string   `json:"merge_commit,omitempty"`
+	MergeConflicts []string `json:"merge_conflicts,omitempty"`
 }
 
 var taskWorktreePattern = regexp.MustCompile(`^\.worktrees/[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
@@ -37,6 +40,7 @@ type TaskRegistry interface {
 	RestoreTasks([]TaskState) error
 	ResetTasks()
 	SetTaskRunner(TaskRunner)
+	SetTaskMerger(TaskMerger)
 }
 
 // TaskSwitcher resolves the active task's worktree for the Agent runner.
@@ -49,6 +53,14 @@ type TaskExecutionResult struct {
 	Output string
 	Err    error
 }
+
+type TaskMergeResult struct {
+	Status    string
+	AfterHEAD string
+	Conflicts []string
+}
+
+type TaskMerger func(context.Context, string, TaskState) (TaskMergeResult, error)
 
 type TaskHandle interface {
 	Cancel()
@@ -63,6 +75,7 @@ type taskStore struct {
 	tasks   map[string]TaskState
 	active  string
 	runner  TaskRunner
+	merger  TaskMerger
 	running map[string]TaskHandle
 }
 
@@ -349,7 +362,7 @@ func (t taskRunTool) Execute(ctx context.Context, root, raw string) (string, err
 	t.store.mu.Lock()
 	t.store.running[item.ID] = handle
 	t.store.mu.Unlock()
-	go t.store.finishTask(context.Background(), item.ID, handle)
+	go t.store.finishTask(context.Background(), root, item.ID, handle)
 	return formatTask(item), nil
 }
 
@@ -417,12 +430,18 @@ func (r *registry) SetTaskRunner(runner TaskRunner) {
 	r.tasks.mu.Unlock()
 }
 
-func (s *taskStore) finishTask(ctx context.Context, id string, handle TaskHandle) {
+func (r *registry) SetTaskMerger(merger TaskMerger) {
+	r.tasks.mu.Lock()
+	r.tasks.merger = merger
+	r.tasks.mu.Unlock()
+}
+
+func (s *taskStore) finishTask(ctx context.Context, root, id string, handle TaskHandle) {
 	result, waitErr := handle.Wait(ctx)
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	item, ok := s.tasks[id]
 	if !ok {
+		s.mu.Unlock()
 		return
 	}
 	delete(s.running, id)
@@ -439,6 +458,35 @@ func (s *taskStore) finishTask(ctx context.Context, id string, handle TaskHandle
 		item.Status, item.Result = "completed", result.Output
 		if result.Err != nil {
 			item.Error = result.Err.Error()
+		}
+	}
+	s.tasks[id] = item
+	merger := s.merger
+	shouldMerge := waitErr == nil && item.Status == "completed" && merger != nil && item.Worktree != ""
+	s.mu.Unlock()
+	if !shouldMerge {
+		return
+	}
+	merge, mergeErr := merger(ctx, root, item)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, ok = s.tasks[id]
+	if !ok {
+		return
+	}
+	if mergeErr != nil {
+		item.MergeStatus = "failed"
+		item.Error = mergeErr.Error()
+	} else {
+		switch merge.Status {
+		case "success":
+			item.MergeStatus = "merged"
+			item.MergeCommit = merge.AfterHEAD
+		case "conflict":
+			item.MergeStatus = "conflict"
+			item.MergeConflicts = append([]string(nil), merge.Conflicts...)
+		default:
+			item.MergeStatus = "failed"
 		}
 	}
 	s.tasks[id] = item
@@ -482,6 +530,15 @@ func formatTask(item TaskState) string {
 	if item.Error != "" {
 		result += "\nerror: " + item.Error
 	}
+	if item.MergeStatus != "" {
+		result += "\nmerge: " + item.MergeStatus
+	}
+	if item.MergeCommit != "" {
+		result += "\nmerge commit: " + item.MergeCommit
+	}
+	if len(item.MergeConflicts) > 0 {
+		result += "\nmerge conflicts: " + strings.Join(item.MergeConflicts, ", ")
+	}
 	return result
 }
 
@@ -490,11 +547,20 @@ func ValidTaskStatus(status string) bool { return validTaskStatus(status) }
 
 // ValidateTaskState validates state crossing the session persistence boundary.
 func ValidateTaskState(item TaskState) bool {
-	if item.Subject == "" || len([]rune(item.Subject)) > 200 || len([]rune(item.Description)) > 2000 || len(item.DependsOn) > 32 || !validTaskDependencies(item.DependsOn) || len([]rune(item.Result)) > 8000 || len([]rune(item.Error)) > 2000 || !validTaskStatus(item.Status) || !strings.HasPrefix(item.ID, "task-") || (item.Worktree != "" && !validTaskWorktree(item.Worktree)) {
+	if item.Subject == "" || len([]rune(item.Subject)) > 200 || len([]rune(item.Description)) > 2000 || len(item.DependsOn) > 32 || !validTaskDependencies(item.DependsOn) || len([]rune(item.Result)) > 8000 || len([]rune(item.Error)) > 2000 || len([]rune(item.MergeCommit)) > 200 || len(item.MergeConflicts) > 32 || !validTaskStatus(item.Status) || !validMergeStatus(item.MergeStatus) || !strings.HasPrefix(item.ID, "task-") || (item.Worktree != "" && !validTaskWorktree(item.Worktree)) {
 		return false
 	}
 	number, err := strconv.Atoi(strings.TrimPrefix(item.ID, "task-"))
 	return err == nil && number > 0
+}
+
+func validMergeStatus(status string) bool {
+	switch status {
+	case "", "queued", "merged", "conflict", "failed":
+		return true
+	default:
+		return false
+	}
 }
 
 func normalizeTaskWorktree(path string) string {

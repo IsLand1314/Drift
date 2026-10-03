@@ -16,6 +16,7 @@ import (
 	"github.com/IsLand1314/Drift/internal/agent"
 	"github.com/IsLand1314/Drift/internal/config"
 	"github.com/IsLand1314/Drift/internal/conversation"
+	gitops "github.com/IsLand1314/Drift/internal/git"
 	"github.com/IsLand1314/Drift/internal/layout"
 	"github.com/IsLand1314/Drift/internal/llm"
 	"github.com/IsLand1314/Drift/internal/llm/anthropic"
@@ -234,6 +235,7 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 		registry = tool.NewChatRegistryWithSandbox(sandboxMode)
 		childManager = agent.NewChildManager(agent.DefaultChildConcurrency)
 		if tasks, ok := registry.(tool.TaskRegistry); ok {
+			mergeQueue := gitops.NewMergeQueue()
 			childSink := func(event agent.Event) error {
 				if err := sessionWriter.Append(event); err != nil {
 					return err
@@ -244,6 +246,7 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 				return nil
 			}
 			tasks.SetTaskRunner(childTaskRunner(childManager, client, selection.Root, childSink))
+			tasks.SetTaskMerger(childTaskMerger(mergeQueue))
 		}
 	}
 	if chat {
