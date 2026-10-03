@@ -2,6 +2,7 @@ package tool
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -35,12 +36,15 @@ func TestRunCommandRejectsUnsafeCWD(t *testing.T) {
 }
 
 func TestRunCommandTimesOut(t *testing.T) {
-	root := t.TempDir()
-	preview, err := RunCommandPreview(root, `{"command":"go test ./...","timeout_ms":20}`)
+	root, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	preview, err := RunCommandPreview(root, `{"command":"go test ./...","timeout_ms":500}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 	result, err := ExecuteCommand(ctx, root, preview)
 	if err != nil || !strings.Contains(result, "status=timeout") {

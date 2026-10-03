@@ -192,6 +192,8 @@ func ExecuteCommand(parent context.Context, root string, preview Preview) (strin
 		}
 		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ProcessState != nil {
 			exitCode = exitErr.ExitCode()
+		} else if exitErr, ok := err.(interface{ ExitCode() int }); ok {
+			exitCode = exitErr.ExitCode()
 		} else if status != "success" {
 			exitCode = -1
 		}

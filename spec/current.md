@@ -1,15 +1,15 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M3.15-B。M3.14 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M3.15-C。M3.14 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
 
-## M3.15-B：Windows AppContainer 沙箱验证边界
+## M3.15-C：Windows AppContainer 正式执行
 
-M3.15-B 在 M3.15-A fail-closed 契约之上，验证 Windows AppContainer 的 workspace ACL、网络隔离、进程树生命周期和清理行为；正式 Bash 执行路径接通前继续 fail-closed。
+M3.15-C 在 M3.15-B 的原生探针之上，把 `Bash` 正式接入 AppContainer 进程生命周期；只有探针完整通过时，`required` 才能执行并记录 `sandboxed=true`。
 
 ### 当前范围
 
 - Linux 继续使用已通过 M3.13/M3.14 runtime 验收的 `bwrap`。
-- Windows 临时 workspace 探针可通过基础隔离断言，但在 AppContainer 执行路径接通前仍记录 `sandboxed=false`；任一验证失败时 `required` 拒绝、`auto` 继续。
+- Windows 临时 workspace 探针验证 workspace 写入、`.drift/.git` 拒绝、网络隔离和进程树终止；正式 `Bash` 通过 AppContainer、ACL 和 Job Object 执行，任一验证失败时 `required` 拒绝、`auto` 继续。
 - macOS 明确返回空能力，不调用 `sandbox-exec`；`auto` 记录未启用，`required` 拒绝执行。
 - Windows AppContainer 使用临时 profile、显式文件 ACL 和 Job Object；不使用全局防火墙规则。
 
@@ -20,6 +20,10 @@ M3.15-B 在 M3.15-A fail-closed 契约之上，验证 Windows AppContainer 的 w
 | AC-M315A-001 | Windows: `go test ./internal/tool -run TestWindowsSandboxBackendIsUnavailableBeforeAppContainerProbe -count=1` | Windows 后端为空且 `Reliable=false` | TDD RED/GREEN 日志 | `artifacts/verification/m3.15-a/tdd-red-green.txt` | 错误报告 Windows 沙箱可靠 |
 | AC-M315A-002 | Windows/macOS: `GOOS=windows/darwin GOARCH=amd64 go test -c ./internal/tool` | 两个平台目标均可编译，macOS 测试断言无后端 | 交叉编译日志 | `artifacts/verification/m3.15-a/cross-compile.txt` | 任一目标编译失败 |
 | AC-M315A-003 | `go test ./... -count=1`、`go vet ./...`、`go build ./cmd/drift`、`git diff --check` | 全部退出码为 0 | 命令日志 | `artifacts/verification/m3.15-a/regression.txt` | 任一命令失败 |
+
+| AC-M315C-001 | Windows: AppContainer lifecycle integration tests | Bash output, workspace write and `.drift` rejection pass; result records `sandboxed=true` | Windows native integration test | AppContainer bypass or protected path writable |
+| AC-M315C-002 | Windows: AppContainer probe and timeout tests | Probe and timeout cleanup pass without child/marker residue | Windows native integration test | Probe failure or timeout leak |
+| AC-M315C-003 | Windows: cross-compile, full test, vet and build | All commands exit successfully | Command log | Any command fails |
 
 ## M3.14：沙箱进程树取消与超时
 

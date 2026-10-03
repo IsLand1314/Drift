@@ -125,9 +125,11 @@ macOS 使用 `sandbox_backend=`、`sandboxed=false`、`sandbox_probe=unavailable
 
 M3.15-A 已交付：平台检测边界已显式化，Windows 和 macOS 在没有完整后端时均 fail-closed，Linux `bwrap` 行为保持不变。AppContainer token、workspace ACL、网络隔离和 Windows runtime 验收均明确留到 M3.15-B/C。
 
-## 11. M3.15-B 交付状态
+## 11. M3.15-B/C 交付状态
 
-M3.15-B 已完成 Windows 原生验证探针：沙箱检测接收实际 workspace 根路径，创建临时 AppContainer profile，授予 marker 文件显式 ACL，使用 `SECURITY_CAPABILITIES` 启动进程并加入 Job Object。探针会验证 workspace 写入、`.drift/.git` 拒绝、网络无 `TTL=`、子进程 containment 和 profile/ACL/marker 清理；基础断言通过后仍返回 unavailable，直到正式 `Bash` 执行路径接通。
+M3.15-B 已完成 Windows 原生验证探针：沙箱检测接收实际 workspace 根路径，创建临时 AppContainer profile，授予 marker 文件显式 ACL，使用 `SECURITY_CAPABILITIES` 启动进程并加入 Job Object。探针会验证 workspace 写入、`.drift/.git` 拒绝、网络无 `TTL=`、子进程 containment 和 profile/ACL/marker 清理。
+
+M3.15-C 已将正式 `Bash` 执行接入同一生命周期：创建 stdout/stderr 管道，使用 `CreateProcessW`、`SECURITY_CAPABILITIES` 和 `KILL_ON_JOB_CLOSE` 启动命令；取消、超时和关闭路径终止 Job、回收读管道、恢复 workspace ACL 并删除临时 profile。原生测试已验证 workspace 可写、`.drift` 拒绝写入、输出回传、超时和探针选择；因此 Windows `required` 仅在探针完整通过时报告 `sandboxed=true`。
 
 Job Object 只负责进程树生命周期，AppContainer 负责文件和网络隔离；两者缺一不可。
 

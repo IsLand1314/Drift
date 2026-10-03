@@ -52,7 +52,7 @@ func TestProbeWindowsSandboxWithProtectedDirectories(t *testing.T) {
 	}
 	got := probeWindowsSandbox(root)
 	t.Logf("protected workspace probe=%+v", got)
-	if got.Reliable || !strings.HasPrefix(got.Probe, "unavailable:") {
-		t.Fatalf("protected workspace probe=%+v, want fail-closed until execution is wired", got)
+	if !got.Reliable || got.Backend != "appcontainer" || got.Probe != "passed" {
+		t.Fatalf("protected workspace probe=%+v, want reliable AppContainer", got)
 	}
 }

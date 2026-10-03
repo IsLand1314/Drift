@@ -17,6 +17,9 @@ type commandProcessHandle struct {
 }
 
 func newCommandProcess(ctx context.Context, command, root, cwd string, sandbox SandboxDecision) *commandProcessHandle {
+	if sandbox.Backend == "appcontainer" {
+		return newAppContainerCommandProcess(ctx, command, root, cwd, sandbox)
+	}
 	cmd := sandboxCommand(ctx, command, root, cwd, sandbox)
 	handle := newPlatformCommandProcess(cmd)
 	handle.start = func(stdout, stderr io.Writer) error {
