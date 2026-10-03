@@ -196,8 +196,13 @@ func runWindowsAppContainerProcess(appPath, args, cwd string, sid *windows.SID) 
 		_ = windows.TerminateJobObject(job, 1)
 		return fmt.Errorf("resume AppContainer process: %w", err)
 	}
-	if _, err := windows.WaitForSingleObject(info.Process, 5000); err != nil {
+	waitResult, err := windows.WaitForSingleObject(info.Process, 5000)
+	if err != nil {
 		return fmt.Errorf("wait AppContainer process: %w", err)
+	}
+	if waitResult == uint32(windows.WAIT_TIMEOUT) {
+		_ = windows.TerminateJobObject(job, 1)
+		return fmt.Errorf("AppContainer process timed out")
 	}
 	var exitCode uint32
 	if err := windows.GetExitCodeProcess(info.Process, &exitCode); err != nil {
