@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -413,6 +414,30 @@ func TestRunUsesNativeToolSystemInstruction(t *testing.T) {
 	}
 	if strings.Contains(system.Content, "ReadFile") {
 		t.Fatalf("system instruction hardcodes ReadFile: %q", system.Content)
+	}
+}
+
+func TestBashSystemInstructionNamesHostShell(t *testing.T) {
+	instruction := bashPlatformInstruction()
+	if runtime.GOOS == "windows" {
+		for _, want := range []string{"Windows", "cmd.exe", "dir", "type", "findstr"} {
+			if !strings.Contains(instruction, want) {
+				t.Fatalf("instruction=%q, missing %q", instruction, want)
+			}
+		}
+		return
+	}
+	for _, want := range []string{"POSIX", "sh", "ls", "cat", "grep"} {
+		if !strings.Contains(instruction, want) {
+			t.Fatalf("instruction=%q, missing %q", instruction, want)
+		}
+	}
+}
+
+func TestChatSystemInstructionIncludesBashPlatformGuidance(t *testing.T) {
+	runner := NewRunner(nil, t.TempDir(), "", tool.NewChatRegistry())
+	if !strings.Contains(runner.systemInstruction(), bashPlatformInstruction()) {
+		t.Fatalf("chat system instruction omitted Bash platform guidance: %q", runner.systemInstruction())
 	}
 }
 

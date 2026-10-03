@@ -546,6 +546,14 @@ func TestChatToolResultUsesSafeSummary(t *testing.T) {
 	}
 }
 
+func TestChatUserPromptLinePreservesSubmittedText(t *testing.T) {
+	var out bytes.Buffer
+	got := chatUserPromptLine(&out, "请运行命令 echo auto-manual-check；不要修改任何文件。")
+	if (!strings.Contains(got, "❯") && !strings.Contains(got, ">")) || !strings.Contains(got, "echo auto-manual-check") {
+		t.Fatalf("prompt line=%q", got)
+	}
+}
+
 func TestChatSuppressesExpectedReadMissFromTranscript(t *testing.T) {
 	if shouldRenderToolResult(agent.Event{ToolName: "ReadFile", ErrorSummary: "tool execution failed"}) {
 		t.Fatal("read-before-create miss should not become a red transcript error")

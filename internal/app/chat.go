@@ -425,6 +425,10 @@ func runTuiMainScreenLoop(ctx context.Context, runner *agent.Runner, audit sessi
 			usageBefore = persistence.usage
 		}
 		if interactiveInput {
+			if _, err := fmt.Fprintln(out, chatUserPromptLine(out, prompt)); err != nil {
+				fmt.Fprintln(stderr, "错误：", err)
+				return 1
+			}
 			currentActivity = newChatActivity(out)
 			currentActivity.Start()
 		}
@@ -520,6 +524,10 @@ func runTuiMainScreenLoop(ctx context.Context, runner *agent.Runner, audit sessi
 				continue
 			}
 			turnCancel()
+			if interactiveInput {
+				fmt.Fprintln(out, chatError(out)+"✖ "+err.Error()+chatReset(out))
+				continue
+			}
 			fmt.Fprintln(stderr, "错误：", err)
 			return 1
 		}
@@ -752,6 +760,11 @@ func chatPrompt(out io.Writer) string {
 		return "\x1b[36m❯ \x1b[0m"
 	}
 	return "> "
+}
+
+func chatUserPromptLine(out io.Writer, prompt string) string {
+	prefix := chatPrompt(out)
+	return prefix + strings.ReplaceAll(prompt, "\n", "\n"+prefix)
 }
 
 func chatSeparator(out io.Writer) string {

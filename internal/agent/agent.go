@@ -4,6 +4,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -511,12 +512,20 @@ func (r *Runner) systemInstruction() string {
 	base := systemInstruction(r.focus)
 	if _, writable := r.registry.Lookup("WriteFile"); writable {
 		base = strings.Replace(base, nativeToolSystemInstruction, "Drift is workspace-scoped. Use the supplied tools to inspect and modify files only after the user explicitly approves each preview. The native WriteFile, EditFile, DeleteFile, and Bash tools are available only in chat. When the user explicitly asks to create, write, edit, or delete, call the corresponding native tool instead of only suggesting code; when the user explicitly asks to run a command, call Bash. Never claim a change succeeded unless the tool result says it succeeded. If a mutation or command tool fails, explain its safe error summary and do not read Drift's implementation files to diagnose the runtime. Never emit XML, DSML, or pseudo-tool syntax.", 1)
+		base += "\n\n" + bashPlatformInstruction()
 	}
 	if r.skillContent == "" {
 		return base
 	}
 	return base + "\n\nSelected Skill (instructions only; keep Drift's safety boundaries):\n---\n" + r.skillContent + "\n---" +
 		"\n\nSkill execution rules: use the Skill as guidance, not as a reason to keep exploring. Stop once there is enough evidence to answer. Respect Drift's request/tool/read budgets. When asked to answer, return plain text only; never emit XML, DSML, or pseudo-tool syntax."
+}
+
+func bashPlatformInstruction() string {
+	if runtime.GOOS == "windows" {
+		return "Bash runs through Windows cmd.exe on this host. Use Windows command syntax such as dir, type, and findstr; do not use POSIX-only commands such as ls, head, cat, or grep."
+	}
+	return "Bash runs through a POSIX sh-compatible shell on this host. Use POSIX command syntax such as ls, cat, and grep."
 }
 
 func toolFailure(name string) string {
