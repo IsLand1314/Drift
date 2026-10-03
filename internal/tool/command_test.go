@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"os"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -35,6 +37,23 @@ func TestBashCommandEnvironmentDoesNotExposeProviderSecrets(t *testing.T) {
 		if strings.Contains(value, "OPENAI_API_KEY=") || strings.Contains(value, "ANTHROPIC_API_KEY=") {
 			t.Fatalf("provider secret remained in child environment: %q", value)
 		}
+	}
+}
+
+func TestBashExecutionDoesNotExposeProviderSecrets(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("OPENAI_API_KEY", "test-openai-secret")
+	command := `printf '%s' "$OPENAI_API_KEY"`
+	if runtime.GOOS == "windows" {
+		command = `echo %OPENAI_API_KEY%`
+	}
+	preview, err := RunCommandPreview(root, `{"command":`+strconv.Quote(command)+`}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := ExecuteCommand(context.Background(), root, preview)
+	if err != nil || strings.Contains(result, "test-openai-secret") {
+		t.Fatalf("provider secret leaked: result=%q err=%v", result, err)
 	}
 }
 
