@@ -408,6 +408,15 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) (
 					}
 				} else {
 					result, toolErr = registeredTool.Execute(ctx, r.root, call.Arguments)
+					if toolErr == nil && call.Name == "TaskSwitch" {
+						if switcher, ok := r.registry.(tool.TaskSwitcher); ok {
+							if nextRoot, switchErr := switcher.ActiveWorktree(r.root); switchErr != nil {
+								toolErr = switchErr
+							} else if nextRoot != "" {
+								r.root = nextRoot
+							}
+						}
+					}
 				}
 				if toolErr == nil && call.Name == "Bash" {
 					if status := commandStatus(result); status != "" && status != "success" {

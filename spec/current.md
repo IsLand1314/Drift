@@ -1,6 +1,10 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M3.28。M3.17 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M3.29。M3.17 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+
+## M3.29：任务创建与切换
+
+完整目标与验收标准见 [`m3.29-task-switch.md`](m3.29-task-switch.md)。`TaskSwitch` 可选择已有任务并将 Agent 后续工具根目录切换到其受控 worktree；不会自动创建或删除 worktree。
 
 ## M3.28：任务 Worktree 绑定
 

@@ -2,6 +2,8 @@ package tool
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -55,6 +57,30 @@ func TestTaskWorktreeBindingIsPersistedAndPathScoped(t *testing.T) {
 	state := registry.(TaskRegistry).ExportTasks()
 	if len(state) != 1 || state[0].Worktree != ".worktrees/agent-2" {
 		t.Fatalf("state=%+v", state)
+	}
+}
+
+func TestTaskSwitchSelectsExistingWorktree(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".worktrees", "agent-1"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	registry := NewChatRegistry()
+	search, _ := registry.Lookup("ToolSearch")
+	if _, err := search.Execute(context.Background(), root, `{"query":"task","load":["TaskCreate","TaskSwitch"]}`); err != nil {
+		t.Fatal(err)
+	}
+	create, _ := registry.Lookup("TaskCreate")
+	if _, err := create.Execute(context.Background(), root, `{"subject":"isolated","worktree":".worktrees/agent-1"}`); err != nil {
+		t.Fatal(err)
+	}
+	switchTool, _ := registry.Lookup("TaskSwitch")
+	if _, err := switchTool.Execute(context.Background(), root, `{"task_id":"task-1"}`); err != nil {
+		t.Fatal(err)
+	}
+	path, err := registry.(TaskSwitcher).ActiveWorktree(root)
+	if err != nil || filepath.Clean(path) != filepath.Clean(filepath.Join(root, ".worktrees", "agent-1")) {
+		t.Fatalf("active path=%q err=%v", path, err)
 	}
 }
 

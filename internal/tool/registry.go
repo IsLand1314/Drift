@@ -68,7 +68,7 @@ func NewChatRegistry() Registry {
 func NewChatRegistryWithSandbox(sandboxMode SandboxMode) Registry {
 	result := &registry{tools: make(map[string]Tool), enabled: make(map[string]bool), summaries: make(map[string]toolSummary), tasks: newTaskStore()}
 	tasks := result.tasks
-	for _, current := range []Tool{listFilesTool{}, searchTextTool{}, readFileTool{}, writeFileTool{}, editFileTool{}, deleteFileTool{}, runCommandTool{sandboxMode: sandboxMode}, askUserQuestionTool{}, taskCreateTool{tasks}, taskListTool{tasks}, taskGetTool{tasks}, taskUpdateTool{tasks}} {
+	for _, current := range []Tool{listFilesTool{}, searchTextTool{}, readFileTool{}, writeFileTool{}, editFileTool{}, deleteFileTool{}, runCommandTool{sandboxMode: sandboxMode}, askUserQuestionTool{}, taskCreateTool{tasks}, taskListTool{tasks}, taskGetTool{tasks}, taskUpdateTool{tasks}, taskSwitchTool{tasks}} {
 		result.add(current, false)
 	}
 	result.add(toolSearchTool{registry: result}, true)
@@ -81,6 +81,8 @@ func (r *registry) ExportTasks() []TaskState { return r.tasks.export() }
 func (r *registry) RestoreTasks(items []TaskState) error { return r.tasks.restore(items) }
 
 func (r *registry) ResetTasks() { r.tasks.reset() }
+
+func (r *registry) ActiveWorktree(root string) (string, error) { return r.tasks.activeWorktree(root) }
 
 func (r *registry) Definitions() []llm.ToolDefinition {
 	definitions := make([]llm.ToolDefinition, 0, len(r.order))

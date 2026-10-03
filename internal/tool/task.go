@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -33,10 +34,16 @@ type TaskRegistry interface {
 	ResetTasks()
 }
 
+// TaskSwitcher resolves the active task's worktree for the Agent runner.
+type TaskSwitcher interface {
+	ActiveWorktree(root string) (string, error)
+}
+
 type taskStore struct {
-	mu    sync.Mutex
-	next  int
-	tasks map[string]TaskState
+	mu     sync.Mutex
+	next   int
+	tasks  map[string]TaskState
+	active string
 }
 
 func newTaskStore() *taskStore { return &taskStore{tasks: make(map[string]TaskState)} }
@@ -45,11 +52,13 @@ type taskCreateTool struct{ store *taskStore }
 type taskListTool struct{ store *taskStore }
 type taskGetTool struct{ store *taskStore }
 type taskUpdateTool struct{ store *taskStore }
+type taskSwitchTool struct{ store *taskStore }
 
 func (taskCreateTool) Name() string { return "TaskCreate" }
 func (taskListTool) Name() string   { return "TaskList" }
 func (taskGetTool) Name() string    { return "TaskGet" }
 func (taskUpdateTool) Name() string { return "TaskUpdate" }
+func (taskSwitchTool) Name() string { return "TaskSwitch" }
 
 func (t taskCreateTool) Definition() llm.ToolDefinition {
 	return controlDefinition(t.Name(), "Create a session task.", map[string]any{
@@ -75,6 +84,12 @@ func (t taskUpdateTool) Definition() llm.ToolDefinition {
 		"status":      map[string]any{"type": "string", "enum": []string{"pending", "in_progress", "completed", "cancelled"}},
 		"description": map[string]any{"type": "string"},
 		"worktree":    map[string]any{"type": "string", "description": "Optional managed worktree path."},
+	}, []string{"task_id"})
+}
+
+func (t taskSwitchTool) Definition() llm.ToolDefinition {
+	return controlDefinition(t.Name(), "Switch the Agent to a task's existing managed worktree.", map[string]any{
+		"task_id": map[string]any{"type": "string"},
 	}, []string{"task_id"})
 }
 
@@ -172,6 +187,37 @@ func (t taskUpdateTool) Execute(_ context.Context, _ string, raw string) (string
 	return formatTask(item), nil
 }
 
+func (t taskSwitchTool) Execute(_ context.Context, root string, raw string) (string, error) {
+	var args struct {
+		TaskID string `json:"task_id"`
+	}
+	if err := decodeTaskArgs(raw, &args); err != nil {
+		return "", fmt.Errorf("decode TaskSwitch arguments: %w", err)
+	}
+	args.TaskID = strings.TrimSpace(args.TaskID)
+	t.store.mu.Lock()
+	item, ok := t.store.tasks[args.TaskID]
+	if ok {
+		t.store.active = item.ID
+	}
+	t.store.mu.Unlock()
+	if !ok {
+		return "", fmt.Errorf("TaskSwitch task %q not found", args.TaskID)
+	}
+	if item.Worktree == "" {
+		return "", fmt.Errorf("TaskSwitch task %q has no worktree", args.TaskID)
+	}
+	path := filepath.Join(root, filepath.FromSlash(item.Worktree))
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", fmt.Errorf("TaskSwitch worktree unavailable: %w", err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("TaskSwitch worktree is not a directory")
+	}
+	return formatTask(item), nil
+}
+
 func (s *taskStore) get(id string) (string, error) {
 	s.mu.Lock()
 	item, ok := s.tasks[id]
@@ -180,6 +226,22 @@ func (s *taskStore) get(id string) (string, error) {
 		return "", fmt.Errorf("TaskGet task %q not found", id)
 	}
 	return formatTask(item), nil
+}
+
+func (s *taskStore) activeWorktree(root string) (string, error) {
+	s.mu.Lock()
+	active := s.active
+	item, ok := s.tasks[active]
+	s.mu.Unlock()
+	if !ok || item.Worktree == "" {
+		return "", nil
+	}
+	path := filepath.Join(root, filepath.FromSlash(item.Worktree))
+	info, err := os.Stat(path)
+	if err != nil || !info.IsDir() {
+		return "", fmt.Errorf("active task worktree unavailable")
+	}
+	return filepath.Abs(path)
 }
 
 func validTaskStatus(status string) bool {
@@ -256,6 +318,7 @@ func (s *taskStore) restore(items []TaskState) error {
 	}
 	s.tasks = restored
 	s.next = next
+	s.active = ""
 	return nil
 }
 
@@ -263,6 +326,7 @@ func (s *taskStore) reset() {
 	s.mu.Lock()
 	s.tasks = make(map[string]TaskState)
 	s.next = 0
+	s.active = ""
 	s.mu.Unlock()
 }
 
