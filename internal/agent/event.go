@@ -58,6 +58,7 @@ type Event struct {
 	Text              string
 	SkillName         string
 	ToolCallID        string
+	TaskID            string
 	ToolName          string
 	MCPServer         string
 	Arguments         string
@@ -88,6 +89,7 @@ type Event struct {
 	SandboxProbe      string
 	ExecutionStatus   string
 	FailureReason     string
+	ChildState        string
 	InputTokens       int
 	OutputTokens      int
 	TotalTokens       int

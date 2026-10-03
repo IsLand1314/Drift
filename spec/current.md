@@ -1,6 +1,14 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M3.30。M3.17 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M4.1。M3.17 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+
+## M4：多 Agent 交付主线
+
+M4 的阶段目标、自动化验收和独立 LLM 验收门禁见 [`m4-multi-agent.md`](m4-multi-agent.md)。M3.30 及更早阶段作为基础能力保留，不再扩展为 M3.31。
+
+### M4.1：单子 Agent 闭环（当前阶段）
+
+见 [`m4.1-single-agent.md`](m4.1-single-agent.md)。当前只实现一个子 Agent 的创建、运行、取消、超时、回收和审计；不实现并行子 Agent、任务 DAG 或 Agent 间消息。
 
 ## M3.30：Worktree 自动合并与冲突安全处理
 
