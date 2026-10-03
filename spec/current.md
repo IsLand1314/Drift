@@ -8,19 +8,19 @@ M4 的阶段目标、自动化验收和独立 LLM 验收门禁见 [`m4-multi-age
 
 ### M4.5：Agent 消息与结果汇总（当前阶段）
 
-见 [`m4.5-message-summary.md`](m4.5-message-summary.md) 和 [`m4.5-acceptance.md`](m4.5-acceptance.md)。单进程消息总线、消息控制工具、子 Agent 生命周期消息和去重汇总已实现；真实消息链路已有成功运行，但独立只读审查尚未重跑，阶段门禁仍未关闭。
+见 [`m4.5-message-summary.md`](m4.5-message-summary.md) 和 [`m4.5-acceptance.md`](m4.5-acceptance.md)。单进程消息总线、消息控制工具、子 Agent 生命周期消息和去重汇总已实现；真实 DeepSeek 消息链路与独立只读审查均通过，M4.5 门禁 PASS。
 
 ### M4.4：Worktree 自动合并与冲突协调
 
-见 [`m4.4-worktree-merge.md`](m4.4-worktree-merge.md) 和 [`m4.4-acceptance.md`](m4.4-acceptance.md)。自动合并、冲突队列、重试和任务合并状态已实现；真实 DeepSeek 端到端自动合并仍缺少稳定证据，阶段门禁保持 `BLOCKED`。
+见 [`m4.4-worktree-merge.md`](m4.4-worktree-merge.md) 和 [`m4.4-acceptance.md`](m4.4-acceptance.md)。自动合并、冲突队列、重试和任务合并状态已实现；真实 DeepSeek 受管 Worktree 自动合并与独立只读审查均通过，M4.4 门禁 PASS。
 
 ### M4.3：任务依赖和状态同步
 
-见 [`m4.3-task-dag.md`](m4.3-task-dag.md)。确定性 DAG、状态转换和重启恢复验收已完成；真实 DeepSeek 已验证依赖阻断、解除和完成后的消息汇总，独立复审记录仍需同步。
+见 [`m4.3-task-dag.md`](m4.3-task-dag.md)。确定性 DAG、状态转换和重启恢复、真实 DeepSeek 依赖阻断/解除及消息汇总、独立只读审查均通过，M4.3 门禁 PASS。
 
 ### M4.2：多子 Agent 并行
 
-见 [`m4.2-parallel-agents.md`](m4.2-parallel-agents.md)。确定性并行验收和一次真实 DeepSeek 双子 Agent 运行已通过；M4.3 的依赖门禁复验仍在进行。
+见 [`m4.2-parallel-agents.md`](m4.2-parallel-agents.md)。确定性并行验收、真实 DeepSeek 双子 Agent 运行和独立只读审查均通过，M4.2 门禁 PASS。
 
 ### M4.1：单子 Agent 闭环
 
