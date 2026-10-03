@@ -161,6 +161,66 @@ func probeWindowsAppContainerProcess(root string, sid *windows.SID) error {
 }
 
 func grantWindowsProbeFileAccess(path string, sid *windows.SID) (func(), error) {
+	return updateWindowsACL(path, sid, windows.GENERIC_ALL, windows.GRANT_ACCESS, windows.NO_INHERITANCE)
+}
+
+func grantWindowsWorkspaceAccess(root, cwd string, sid *windows.SID) (func(), error) {
+	type aclRestore struct {
+		path string
+		dacl *windows.ACL
+	}
+	var restores []aclRestore
+	apply := func(path string, permissions windows.ACCESS_MASK, mode windows.ACCESS_MODE, inheritance uint32) error {
+		sd, err := windows.GetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION)
+		if err != nil {
+			return fmt.Errorf("read workspace ACL %s: %w", path, err)
+		}
+		dacl, _, err := sd.DACL()
+		if err != nil {
+			return fmt.Errorf("read workspace DACL %s: %w", path, err)
+		}
+		entry := windows.EXPLICIT_ACCESS{AccessPermissions: permissions, AccessMode: mode, Inheritance: inheritance, Trustee: windows.TRUSTEE{TrusteeForm: windows.TRUSTEE_IS_SID, TrusteeType: windows.TRUSTEE_IS_UNKNOWN, TrusteeValue: windows.TrusteeValueFromSID(sid)}}
+		acl, err := windows.ACLFromEntries([]windows.EXPLICIT_ACCESS{entry}, dacl)
+		if err != nil {
+			return fmt.Errorf("build workspace ACL %s: %w", path, err)
+		}
+		if err := windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION, nil, nil, acl, nil); err != nil {
+			return fmt.Errorf("grant workspace ACL %s: %w", path, err)
+		}
+		restores = append(restores, aclRestore{path: path, dacl: dacl})
+		return nil
+	}
+	if err := apply(root, windows.GENERIC_ALL, windows.GRANT_ACCESS, windows.NO_INHERITANCE); err != nil {
+		for j := len(restores) - 1; j >= 0; j-- {
+			_ = windows.SetNamedSecurityInfo(restores[j].path, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION, nil, nil, restores[j].dacl, nil)
+		}
+		return nil, err
+	}
+	if cwd != "." && cwd != "" {
+		current := root
+		parts := strings.Split(filepath.ToSlash(cwd), "/")
+		for i, part := range parts {
+			current = filepath.Join(current, filepath.FromSlash(part))
+			inheritance := uint32(windows.NO_INHERITANCE)
+			if i == len(parts)-1 {
+				inheritance = windows.OBJECT_INHERIT_ACE | windows.CONTAINER_INHERIT_ACE
+			}
+			if err := apply(current, windows.GENERIC_ALL, windows.GRANT_ACCESS, inheritance); err != nil {
+				for j := len(restores) - 1; j >= 0; j-- {
+					_ = windows.SetNamedSecurityInfo(restores[j].path, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION, nil, nil, restores[j].dacl, nil)
+				}
+				return nil, err
+			}
+		}
+	}
+	return func() {
+		for i := len(restores) - 1; i >= 0; i-- {
+			_ = windows.SetNamedSecurityInfo(restores[i].path, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION, nil, nil, restores[i].dacl, nil)
+		}
+	}, nil
+}
+
+func updateWindowsACL(path string, sid *windows.SID, permissions uint32, mode uint32, inheritance uint32) (func(), error) {
 	sd, err := windows.GetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION)
 	if err != nil {
 		return nil, fmt.Errorf("read probe ACL: %w", err)

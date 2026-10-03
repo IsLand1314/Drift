@@ -48,7 +48,7 @@ func (p *appContainerCommandProcess) start(stdout, stderr io.Writer) error {
 		return err
 	}
 	p.profile = profile
-	restore, err := grantWindowsProbeFileAccess(p.root, sid)
+	restore, err := grantWindowsWorkspaceAccess(p.root, p.cwd, sid)
 	if err != nil {
 		deleteWindowsAppContainerProfile(profile)
 		return fmt.Errorf("grant workspace ACL: %w", err)

@@ -99,3 +99,33 @@ func TestRunCommandPreviewUsesVerifiedAppContainer(t *testing.T) {
 		t.Fatalf("output=%q", output)
 	}
 }
+
+func TestExecuteCommandAppContainerSupportsNestedWorkspaceCWD(t *testing.T) {
+	root := t.TempDir()
+	nested := filepath.Join(root, "nested", "a", "b")
+	if err := os.MkdirAll(nested, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{".drift", ".git"} {
+		if err := os.Mkdir(filepath.Join(root, name), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	preview := Preview{
+		Operation:   "run_command",
+		Command:     `echo nested > nested-output.txt`,
+		CWD:         "nested/a/b",
+		Timeout:     10 * time.Second,
+		OutputLimit: 4096,
+		SandboxMode: SandboxRequired,
+		Sandbox:     SandboxDecision{Mode: SandboxRequired, Backend: "appcontainer", Available: true, Probe: "passed"},
+	}
+	output, err := ExecuteCommand(context.Background(), root, preview)
+	if err != nil || !strings.Contains(output, "status=success") {
+		t.Fatalf("nested output=%q err=%v", output, err)
+	}
+	data, err := os.ReadFile(filepath.Join(nested, "nested-output.txt"))
+	if err != nil || string(data) != "nested \r\n" {
+		t.Fatalf("nested file=%q err=%v", data, err)
+	}
+}
