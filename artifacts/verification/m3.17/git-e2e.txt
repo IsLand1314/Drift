@@ -1,0 +1,11 @@
+M3.17 Git 整体验收
+
+1. `go test ./internal/git -run 'TestPreflight|TestRevert' -count=1`
+   PASS：临时 Git 仓库创建反向 commit，文件内容恢复；dirty、非法目标和 Drift 审计目录边界通过。
+2. `go test ./internal/app -run 'TestGitRevert' -count=1`
+   PASS：缺少 `--yes` 不执行；支持审计；无 required 沙箱后端时成功用例安全跳过。
+3. 真实 CLI 临时仓库：
+   - `--yes` 正确进入预检和审计；
+   - 当前 Windows AppContainer 在嵌套临时目录上返回 `Unable to read current working directory: Permission denied`；
+   - 退出码为 1、HEAD 未变化、文件内容未变化、审计文件存在；
+   - 结论：沙箱失败闭环正确，未发生 Git 数据丢失。该环境限制不影响 `internal/git` 的无沙箱功能测试。
