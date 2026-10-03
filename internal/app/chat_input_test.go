@@ -27,7 +27,7 @@ func TestTTYChatFilesIdentifiesTerminalPair(t *testing.T) {
 }
 
 func TestChatInputScannerReadsLines(t *testing.T) {
-	input := newTuiMainScreenInput(strings.NewReader("hello\n\n"), &strings.Builder{}, "test-model")
+	input := newTuiMainScreenInput(strings.NewReader("hello\n\n"), &strings.Builder{}, "test-model", permissionModeDefault)
 	if _, ok := input.(*scannerChatInput); !ok {
 		t.Fatalf("expected scanner input, got %T", input)
 	}
@@ -45,7 +45,7 @@ func TestChatInputScannerReadsLines(t *testing.T) {
 }
 
 func TestChatInputModelPlaceholderAndSubmit(t *testing.T) {
-	model := newChatInputModel("test-model", "────────────────────────")
+	model := newChatInputModel("test-model", "────────────────────────", permissionModeDefault)
 	if !strings.Contains(model.View(), "Send a message...") {
 		t.Fatalf("placeholder missing from %q", model.View())
 	}
@@ -62,7 +62,7 @@ func TestChatInputModelPlaceholderAndSubmit(t *testing.T) {
 }
 
 func TestChatInputModelCtrlC(t *testing.T) {
-	model := newChatInputModel("test-model", "────────────────────────")
+	model := newChatInputModel("test-model", "────────────────────────", permissionModeDefault)
 	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
 	model = updated.(chatInputModel)
 	if !model.cancelled || cmd == nil {
@@ -71,7 +71,7 @@ func TestChatInputModelCtrlC(t *testing.T) {
 }
 
 func TestChatInputModelTreatsMultilineBracketedPasteAsText(t *testing.T) {
-	model := newChatInputModel("test-model", "separator")
+	model := newChatInputModel("test-model", "separator", permissionModeDefault)
 	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("line one\nline two"), Paste: true})
 	model = updated.(chatInputModel)
 	if model.submitted {
@@ -83,15 +83,15 @@ func TestChatInputModelTreatsMultilineBracketedPasteAsText(t *testing.T) {
 }
 
 func TestChatInputModelFooterShowsModel(t *testing.T) {
-	model := newChatInputModel("deepseek-v4-flash", "────────────────────────")
+	model := newChatInputModel("deepseek-v4-flash", "────────────────────────", permissionModeAcceptEdits)
 	view := model.View()
-	if !strings.Contains(view, "Enter 发送 · Ctrl+C 取消") || !strings.Contains(view, "deepseek-v4-flash") {
+	if !strings.Contains(view, "权限：acceptEdits") || !strings.Contains(view, "deepseek-v4-flash") {
 		t.Fatalf("footer missing from %q", view)
 	}
 }
 
 func TestChatInputModelSubmittedViewDoesNotLeaveFooter(t *testing.T) {
-	model := newChatInputModel("test-model", "separator")
+	model := newChatInputModel("test-model", "separator", permissionModeDefault)
 	model.editor.SetValue("create file")
 	model.submitted = true
 	view := model.View()

@@ -145,12 +145,12 @@ func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit
 // runTuiMainScreenLoop writes completed chat output directly to the terminal's
 // main buffer. It deliberately owns no transcript viewport or scroll region.
 func runTuiMainScreenLoop(ctx context.Context, runner *agent.Runner, audit session.Writer, traceSink agent.EventSink, persistence *chatPersistence, status chatStatus, interrupt *interruptCoordinator, in io.Reader, out, stderr io.Writer) int {
-	input := newTuiMainScreenInput(in, out, status.Model)
 	permissionMemory := newPermissionMemory()
 	permissionMode := status.PermissionMode
 	if permissionMode == "" {
 		permissionMode = permissionModeDefault
 	}
+	input := newTuiMainScreenInput(in, out, status.Model, permissionMode)
 	pendingPermissions := make(map[string]agent.PermissionRequest)
 	var permissionPolicyStore *permissionPolicy
 	if status.Workspace != "" {
@@ -277,6 +277,9 @@ func runTuiMainScreenLoop(ctx context.Context, runner *agent.Runner, audit sessi
 			}
 			if selected {
 				permissionMode = mode
+				if tui, ok := input.(*tuiMainScreenInput); ok {
+					tui.permissionMode = mode
+				}
 				fmt.Fprintln(out, chatMuted(out)+"权限模式已切换为 "+string(mode)+chatReset(out))
 			}
 			continue

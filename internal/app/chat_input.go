@@ -85,9 +85,9 @@ func parseQuestionAnswer(question tool.Question, raw string) (tool.QuestionAnswe
 	return tool.QuestionAnswer{Selected: selected}, nil
 }
 
-func newTuiMainScreenInput(in io.Reader, out io.Writer, modelName string) chatInput {
+func newTuiMainScreenInput(in io.Reader, out io.Writer, modelName string, mode permissionMode) chatInput {
 	if ttyInput, ttyOutput, ok := tuiMainScreenFiles(in, out); ok {
-		return &tuiMainScreenInput{in: ttyInput, out: ttyOutput, modelName: modelName}
+		return &tuiMainScreenInput{in: ttyInput, out: ttyOutput, modelName: modelName, permissionMode: mode}
 	}
 	return newScannerChatInput(in)
 }
@@ -129,20 +129,16 @@ func (s *scannerChatInput) Read(context.Context) (string, error) {
 // tuiMainScreenInput owns only the transient input editor. Completed turns are
 // printed by runTuiMainScreenLoop and remain in terminal scrollback.
 type tuiMainScreenInput struct {
-	in        io.Reader
-	out       io.Writer
-	modelName string
-	width     int
-	height    int
+	in             io.Reader
+	out            io.Writer
+	modelName      string
+	permissionMode permissionMode
+	width          int
+	height         int
 }
 
 func (t *tuiMainScreenInput) Read(ctx context.Context) (string, error) {
-	if separator := chatSeparator(t.out); separator != "" {
-		if _, err := fmt.Fprintln(t.out, separator); err != nil {
-			return "", err
-		}
-	}
-	model := newChatInputModel(t.modelName, chatSeparator(t.out))
+	model := newChatInputModel(t.modelName, chatSeparator(t.out), t.permissionMode)
 	program := tea.NewProgram(
 		&model,
 		tea.WithContext(ctx),
@@ -184,13 +180,14 @@ func (t *tuiMainScreenInput) Read(ctx context.Context) (string, error) {
 }
 
 type chatInputModel struct {
-	editor    textarea.Model
-	modelName string
-	separator string
-	width     int
-	height    int
-	submitted bool
-	cancelled bool
+	editor         textarea.Model
+	modelName      string
+	separator      string
+	permissionMode permissionMode
+	width          int
+	height         int
+	submitted      bool
+	cancelled      bool
 }
 
 type permissionModeInputModel struct {
@@ -269,7 +266,7 @@ func readPermissionModeChoice(ctx context.Context, input chatInput, current perm
 	return final.mode(), true, nil
 }
 
-func newChatInputModel(modelName, separator string) chatInputModel {
+func newChatInputModel(modelName, separator string, mode permissionMode) chatInputModel {
 	editor := textarea.New()
 	editor.Placeholder = "Send a message..."
 	editor.Prompt = "❯ "
@@ -282,7 +279,7 @@ func newChatInputModel(modelName, separator string) chatInputModel {
 	editor.FocusedStyle.Placeholder = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	editor.BlurredStyle = editor.FocusedStyle
 	editor.Focus()
-	return chatInputModel{editor: editor, modelName: modelName, separator: separator, width: 80, height: 24}
+	return chatInputModel{editor: editor, modelName: modelName, separator: separator, permissionMode: mode, width: 80, height: 24}
 }
 
 func (m chatInputModel) Init() tea.Cmd {
@@ -315,7 +312,11 @@ func (m chatInputModel) View() string {
 	if m.submitted {
 		return m.editor.View()
 	}
-	left := "  Enter 发送 · Ctrl+C 取消"
+	mode := string(m.permissionMode)
+	if mode == "" {
+		mode = string(permissionModeDefault)
+	}
+	left := "  权限：" + mode
 	right := m.modelName
 	spaces := m.width - lipgloss.Width(left) - lipgloss.Width(right)
 	if right == "" || spaces < 1 {
@@ -323,5 +324,12 @@ func (m chatInputModel) View() string {
 		spaces = 1
 	}
 	footer := lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(left + strings.Repeat(" ", spaces) + right)
-	return m.editor.View() + "\n" + footer + "\n" + m.separator
+	separator := ""
+	if m.separator != "" {
+		separator = strings.Repeat("─", maxTUI(1, m.width))
+		if strings.Contains(m.separator, "\x1b[") {
+			separator = "\x1b[2m" + separator + "\x1b[0m"
+		}
+	}
+	return m.editor.View() + "\n" + footer + "\n" + separator
 }
