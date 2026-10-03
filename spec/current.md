@@ -1,6 +1,24 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M3.20。M3.17 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M3.21。M3.17 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+
+## M3.21：控制工具最小闭环
+
+M3.21 只新增会话内澄清与工具发现：`AskUserQuestion` 和 `ToolSearch`。不实现 MCP、任务队列、Git worktree、Skill 安装或多 Agent。
+
+- chat 初始仅向模型暴露两个控制工具；`ToolSearch` 只返回名称、类别和描述，模型必须在结果中明确选择工具后，完整 schema 才在下一次模型请求中加载；
+- 内建的 `Glob`、`Grep`、`ReadFile`、`WriteFile`、`EditFile`、`DeleteFile`、`Bash` 均可被检索，未加载工具调用按未知工具拒绝；
+- `AskUserQuestion` 支持单选、多选或自由文本；回答写入当前对话的 tool result。取消写入 `cancelled/question_cancelled` 审计状态，不等同于审批拒绝或工具失败；
+- 两个控制工具均不修改权限模式、持久化授权、沙箱策略、workspace 或 change set。
+
+验收要求：
+
+| ID | 验证方法 | 通过阈值 | 失败判定 |
+| --- | --- | --- | --- |
+| AC-M321-001 | `go test ./internal/tool -run 'Test(ChatRegistryStartsWithOnlyControlSchemas|ToolSearchLoadsOnlySelectedMatchingSchemas|AskUserQuestionParsesStructuredArguments)' -count=1` | 初始 schema、选择性加载和参数边界通过 | 未加载工具可直接执行，或 schema 全量泄露 |
+| AC-M321-002 | `go test ./internal/agent -run 'TestAskUserQuestion|TestToolSearchMakesLoadedSchemaAvailableOnNextRequest' -count=1` | 回答进入上下文；取消状态可区分；下一模型请求携带已加载 schema | 回答丢失、取消误报失败或 schema 不刷新 |
+| AC-M321-003 | `go test ./internal/app -run TestParseQuestionAnswerAcceptsChoicesFreeTextAndCancellation -count=1` | 编号选项、自由文本和取消输入可解析 | 无法作答或误执行权限操作 |
+| AC-M321-004 | `go test ./... -count=1`、`go vet ./...`、`go build ./cmd/drift`、`git diff --check` | 全部通过 | 任一命令失败 |
 
 ## M3.19–M3.20：安全收口与上下文管理
 

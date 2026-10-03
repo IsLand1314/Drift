@@ -272,8 +272,8 @@ func TestRunCommandIsChatOnly(t *testing.T) {
 	if _, ok := NewDefaultRegistry().Lookup("Bash"); ok {
 		t.Fatal("default registry exposed Bash")
 	}
-	if _, ok := NewChatRegistry().Lookup("Bash"); !ok {
-		t.Fatal("chat registry did not expose Bash")
+	if _, ok := NewChatRegistry().Lookup("Bash"); ok {
+		t.Fatal("chat registry exposed Bash before ToolSearch loaded it")
 	}
 }
 

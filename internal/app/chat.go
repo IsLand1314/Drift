@@ -162,6 +162,17 @@ func runTuiMainScreenLoop(ctx context.Context, runner *agent.Runner, audit sessi
 	}
 	var currentActivity *chatActivity
 	if runner != nil {
+		runner.SetQuestionPrompt(func(promptCtx context.Context, question tool.Question) (tool.QuestionAnswer, error) {
+			if currentActivity != nil {
+				currentActivity.Stop()
+			}
+			defer func() {
+				if currentActivity != nil {
+					currentActivity.Start()
+				}
+			}()
+			return askUserQuestion(promptCtx, input, out, question)
+		})
 		runner.SetPermissionPrompt(func(promptCtx context.Context, request agent.PermissionRequest) (agent.PermissionDecision, error) {
 			if currentActivity != nil {
 				currentActivity.Stop()

@@ -1,6 +1,10 @@
 package agent
 
-import "context"
+import (
+	"context"
+
+	"github.com/IsLand1314/Drift/internal/tool"
+)
 
 // EventType 是 Agent 对上层输出的稳定事件分类。
 type EventType string
@@ -112,6 +116,10 @@ type PermissionDecision struct {
 
 // PermissionPrompt asks the caller whether a previewed operation may execute.
 type PermissionPrompt func(context.Context, PermissionRequest) (PermissionDecision, error)
+
+// QuestionPrompt gathers a structured clarification. It is intentionally
+// separate from PermissionPrompt and cannot authorize tools or sandboxes.
+type QuestionPrompt func(context.Context, tool.Question) (tool.QuestionAnswer, error)
 
 // EventSink 消费 Agent 事件；返回错误会立即中止本次运行。
 type EventSink func(Event) error

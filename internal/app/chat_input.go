@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 
+	"github.com/IsLand1314/Drift/internal/tool"
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -18,6 +20,69 @@ var errChatInputCancelled = errors.New("chat input cancelled")
 
 type chatInput interface {
 	Read(context.Context) (string, error)
+}
+
+func askUserQuestion(ctx context.Context, input chatInput, out io.Writer, question tool.Question) (tool.QuestionAnswer, error) {
+	fmt.Fprintln(out, "\n● "+question.Question)
+	for index, option := range question.Options {
+		line := fmt.Sprintf("  %d. %s", index+1, option.Label)
+		if option.Description != "" {
+			line += " — " + option.Description
+		}
+		fmt.Fprintln(out, line)
+	}
+	prompt := "输入选项编号"
+	if question.MultiSelect {
+		prompt += "（多选用逗号分隔）"
+	}
+	if question.AllowFreeText {
+		prompt += "或文本"
+	}
+	fmt.Fprint(out, prompt+"；/cancel 取消: ")
+	value, err := input.Read(ctx)
+	if errors.Is(err, errChatInputCancelled) {
+		return tool.QuestionAnswer{Cancelled: true}, nil
+	}
+	if err != nil {
+		return tool.QuestionAnswer{}, err
+	}
+	return parseQuestionAnswer(question, value)
+}
+
+func parseQuestionAnswer(question tool.Question, raw string) (tool.QuestionAnswer, error) {
+	value := strings.TrimSpace(raw)
+	if value == "/cancel" || strings.EqualFold(value, "cancel") {
+		return tool.QuestionAnswer{Cancelled: true}, nil
+	}
+	if value == "" {
+		return tool.QuestionAnswer{}, errors.New("请选择一个选项或输入文本")
+	}
+	byID := make(map[string]string, len(question.Options))
+	for _, option := range question.Options {
+		byID[option.ID] = option.ID
+	}
+	parts := strings.Split(value, ",")
+	selected := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		index, err := strconv.Atoi(part)
+		if err == nil && index >= 1 && index <= len(question.Options) {
+			selected = append(selected, question.Options[index-1].ID)
+			continue
+		}
+		if id, ok := byID[part]; ok {
+			selected = append(selected, id)
+			continue
+		}
+		if question.AllowFreeText && len(parts) == 1 {
+			return tool.QuestionAnswer{Text: value}, nil
+		}
+		return tool.QuestionAnswer{}, errors.New("选项无效")
+	}
+	if !question.MultiSelect && len(selected) != 1 {
+		return tool.QuestionAnswer{}, errors.New("该问题只能选择一个选项")
+	}
+	return tool.QuestionAnswer{Selected: selected}, nil
 }
 
 func newTuiMainScreenInput(in io.Reader, out io.Writer, modelName string) chatInput {

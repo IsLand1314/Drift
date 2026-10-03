@@ -37,16 +37,16 @@ func TestCommandStatusMapsNonSuccessResults(t *testing.T) {
 	}
 }
 
-func TestChatRegistrySystemInstructionAllowsConfirmedWrite(t *testing.T) {
+func TestChatRegistrySystemInstructionExplainsLazyToolSearch(t *testing.T) {
 	client := &scriptedClient{steps: []scriptedStep{{events: []llm.StreamEvent{{Text: "ok"}}, completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "ok"}, FinishReason: "stop"}}}}
 	if err := RunEventsWithRegistry(context.Background(), client, t.TempDir(), "describe", "", tool.NewChatRegistry(), nil); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(client.requests[0].Messages[0].Content, "WriteFile") || !strings.Contains(client.requests[0].Messages[0].Content, "create, write, edit, or delete") {
+	if !strings.Contains(client.requests[0].Messages[0].Content, "ToolSearch") || !strings.Contains(client.requests[0].Messages[0].Content, "AskUserQuestion") {
 		t.Fatalf("system instruction=%q", client.requests[0].Messages[0].Content)
 	}
-	if len(client.requests[0].Tools) != 7 {
-		t.Fatalf("tools=%d, want 7", len(client.requests[0].Tools))
+	if len(client.requests[0].Tools) != 2 {
+		t.Fatalf("tools=%d, want 2", len(client.requests[0].Tools))
 	}
 }
 
@@ -216,6 +216,90 @@ func TestRunnerNeedsCompactionAtConfiguredThreshold(t *testing.T) {
 	}
 	if !runner.NeedsCompaction(8) {
 		t.Fatal("NeedsCompaction() = false at configured threshold")
+	}
+}
+
+func TestAskUserQuestionUsesPromptAndWritesAnswerToContext(t *testing.T) {
+	client := &scriptedClient{steps: []scriptedStep{
+		{
+			completion: llm.Completion{
+				Assistant:    llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{{ID: "question-1", Type: "function", Name: "AskUserQuestion", Arguments: `{"question":"choose","options":[{"id":"a","label":"A"}]}`}}},
+				FinishReason: "tool_calls",
+			},
+		},
+		{events: []llm.StreamEvent{{Text: "done"}}, completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "done"}, FinishReason: "stop"}},
+	}}
+	runner := NewRunner(client, t.TempDir(), "", tool.NewChatRegistry())
+	called := false
+	runner.SetQuestionPrompt(func(_ context.Context, question tool.Question) (tool.QuestionAnswer, error) {
+		called = true
+		if question.Question != "choose" {
+			t.Fatalf("question=%+v", question)
+		}
+		return tool.QuestionAnswer{Selected: []string{"a"}}, nil
+	})
+	var events []Event
+	if err := runner.RunEvents(context.Background(), "help", func(event Event) error {
+		events = append(events, event)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !called || !strings.Contains(runner.Messages()[2].Content, "a") {
+		t.Fatalf("called=%v messages=%+v", called, runner.Messages())
+	}
+	var result *Event
+	for index := range events {
+		if events[index].Type == EventToolResult && events[index].ToolName == "AskUserQuestion" {
+			result = &events[index]
+			break
+		}
+	}
+	if result == nil || result.ExecutionStatus != "success" {
+		t.Fatalf("events=%+v", events)
+	}
+}
+
+func TestAskUserQuestionCancellationIsAuditable(t *testing.T) {
+	client := &scriptedClient{steps: []scriptedStep{
+		{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{{ID: "question-1", Type: "function", Name: "AskUserQuestion", Arguments: `{"question":"choose","options":[{"id":"a","label":"A"}]}`}}}, FinishReason: "tool_calls"}},
+		{events: []llm.StreamEvent{{Text: "done"}}, completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "done"}, FinishReason: "stop"}},
+	}}
+	runner := NewRunner(client, t.TempDir(), "", tool.NewChatRegistry())
+	runner.SetQuestionPrompt(func(context.Context, tool.Question) (tool.QuestionAnswer, error) {
+		return tool.QuestionAnswer{Cancelled: true}, nil
+	})
+	var result *Event
+	if err := runner.RunEvents(context.Background(), "help", func(event Event) error {
+		if event.Type == EventToolResult && event.ToolName == "AskUserQuestion" {
+			copy := event
+			result = &copy
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if result == nil || result.ExecutionStatus != "cancelled" || result.FailureReason != "question_cancelled" {
+		t.Fatalf("result=%+v", result)
+	}
+}
+
+func TestToolSearchMakesLoadedSchemaAvailableOnNextRequest(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("hello"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	client := &scriptedClient{steps: []scriptedStep{
+		{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{{ID: "search", Type: "function", Name: "ToolSearch", Arguments: `{"query":"read","load":["ReadFile"]}`}}}, FinishReason: "tool_calls"}},
+		{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{{ID: "read", Type: "function", Name: "ReadFile", Arguments: `{"path":"README.md"}`}}}, FinishReason: "tool_calls"}},
+		{events: []llm.StreamEvent{{Text: "done"}}, completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "done"}, FinishReason: "stop"}},
+	}}
+	runner := NewRunner(client, root, "", tool.NewChatRegistry())
+	if err := runner.RunEvents(context.Background(), "read it", nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(client.requests) != 3 || len(client.requests[0].Tools) != 2 || len(client.requests[1].Tools) != 3 {
+		t.Fatalf("schema counts = %d/%d/%d", len(client.requests), len(client.requests[0].Tools), len(client.requests[1].Tools))
 	}
 }
 
@@ -446,8 +530,13 @@ func TestBashSystemInstructionNamesHostShell(t *testing.T) {
 	}
 }
 
-func TestChatSystemInstructionIncludesBashPlatformGuidance(t *testing.T) {
-	runner := NewRunner(nil, t.TempDir(), "", tool.NewChatRegistry())
+func TestLoadedBashAddsPlatformGuidance(t *testing.T) {
+	registry := tool.NewChatRegistry()
+	search, _ := registry.Lookup("ToolSearch")
+	if _, err := search.Execute(context.Background(), t.TempDir(), `{"query":"command","load":["Bash"]}`); err != nil {
+		t.Fatal(err)
+	}
+	runner := NewRunner(nil, t.TempDir(), "", registry)
 	if !strings.Contains(runner.systemInstruction(), bashPlatformInstruction()) {
 		t.Fatalf("chat system instruction omitted Bash platform guidance: %q", runner.systemInstruction())
 	}
@@ -1326,7 +1415,12 @@ func TestRunEventsRecordsRequiredSandboxRefusal(t *testing.T) {
 		{events: []llm.StreamEvent{{Text: "blocked"}}, completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "blocked"}, FinishReason: "stop"}},
 	}}
 	root := t.TempDir()
-	runner := NewRunner(client, root, "", tool.NewChatRegistryWithSandbox(tool.SandboxRequired))
+	registry := tool.NewChatRegistryWithSandbox(tool.SandboxRequired)
+	search, _ := registry.Lookup("ToolSearch")
+	if _, err := search.Execute(context.Background(), root, `{"query":"command","load":["Bash"]}`); err != nil {
+		t.Fatal(err)
+	}
+	runner := NewRunner(client, root, "", registry)
 	var events []Event
 	if err := runner.RunEvents(context.Background(), "run command", func(event Event) error {
 		events = append(events, event)

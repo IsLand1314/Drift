@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/IsLand1314/Drift/internal/tool"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -98,5 +99,21 @@ func TestPermissionModeInputModelSelectsMode(t *testing.T) {
 	model = updated.(permissionModeInputModel)
 	if !model.submitted || cmd == nil || model.mode() != permissionModeAcceptEdits {
 		t.Fatalf("submitted=%v mode=%q cmd=%v", model.submitted, model.mode(), cmd)
+	}
+}
+
+func TestParseQuestionAnswerAcceptsChoicesFreeTextAndCancellation(t *testing.T) {
+	question := tool.Question{Options: []tool.QuestionOption{{ID: "fast", Label: "Fast"}, {ID: "safe", Label: "Safe"}}, AllowFreeText: true}
+	answer, err := parseQuestionAnswer(question, "2")
+	if err != nil || len(answer.Selected) != 1 || answer.Selected[0] != "safe" {
+		t.Fatalf("numbered choice = %+v, %v", answer, err)
+	}
+	answer, err = parseQuestionAnswer(question, "explain more")
+	if err != nil || answer.Text != "explain more" {
+		t.Fatalf("free text = %+v, %v", answer, err)
+	}
+	answer, err = parseQuestionAnswer(question, "/cancel")
+	if err != nil || !answer.Cancelled {
+		t.Fatalf("cancel = %+v, %v", answer, err)
 	}
 }

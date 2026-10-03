@@ -48,6 +48,7 @@ type Runner struct {
 	registry         tool.Registry
 	messages         []llm.Message
 	permissionPrompt PermissionPrompt
+	questionPrompt   QuestionPrompt
 }
 
 // NewRunner 创建一个新的内存 Agent Runner。
@@ -87,6 +88,10 @@ func (r *Runner) Messages() []llm.Message { return cloneMessages(r.messages) }
 
 // SetPermissionPrompt installs the approval callback for previewable tools.
 func (r *Runner) SetPermissionPrompt(prompt PermissionPrompt) { r.permissionPrompt = prompt }
+
+// SetQuestionPrompt installs the interactive clarification callback. It is
+// separate from permissions and never grants execution authority.
+func (r *Runner) SetQuestionPrompt(prompt QuestionPrompt) { r.questionPrompt = prompt }
 
 // RestoreMessages replaces the current messages with a caller-owned snapshot.
 func (r *Runner) RestoreMessages(messages []llm.Message) { r.messages = cloneMessages(messages) }
@@ -232,13 +237,13 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) (
 	}
 
 	r.messages = append(r.messages, llm.Message{Role: "user", Content: prompt})
-	definitions := r.registry.Definitions()
 	toolCalls, resultBytes := 0, 0
 	// 达到预算后，最后一轮撤掉 tools，强制模型基于已有结果给出回答。
 	forceFinal := false
 	forceFinalInstruction := ""
 	pseudoToolRetryUsed := false
 	for requestIndex := 0; requestIndex < MaxModelRequests; requestIndex++ {
+		definitions := r.registry.Definitions()
 		requestMessages := r.messages
 		if requestIndex == 0 || forceFinal {
 			system := r.systemInstruction()
@@ -328,6 +333,7 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) (
 			var sandboxAvailable bool
 			var sandboxDenied bool
 			var permissionDenied bool
+			var questionCancelled bool
 			var permissionFailure string
 			var oldBytes, newBytes int
 			if toolCalls >= MaxToolCalls {
@@ -338,7 +344,24 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) (
 				toolCalls++
 				registeredTool, _ := r.registry.Lookup(call.Name)
 				var toolErr error
-				if previewable, ok := registeredTool.(tool.Previewable); ok {
+				if questionTool, ok := registeredTool.(tool.Questionable); ok {
+					question, questionErr := questionTool.Question(call.Arguments)
+					if questionErr != nil {
+						toolErr = questionErr
+					} else if r.questionPrompt == nil {
+						toolErr = errors.New("AskUserQuestion is unavailable without interactive input")
+					} else {
+						answer, answerErr := r.questionPrompt(ctx, question)
+						if answerErr != nil {
+							toolErr = answerErr
+						} else {
+							result = answer.ToolResult()
+							if answer.Cancelled {
+								questionCancelled = true
+							}
+						}
+					}
+				} else if previewable, ok := registeredTool.(tool.Previewable); ok {
 					preview, previewErr := previewable.Preview(ctx, r.root, call.Arguments)
 					if previewErr != nil {
 						toolErr = previewErr
@@ -415,6 +438,10 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) (
 			if sandboxDenied {
 				executionStatus = "denied"
 				failureReason = "sandbox_unavailable"
+			}
+			if questionCancelled {
+				executionStatus = "cancelled"
+				failureReason = "question_cancelled"
 			}
 			if errorSummary != "" && !sandboxDenied && !permissionDenied {
 				executionStatus = "failed"
@@ -520,6 +547,12 @@ func (r *Runner) systemInstruction() string {
 	if _, writable := r.registry.Lookup("WriteFile"); writable {
 		base = strings.Replace(base, nativeToolSystemInstruction, "Drift is workspace-scoped. Use the supplied tools to inspect and modify files only after the user explicitly approves each preview. The native WriteFile, EditFile, DeleteFile, and Bash tools are available only in chat. When the user explicitly asks to create, write, edit, or delete, call the corresponding native tool instead of only suggesting code; when the user explicitly asks to run a command, call Bash. Never claim a change succeeded unless the tool result says it succeeded. If a mutation or command tool fails, explain its safe error summary and do not read Drift's implementation files to diagnose the runtime. Never emit XML, DSML, or pseudo-tool syntax.", 1)
 		base += "\n\n" + bashPlatformInstruction()
+	} else if _, bash := r.registry.Lookup("Bash"); bash {
+		base = strings.Replace(base, "Bash, shell, and exec are unavailable.", "Bash is available only after the user explicitly approves the command preview.", 1)
+		base += "\n\n" + bashPlatformInstruction()
+	}
+	if _, searchable := r.registry.Lookup("ToolSearch"); searchable {
+		base += "\n\nToolSearch and AskUserQuestion are available. Before using file, write, or command tools, call ToolSearch with a focused query and load only the matching schemas. Use AskUserQuestion only to clarify user intent; it never grants permission."
 	}
 	if r.skillContent == "" {
 		return base

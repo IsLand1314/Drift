@@ -19,7 +19,7 @@ func TestPublicToolNames(t *testing.T) {
 	}
 
 	chat := NewChatRegistry()
-	for _, name := range []string{"Glob", "Grep", "ReadFile", "WriteFile", "EditFile", "DeleteFile", "Bash"} {
+	for _, name := range []string{"AskUserQuestion", "ToolSearch"} {
 		if _, ok := chat.Lookup(name); !ok {
 			t.Fatalf("chat registry missing %q", name)
 		}
@@ -31,8 +31,8 @@ func TestPublicToolNames(t *testing.T) {
 	}
 }
 
-func TestDefinitionsUsePublicToolNames(t *testing.T) {
-	want := []string{"Glob", "Grep", "ReadFile", "WriteFile", "EditFile", "DeleteFile", "Bash"}
+func TestDefinitionsStartWithControlTools(t *testing.T) {
+	want := []string{"AskUserQuestion", "ToolSearch"}
 	definitions := NewChatRegistry().Definitions()
 	if len(definitions) != len(want) {
 		t.Fatalf("definition count = %d, want %d", len(definitions), len(want))
