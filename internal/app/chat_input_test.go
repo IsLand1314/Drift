@@ -70,6 +70,18 @@ func TestChatInputModelCtrlC(t *testing.T) {
 	}
 }
 
+func TestChatInputModelTreatsMultilineBracketedPasteAsText(t *testing.T) {
+	model := newChatInputModel("test-model", "separator")
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("line one\nline two"), Paste: true})
+	model = updated.(chatInputModel)
+	if model.submitted {
+		t.Fatalf("multiline paste submitted input: %+v", model)
+	}
+	if got := model.editor.Value(); got != "line one\nline two" {
+		t.Fatalf("pasted value = %q", got)
+	}
+}
+
 func TestChatInputModelFooterShowsModel(t *testing.T) {
 	model := newChatInputModel("deepseek-v4-flash", "────────────────────────")
 	view := model.View()
