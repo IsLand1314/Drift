@@ -136,4 +136,3 @@ git diff --check
 git add internal/tool/tool_functional_test.go internal/session/read_test.go spec/current.md artifacts/verification/m3.18
 git commit -m "test: complete M3.18 tool acceptance"
 ```
-

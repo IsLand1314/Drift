@@ -34,4 +34,3 @@
 - `go vet ./...`
 - `go build ./cmd/drift`
 - `git diff --check`
-
