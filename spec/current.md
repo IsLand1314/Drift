@@ -1,6 +1,10 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M3.21。M3.17 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M3.22。M3.17 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+
+## M3.22：本地 stdio MCP 安全闭环
+
+M3.22 的完整目标、边界与验收标准见 [`m3.22-mcp.md`](m3.22-mcp.md)。本阶段只支持用户显式连接的本地 stdio MCP，不支持远程 transport、OAuth、自动安装或持久化 MCP 授权。
 
 ## M3.21：控制工具最小闭环
 
