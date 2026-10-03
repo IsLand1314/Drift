@@ -1,6 +1,10 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M3.29。M3.17 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M3.30。M3.17 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+
+## M3.30：Worktree 自动合并与冲突安全处理
+
+完整目标与验收标准见 [`m3.30-worktree-merge.md`](m3.30-worktree-merge.md)。新建 Worktree 使用 `drift/<name>` 分支；合并前要求主工作区和源 Worktree 都干净；冲突预检查失败时不修改主工作区，不自动 stash、reset、clean 或删除源 Worktree。
 
 ## M3.29：任务创建与切换
 

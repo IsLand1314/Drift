@@ -16,9 +16,17 @@ type Worktree struct {
 	Branch string
 }
 
+type MergeResult struct {
+	Status        string
+	FailureReason string
+	BeforeHEAD    string
+	AfterHEAD     string
+	Conflicts     []string
+}
+
 var worktreeNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 
-// CreateWorktree creates a detached, managed worktree under .worktrees.
+// CreateWorktree creates a branch-backed managed worktree under .worktrees.
 func CreateWorktree(ctx context.Context, root, name, base string) (Worktree, error) {
 	root, err := RepositoryRoot(ctx, root)
 	if err != nil {
@@ -48,10 +56,11 @@ func CreateWorktree(ctx context.Context, root, name, base string) (Worktree, err
 	} else if !os.IsNotExist(err) {
 		return Worktree{}, fmt.Errorf("failed: inspect worktree path: %w", err)
 	}
-	if _, err := gitOutput(ctx, root, "worktree", "add", "--detach", target, base); err != nil {
+	branch := "drift/" + name
+	if _, err := gitOutput(ctx, root, "worktree", "add", "-b", branch, target, base); err != nil {
 		return Worktree{}, fmt.Errorf("create_failed: %w", err)
 	}
-	return Worktree{Path: target, HEAD: base}, nil
+	return Worktree{Path: target, HEAD: base, Branch: branch}, nil
 }
 
 // ListWorktrees returns Git's linked worktrees, including the main worktree.
@@ -113,4 +122,79 @@ func RemoveWorktree(ctx context.Context, root, name string) error {
 		return fmt.Errorf("remove_failed: %w", err)
 	}
 	return nil
+}
+
+// MergeWorktree merges a clean managed worktree branch into a clean main worktree.
+// It preflights conflicts before mutating the main worktree.
+func MergeWorktree(ctx context.Context, root, name string) (MergeResult, error) {
+	var result MergeResult
+	root, err := RepositoryRoot(ctx, root)
+	if err != nil {
+		return result, err
+	}
+	if !worktreeNamePattern.MatchString(name) {
+		return result, fmt.Errorf("invalid_name: worktree name must match %s", worktreeNamePattern.String())
+	}
+	if status, err := worktreeStatus(ctx, root); err != nil {
+		return result, fmt.Errorf("not_git: check main worktree: %w", err)
+	} else if strings.TrimSpace(string(status)) != "" {
+		return result, fmt.Errorf("dirty_main_worktree: main worktree is not clean")
+	}
+	worktreePath := filepath.Join(root, ".worktrees", name)
+	if info, err := os.Stat(worktreePath); err != nil || !info.IsDir() {
+		return result, fmt.Errorf("worktree_missing: %s", name)
+	}
+	if status, err := worktreeStatus(ctx, worktreePath); err != nil {
+		return result, fmt.Errorf("failed: check source worktree: %w", err)
+	} else if strings.TrimSpace(string(status)) != "" {
+		return result, fmt.Errorf("dirty_worktree: source worktree is not clean")
+	}
+	branch, err := gitOutput(ctx, worktreePath, "symbolic-ref", "--quiet", "--short", "HEAD")
+	if err != nil || !strings.HasPrefix(strings.TrimSpace(string(branch)), "drift/") {
+		return result, fmt.Errorf("invalid_worktree: source worktree is not a managed branch")
+	}
+	branchName := strings.TrimSpace(string(branch))
+	before, err := gitOutput(ctx, root, "rev-parse", "HEAD")
+	if err != nil {
+		return result, fmt.Errorf("failed: read main HEAD: %w", err)
+	}
+	result.BeforeHEAD = strings.TrimSpace(string(before))
+	source, err := gitOutput(ctx, worktreePath, "rev-parse", "HEAD")
+	if err != nil {
+		return result, fmt.Errorf("failed: read source HEAD: %w", err)
+	}
+	preflight, preflightErr := gitOutput(ctx, root, "merge-tree", "--write-tree", "HEAD", strings.TrimSpace(string(source)))
+	if preflightErr != nil {
+		result.Status = "conflict"
+		result.FailureReason = "conflict"
+		result.Conflicts = conflictPaths(string(preflight))
+		return result, nil
+	}
+	if _, err := gitOutput(ctx, root, "merge", "--no-ff", "--no-edit", branchName); err != nil {
+		result.Status = "failed"
+		result.FailureReason = "merge_failed"
+		return result, err
+	}
+	after, err := gitOutput(ctx, root, "rev-parse", "HEAD")
+	if err != nil {
+		result.Status = "failed"
+		result.FailureReason = "failed"
+		return result, err
+	}
+	result.Status = "success"
+	result.AfterHEAD = strings.TrimSpace(string(after))
+	return result, nil
+}
+
+var conflictPathPattern = regexp.MustCompile(`(?m)^CONFLICT \([^)]*\): Merge conflict in (.+)$`)
+
+func conflictPaths(output string) []string {
+	matches := conflictPathPattern.FindAllStringSubmatch(output, -1)
+	paths := make([]string, 0, len(matches))
+	for _, match := range matches {
+		if len(match) == 2 {
+			paths = append(paths, strings.TrimSpace(match[1]))
+		}
+	}
+	return paths
 }

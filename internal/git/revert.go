@@ -175,5 +175,5 @@ func gitOutput(ctx context.Context, root string, args ...string) ([]byte, error)
 }
 
 func worktreeStatus(ctx context.Context, root string) ([]byte, error) {
-	return gitOutput(ctx, root, "status", "--porcelain", "--untracked-files=all", "--", ":!.drift")
+	return gitOutput(ctx, root, "status", "--porcelain", "--untracked-files=all", "--", ":!.drift", ":!.worktrees")
 }

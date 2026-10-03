@@ -79,6 +79,29 @@ func TestGitWorktreeLifecycleRequiresConfirmation(t *testing.T) {
 	}
 }
 
+func TestGitWorktreeMergeReportsConflictWithoutChangingMain(t *testing.T) {
+	root := newGitCommandFixture(t)
+	writeGitCommandFile(t, root, "same.txt", "base\n")
+	gitCommandRun(t, root, "add", "same.txt")
+	gitCommandRun(t, root, "commit", "-m", "initial")
+	var out, stderr strings.Builder
+	if code := runGitCommand([]string{"worktree", "create", "agent", "-w", root, "--yes"}, &out, &stderr); code != 0 {
+		t.Fatalf("create code=%d stderr=%q", code, stderr.String())
+	}
+	writeGitCommandFile(t, filepath.Join(root, ".worktrees", "agent"), "same.txt", "branch\n")
+	gitCommandRun(t, filepath.Join(root, ".worktrees", "agent"), "add", "same.txt")
+	gitCommandRun(t, filepath.Join(root, ".worktrees", "agent"), "commit", "-m", "branch")
+	writeGitCommandFile(t, root, "same.txt", "main\n")
+	gitCommandRun(t, root, "commit", "-am", "main")
+	before := strings.TrimSpace(gitCommandRun(t, root, "rev-parse", "HEAD"))
+	if code := runGitCommand([]string{"worktree", "merge", "agent", "-w", root, "--yes"}, &out, &stderr); code != 1 || !strings.Contains(stderr.String(), "冲突文件") {
+		t.Fatalf("merge code=%d stdout=%q stderr=%q", code, out.String(), stderr.String())
+	}
+	if after := strings.TrimSpace(gitCommandRun(t, root, "rev-parse", "HEAD")); after != before {
+		t.Fatalf("main HEAD changed on conflict: before=%s after=%s", before, after)
+	}
+}
+
 func newGitCommandFixture(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()

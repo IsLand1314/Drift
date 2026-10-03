@@ -117,7 +117,7 @@ func runGitCommandContext(ctx context.Context, args []string, out, stderr io.Wri
 }
 
 func gitUsage() string {
-	return "用法：drift git revert [-w <workspace>] <commit> --yes | drift git worktree {create <name> [base] --yes|list|remove <name> --yes} [-w <workspace>]"
+	return "用法：drift git revert [-w <workspace>] <commit> --yes | drift git worktree {create <name> [base] --yes|list|remove <name> --yes|merge <name> --yes} [-w <workspace>]"
 }
 
 func runGitWorktreeCommand(ctx context.Context, args []string, out, stderr io.Writer) int {
@@ -200,6 +200,30 @@ func runGitWorktreeCommand(ctx context.Context, args []string, out, stderr io.Wr
 			return 1
 		}
 		fmt.Fprintln(out, "已删除 worktree：", name)
+		return 0
+	case "merge":
+		if name == "" || !confirmed {
+			fmt.Fprintln(stderr, gitUsage())
+			return 2
+		}
+		result, err := gitops.MergeWorktree(ctx, root, name)
+		if err != nil {
+			fmt.Fprintln(stderr, "合并 worktree 失败：", err)
+			return 1
+		}
+		if result.Status == "conflict" {
+			fmt.Fprintln(stderr, "合并未执行：检测到冲突")
+			for _, path := range result.Conflicts {
+				fmt.Fprintln(stderr, "冲突文件：", path)
+			}
+			return 1
+		}
+		if result.Status != "success" {
+			fmt.Fprintln(stderr, "合并 worktree 失败：", result.FailureReason)
+			return 1
+		}
+		fmt.Fprintln(out, "已合并 worktree：", name)
+		fmt.Fprintln(out, "merge commit：", result.AfterHEAD)
 		return 0
 	default:
 		fmt.Fprintln(stderr, gitUsage())

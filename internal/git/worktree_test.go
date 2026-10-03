@@ -23,6 +23,9 @@ func TestCreateListAndRemoveManagedWorktree(t *testing.T) {
 	if created.Path != wantPath {
 		t.Fatalf("created path = %q, want %q", created.Path, wantPath)
 	}
+	if created.Branch != "drift/agent-1" {
+		t.Fatalf("created branch = %q", created.Branch)
+	}
 	if got, err := os.ReadFile(filepath.Join(created.Path, "one.txt")); err != nil || string(got) != "one\n" {
 		t.Fatalf("worktree file = %q, err=%v", got, err)
 	}
@@ -46,6 +49,58 @@ func TestCreateListAndRemoveManagedWorktree(t *testing.T) {
 	}
 	if _, err := os.Stat(created.Path); !os.IsNotExist(err) {
 		t.Fatalf("removed path still exists, stat err = %v", err)
+	}
+}
+
+func TestMergeWorktreeCreatesMergeCommit(t *testing.T) {
+	root := newWorktreeFixture(t)
+	writeWorktreeFile(t, root, "one.txt", "one\n")
+	gitWorktreeRun(t, root, "add", "one.txt")
+	gitWorktreeRun(t, root, "commit", "-m", "initial")
+	created, err := CreateWorktree(context.Background(), root, "agent", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeWorktreeFile(t, created.Path, "feature.txt", "feature\n")
+	gitWorktreeRun(t, created.Path, "add", "feature.txt")
+	gitWorktreeRun(t, created.Path, "commit", "-m", "feature")
+	result, err := MergeWorktree(context.Background(), root, "agent")
+	if err != nil || result.Status != "success" || result.BeforeHEAD == result.AfterHEAD {
+		t.Fatalf("MergeWorktree() result=%+v err=%v", result, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "feature.txt")); err != nil {
+		t.Fatalf("merged file missing: %v", err)
+	}
+}
+
+func TestMergeWorktreeRejectsDirtyMainAndLeavesConflictUnchanged(t *testing.T) {
+	root := newWorktreeFixture(t)
+	writeWorktreeFile(t, root, "same.txt", "base\n")
+	gitWorktreeRun(t, root, "add", "same.txt")
+	gitWorktreeRun(t, root, "commit", "-m", "initial")
+	created, err := CreateWorktree(context.Background(), root, "agent", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeWorktreeFile(t, created.Path, "same.txt", "branch\n")
+	gitWorktreeRun(t, created.Path, "add", "same.txt")
+	gitWorktreeRun(t, created.Path, "commit", "-m", "branch")
+	writeWorktreeFile(t, root, "dirty.txt", "user\n")
+	if _, err := MergeWorktree(context.Background(), root, "agent"); err == nil || !strings.Contains(err.Error(), "dirty_main_worktree") {
+		t.Fatalf("dirty main error=%v", err)
+	}
+	if err := os.Remove(filepath.Join(root, "dirty.txt")); err != nil {
+		t.Fatal(err)
+	}
+	writeWorktreeFile(t, root, "same.txt", "main\n")
+	gitWorktreeRun(t, root, "commit", "-am", "main change")
+	before := strings.TrimSpace(gitWorktreeRun(t, root, "rev-parse", "HEAD"))
+	result, err := MergeWorktree(context.Background(), root, "agent")
+	if err != nil || result.Status != "conflict" || len(result.Conflicts) != 1 || result.Conflicts[0] != "same.txt" {
+		t.Fatalf("conflict result=%+v err=%v", result, err)
+	}
+	if after := strings.TrimSpace(gitWorktreeRun(t, root, "rev-parse", "HEAD")); after != before {
+		t.Fatalf("main HEAD changed on conflict: before=%s after=%s", before, after)
 	}
 }
 
