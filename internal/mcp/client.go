@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"sync"
 )
@@ -37,7 +39,7 @@ func Start(ctx context.Context, server Server, env []string) (*Client, error) {
 		return nil, errors.New("mcp: invalid stdio server")
 	}
 	cmd := exec.CommandContext(ctx, server.Command, server.Args...)
-	cmd.Env = append([]string(nil), env...)
+	cmd.Env = mergeEnv(os.Environ(), env)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, fmt.Errorf("mcp: stdin: %w", err)
@@ -66,6 +68,30 @@ func Start(ctx context.Context, server Server, env []string) (*Client, error) {
 		return nil, err
 	}
 	return client, nil
+}
+
+func mergeEnv(base, overrides []string) []string {
+	values := make(map[string]string, len(base)+len(overrides))
+	order := make([]string, 0, len(base)+len(overrides))
+	for _, item := range append(append([]string(nil), base...), overrides...) {
+		name, _, ok := strings.Cut(item, "=")
+		if !ok || name == "" {
+			continue
+		}
+		key := name
+		if runtime.GOOS == "windows" {
+			key = strings.ToLower(name)
+		}
+		if _, exists := values[key]; !exists {
+			order = append(order, key)
+		}
+		values[key] = item
+	}
+	result := make([]string, 0, len(order))
+	for _, key := range order {
+		result = append(result, values[key])
+	}
+	return result
 }
 
 func (c *Client) ListTools(ctx context.Context) ([]Tool, error) {
@@ -120,6 +146,10 @@ func (c *Client) Close() error {
 	if c.closed {
 		return nil
 	}
+	return c.terminateLocked()
+}
+
+func (c *Client) terminateLocked() error {
 	c.closed = true
 	_ = c.stdin.Close()
 	if c.cmd.Process != nil {
@@ -157,9 +187,14 @@ func (c *Client) request(ctx context.Context, method string, params any, result 
 	}()
 	select {
 	case <-ctx.Done():
-		_ = c.cmd.Process.Kill()
+		_ = c.terminateLocked()
 		return ctx.Err()
 	case err := <-readErr:
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			_ = c.terminateLocked()
+			return ctxErr
+		}
+		_ = c.terminateLocked()
 		return fmt.Errorf("mcp: read response: %w", err)
 	case raw := <-line:
 		var response struct {
