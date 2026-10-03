@@ -97,4 +97,3 @@ GitRevert 结果必须同时记录：
 - 不让普通 Bash 自动识别命令文本后提升权限；
 - 不实现 Git commit、merge、rebase、reset、clean、push profile；
 - 不在本阶段实现 macOS 沙箱后端。
-
