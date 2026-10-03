@@ -8,11 +8,11 @@ M4 的阶段目标、自动化验收和独立 LLM 验收门禁见 [`m4-multi-age
 
 ### M4.5：Agent 消息与结果汇总（当前阶段）
 
-见 [`m4.5-message-summary.md`](m4.5-message-summary.md) 和 [`m4.5-acceptance.md`](m4.5-acceptance.md)。单进程消息总线、消息控制工具、子 Agent 生命周期消息和去重汇总已实现；真实 DeepSeek 工具调用仍受伪工具格式阻塞。
+见 [`m4.5-message-summary.md`](m4.5-message-summary.md) 和 [`m4.5-acceptance.md`](m4.5-acceptance.md)。单进程消息总线、消息控制工具、子 Agent 生命周期消息和去重汇总已实现；真实消息链路已有成功运行，但独立只读审查尚未重跑，阶段门禁仍未关闭。
 
 ### M4.4：Worktree 自动合并与冲突协调
 
-见 [`m4.4-worktree-merge.md`](m4.4-worktree-merge.md) 和 [`m4.4-acceptance.md`](m4.4-acceptance.md)。自动合并、冲突队列、重试和任务合并状态已实现；真实 DeepSeek 工具调用仍受 M4.1 记录的伪工具格式阻塞。
+见 [`m4.4-worktree-merge.md`](m4.4-worktree-merge.md) 和 [`m4.4-acceptance.md`](m4.4-acceptance.md)。自动合并、冲突队列、重试和任务合并状态已实现；真实 DeepSeek 端到端自动合并仍缺少稳定证据，阶段门禁保持 `BLOCKED`。
 
 ### M4.3：任务依赖和状态同步
 
