@@ -1,0 +1,21 @@
+M3.18 TDD / focused verification
+Date: 2026-10-03
+
+Baseline (before M3.18 execution):
+  go test ./... -count=1 -> PASS
+
+Focused existing boundary tests:
+  go test ./internal/tool -run 'TestGlob|TestGrep|TestSearch|ExternalChangeAfterPreview|TestWrite|TestEdit|TestDelete' -count=1
+  -> PASS (internal/tool)
+
+Functional tool/session coverage:
+  go test ./internal/app -run 'TestRunMultiTurnExplorationRoundTripAndSessionAudit|TestRunReadRoundTripMultipleFiles' -count=1
+  -> PASS (internal/app)
+  go test ./internal/tool -run 'TestPublicToolNames|TestDefinitionsUsePublicToolNames' -count=1
+  -> PASS (internal/tool)
+  go test ./internal/session -run 'TestReadEntries|TestListFiles' -count=1
+  -> PASS (internal/session)
+
+Conclusion:
+  Existing M3.11/M3.12 tests already cover the specified boundaries.
+  No production-code change was justified; no duplicate cache or tool abstraction was added.

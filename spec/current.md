@@ -1,6 +1,19 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M3.17。M3.16 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M3.18。M3.17 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+
+## M3.18：工具能力复核与补缺
+
+M3.18 不重复实现已有的 `Glob`、`Grep` 和写入前文件状态校验，只补齐边界回归与临时 workspace 功能验收。Git 专用沙箱不在本阶段范围内。
+
+### 验收
+
+| ID | 验证方法 | 通过阈值 | 失败判定 |
+| --- | --- | --- | --- |
+| AC-M318-001 | `go test ./internal/tool -run 'TestGlob|TestGrep|TestSearch|ExternalChangeAfterPreview|TestWrite|TestEdit|TestDelete' -count=1` | Glob/Grep 边界、取消、限制和三类 stale preview 测试通过 | 越界、保护目录、结果上限或外部修改处理错误 |
+| AC-M318-002 | `go test ./internal/app -run 'TestRunMultiTurnExplorationRoundTripAndSessionAudit|TestRunReadRoundTripMultipleFiles' -count=1` | 临时 workspace 的 Glob/Grep/ReadFile 组合链路通过 | 工具组合或会话审计回归 |
+| AC-M318-003 | `go test ./internal/tool -run 'TestPublicToolNames|TestDefinitionsUsePublicToolNames' -count=1`、`go test ./internal/session -run 'TestReadEntries|TestListFiles' -count=1` | 当前公开工具名注册正确，历史 JSONL 可读取 | 旧记录损坏或生成旧工具名 |
+| AC-M318-004 | `go test ./... -count=1`、`go vet ./...`、`go build ./cmd/drift`、`git diff --check` | 全量测试、静态检查、构建和 diff 检查通过 | 任一命令失败 |
 
 ## M3.16：安全闭环收口
 
