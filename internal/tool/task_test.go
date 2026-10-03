@@ -34,6 +34,30 @@ func TestTaskToolsCreateListGetAndUpdateWithinChat(t *testing.T) {
 	}
 }
 
+func TestTaskWorktreeBindingIsPersistedAndPathScoped(t *testing.T) {
+	registry := NewChatRegistry()
+	search, _ := registry.Lookup("ToolSearch")
+	if _, err := search.Execute(context.Background(), t.TempDir(), `{"query":"task","load":["TaskCreate","TaskUpdate"]}`); err != nil {
+		t.Fatal(err)
+	}
+	create, _ := registry.Lookup("TaskCreate")
+	created, err := create.Execute(context.Background(), t.TempDir(), `{"subject":"isolated change","worktree":".worktrees/agent-1"}`)
+	if err != nil || !strings.Contains(created, ".worktrees/agent-1") {
+		t.Fatalf("create=%q err=%v", created, err)
+	}
+	update, _ := registry.Lookup("TaskUpdate")
+	if _, err := update.Execute(context.Background(), t.TempDir(), `{"task_id":"task-1","worktree":".worktrees/agent-2"}`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := update.Execute(context.Background(), t.TempDir(), `{"task_id":"task-1","worktree":"../escape"}`); err == nil {
+		t.Fatal("escaped worktree accepted")
+	}
+	state := registry.(TaskRegistry).ExportTasks()
+	if len(state) != 1 || state[0].Worktree != ".worktrees/agent-2" {
+		t.Fatalf("state=%+v", state)
+	}
+}
+
 func TestTaskUpdateRejectsInvalidStatusAndUnknownTask(t *testing.T) {
 	registry := NewChatRegistry()
 	search, _ := registry.Lookup("ToolSearch")

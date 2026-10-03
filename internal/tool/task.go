@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -18,7 +20,10 @@ type TaskState struct {
 	Subject     string `json:"subject"`
 	Description string `json:"description,omitempty"`
 	Status      string `json:"status"`
+	Worktree    string `json:"worktree,omitempty"`
 }
+
+var taskWorktreePattern = regexp.MustCompile(`^\.worktrees/[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 
 // TaskRegistry exposes the task state owned by a chat tool registry.
 type TaskRegistry interface {
@@ -50,6 +55,7 @@ func (t taskCreateTool) Definition() llm.ToolDefinition {
 	return controlDefinition(t.Name(), "Create a session task.", map[string]any{
 		"subject":     map[string]any{"type": "string", "description": "Short task title."},
 		"description": map[string]any{"type": "string", "description": "Optional task details."},
+		"worktree":    map[string]any{"type": "string", "description": "Optional managed worktree path, for example .worktrees/agent-1."},
 	}, []string{"subject"})
 }
 
@@ -68,6 +74,7 @@ func (t taskUpdateTool) Definition() llm.ToolDefinition {
 		"task_id":     map[string]any{"type": "string"},
 		"status":      map[string]any{"type": "string", "enum": []string{"pending", "in_progress", "completed", "cancelled"}},
 		"description": map[string]any{"type": "string"},
+		"worktree":    map[string]any{"type": "string", "description": "Optional managed worktree path."},
 	}, []string{"task_id"})
 }
 
@@ -75,19 +82,21 @@ func (t taskCreateTool) Execute(_ context.Context, _ string, raw string) (string
 	var args struct {
 		Subject     string `json:"subject"`
 		Description string `json:"description"`
+		Worktree    string `json:"worktree"`
 	}
 	if err := decodeTaskArgs(raw, &args); err != nil {
 		return "", fmt.Errorf("decode TaskCreate arguments: %w", err)
 	}
 	args.Subject = strings.TrimSpace(args.Subject)
 	args.Description = strings.TrimSpace(args.Description)
-	if args.Subject == "" || len([]rune(args.Subject)) > 200 || len([]rune(args.Description)) > 2000 {
+	args.Worktree = normalizeTaskWorktree(args.Worktree)
+	if args.Subject == "" || len([]rune(args.Subject)) > 200 || len([]rune(args.Description)) > 2000 || (args.Worktree != "" && !validTaskWorktree(args.Worktree)) {
 		return "", fmt.Errorf("TaskCreate arguments are invalid")
 	}
 	t.store.mu.Lock()
 	defer t.store.mu.Unlock()
 	t.store.next++
-	item := TaskState{ID: fmt.Sprintf("task-%d", t.store.next), Subject: args.Subject, Description: args.Description, Status: "pending"}
+	item := TaskState{ID: fmt.Sprintf("task-%d", t.store.next), Subject: args.Subject, Description: args.Description, Status: "pending", Worktree: args.Worktree}
 	t.store.tasks[item.ID] = item
 	return formatTask(item), nil
 }
@@ -132,6 +141,7 @@ func (t taskUpdateTool) Execute(_ context.Context, _ string, raw string) (string
 		TaskID      string `json:"task_id"`
 		Status      string `json:"status"`
 		Description string `json:"description"`
+		Worktree    string `json:"worktree"`
 	}
 	if err := decodeTaskArgs(raw, &args); err != nil {
 		return "", fmt.Errorf("decode TaskUpdate arguments: %w", err)
@@ -139,7 +149,8 @@ func (t taskUpdateTool) Execute(_ context.Context, _ string, raw string) (string
 	args.TaskID = strings.TrimSpace(args.TaskID)
 	args.Status = strings.TrimSpace(args.Status)
 	args.Description = strings.TrimSpace(args.Description)
-	if args.Status != "" && !validTaskStatus(args.Status) || len([]rune(args.Description)) > 2000 {
+	args.Worktree = normalizeTaskWorktree(args.Worktree)
+	if args.Status != "" && !validTaskStatus(args.Status) || len([]rune(args.Description)) > 2000 || (args.Worktree != "" && !validTaskWorktree(args.Worktree)) {
 		return "", fmt.Errorf("TaskUpdate arguments are invalid")
 	}
 	t.store.mu.Lock()
@@ -153,6 +164,9 @@ func (t taskUpdateTool) Execute(_ context.Context, _ string, raw string) (string
 	}
 	if args.Description != "" {
 		item.Description = args.Description
+	}
+	if args.Worktree != "" {
+		item.Worktree = args.Worktree
 	}
 	t.store.tasks[item.ID] = item
 	return formatTask(item), nil
@@ -182,6 +196,9 @@ func formatTask(item TaskState) string {
 	if item.Description != "" {
 		result += "\n" + item.Description
 	}
+	if item.Worktree != "" {
+		result += "\nworktree: " + item.Worktree
+	}
 	return result
 }
 
@@ -190,12 +207,22 @@ func ValidTaskStatus(status string) bool { return validTaskStatus(status) }
 
 // ValidateTaskState validates state crossing the session persistence boundary.
 func ValidateTaskState(item TaskState) bool {
-	if item.Subject == "" || len([]rune(item.Subject)) > 200 || len([]rune(item.Description)) > 2000 || !validTaskStatus(item.Status) || !strings.HasPrefix(item.ID, "task-") {
+	if item.Subject == "" || len([]rune(item.Subject)) > 200 || len([]rune(item.Description)) > 2000 || !validTaskStatus(item.Status) || !strings.HasPrefix(item.ID, "task-") || (item.Worktree != "" && !validTaskWorktree(item.Worktree)) {
 		return false
 	}
 	number, err := strconv.Atoi(strings.TrimPrefix(item.ID, "task-"))
 	return err == nil && number > 0
 }
+
+func normalizeTaskWorktree(path string) string {
+	path = strings.TrimSpace(strings.ReplaceAll(path, "\\", "/"))
+	if path == "" {
+		return ""
+	}
+	return filepath.ToSlash(filepath.Clean(path))
+}
+
+func validTaskWorktree(path string) bool { return taskWorktreePattern.MatchString(path) }
 
 func (s *taskStore) export() []TaskState {
 	s.mu.Lock()

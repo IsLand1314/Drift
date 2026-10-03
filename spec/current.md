@@ -1,6 +1,10 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M3.27。M3.17 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M3.28。M3.17 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+
+## M3.28：任务 Worktree 绑定
+
+完整目标与验收标准见 [`m3.28-task-worktree.md`](m3.28-task-worktree.md)。任务状态现在可以持久化一个受控 `.worktrees/<name>` 绑定路径；本阶段不自动创建、删除或合并 worktree。
 
 ## M3.27：Git Worktree 隔离最小闭环
 
