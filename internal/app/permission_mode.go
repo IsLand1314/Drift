@@ -32,6 +32,12 @@ func parsePermissionMode(value string) (permissionMode, error) {
 }
 
 func decidePermission(mode permissionMode, request agent.PermissionRequest) agent.PermissionDecision {
+	if request.Operation == "mcp_call" && strings.HasPrefix(request.ToolName, "mcp__") {
+		if mode == permissionModePlan {
+			return agent.PermissionDecision{Reason: "plan_read_only", Policy: agent.PolicyDeny, Source: agent.PermissionSourceMode}
+		}
+		return agent.PermissionDecision{Reason: "mcp_approval_required", Policy: agent.PolicyAsk}
+	}
 	switch mode {
 	case permissionModePlan:
 		return agent.PermissionDecision{Reason: "plan_read_only", Policy: agent.PolicyDeny, Source: agent.PermissionSourceMode}

@@ -59,6 +59,7 @@ type Event struct {
 	SkillName         string
 	ToolCallID        string
 	ToolName          string
+	MCPServer         string
 	Arguments         string
 	Result            string
 	ErrorSummary      string

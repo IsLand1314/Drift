@@ -135,6 +135,7 @@ func entryFromEvent(event agent.Event, clean sanitizer) Entry {
 		TextBytes:         len(event.Text),
 		ToolCallID:        clean.text(event.ToolCallID),
 		Tool:              clean.text(event.ToolName),
+		MCPServer:         clean.text(event.MCPServer),
 		Path:              path,
 		CWD:               cwd,
 		CommandBytes:      len(event.Command),

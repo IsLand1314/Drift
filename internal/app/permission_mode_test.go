@@ -33,6 +33,18 @@ func TestPermissionModeDecision(t *testing.T) {
 	}
 }
 
+func TestMCPCallsAlwaysAskExceptPlan(t *testing.T) {
+	request := agent.PermissionRequest{ToolName: "mcp__demo__echo", Operation: "mcp_call", Path: "demo/echo"}
+	for _, mode := range []permissionMode{permissionModeDefault, permissionModeAcceptEdits, permissionModeBypass} {
+		if got := decidePermission(mode, request); got.Policy != agent.PolicyAsk {
+			t.Fatalf("mode %q decision=%+v, want ask", mode, got)
+		}
+	}
+	if got := decidePermission(permissionModePlan, request); got.Policy != agent.PolicyDeny {
+		t.Fatalf("plan decision=%+v, want deny", got)
+	}
+}
+
 func TestParsePermissionMode(t *testing.T) {
 	for _, tt := range []struct {
 		input string

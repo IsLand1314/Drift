@@ -97,6 +97,30 @@ func TestJSONLWriterRecordsStructuredPermissionAndSandboxOutcome(t *testing.T) {
 	}
 }
 
+func TestJSONLWriterRecordsMCPMetadataWithoutResultBody(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "run.jsonl")
+	writer, err := NewJSONLWriter(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Append(agent.Event{Type: agent.EventToolResult, ToolName: "mcp__demo__echo", MCPServer: "demo", ExecutionStatus: "success", Result: "secret MCP output"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := ReadEntries(path)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("entries=%+v err=%v", entries, err)
+	}
+	if entries[0].MCPServer != "demo" || entries[0].ExecutionStatus != "success" || entries[0].Result != "<redacted>" {
+		t.Fatalf("entry=%+v", entries[0])
+	}
+	if strings.Contains(string(mustReadFile(t, path)), "secret MCP output") {
+		t.Fatal("audit leaked MCP result")
+	}
+}
+
 func TestJSONLWriterRecordsOnlySkillName(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "run.jsonl")
 	writer, err := NewJSONLWriter(path)

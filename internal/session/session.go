@@ -16,6 +16,7 @@ type Entry struct {
 	TextBytes         int       `json:"text_bytes,omitempty"`
 	ToolCallID        string    `json:"tool_call_id,omitempty"`
 	Tool              string    `json:"tool,omitempty"`
+	MCPServer         string    `json:"mcp_server,omitempty"`
 	Path              string    `json:"path,omitempty"`
 	CWD               string    `json:"cwd,omitempty"`
 	CommandBytes      int       `json:"command_bytes,omitempty"`
