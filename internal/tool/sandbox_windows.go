@@ -28,7 +28,7 @@ var windowsSandboxProbe = func(root string) SandboxCapabilities {
 	if err := probeWindowsAppContainerProcess(root, sid); err != nil {
 		return windowsSandboxUnavailable("runtime:" + err.Error())
 	}
-	return SandboxCapabilities{Backend: "appcontainer", Reliable: true, Probe: "passed", Capabilities: []string{"workspace-write", "network-isolated", "process-tree"}}
+	return windowsSandboxUnavailable("runtime-execution-not-wired")
 }
 
 func probeWindowsSandbox(root string) SandboxCapabilities {

@@ -127,7 +127,7 @@ M3.15-A 已交付：平台检测边界已显式化，Windows 和 macOS 在没有
 
 ## 11. M3.15-B 交付状态
 
-M3.15-B 已完成 Windows 原生探针：沙箱检测接收实际 workspace 根路径，创建临时 AppContainer profile，授予 marker 文件显式 ACL，使用 `SECURITY_CAPABILITIES` 启动进程并加入 Job Object。探针会验证 workspace 写入、`.drift/.git` 拒绝、网络无 `TTL=`、子进程 containment 和 profile/ACL/marker 清理；任一项失败都返回 unavailable。
+M3.15-B 已完成 Windows 原生验证探针：沙箱检测接收实际 workspace 根路径，创建临时 AppContainer profile，授予 marker 文件显式 ACL，使用 `SECURITY_CAPABILITIES` 启动进程并加入 Job Object。探针会验证 workspace 写入、`.drift/.git` 拒绝、网络无 `TTL=`、子进程 containment 和 profile/ACL/marker 清理；基础断言通过后仍返回 unavailable，直到正式 `Bash` 执行路径接通。
 
 Job Object 只负责进程树生命周期，AppContainer 负责文件和网络隔离；两者缺一不可。
 
