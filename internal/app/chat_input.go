@@ -143,7 +143,14 @@ func (t *tuiMainScreenInput) Read(ctx context.Context) (string, error) {
 		}
 	}
 	model := newChatInputModel(t.modelName, chatSeparator(t.out))
-	program := tea.NewProgram(&model, tea.WithContext(ctx), tea.WithInputTTY(), tea.WithOutput(t.out), tea.WithoutSignalHandler(), tea.WithoutSignals())
+	program := tea.NewProgram(
+		&model,
+		tea.WithContext(ctx),
+		tea.WithInput(t.in),
+		tea.WithOutput(t.out),
+		tea.WithoutSignalHandler(),
+		tea.WithoutSignals(),
+	)
 	result, runErr := program.Run()
 	var finalModel chatInputModel
 	switch model := result.(type) {
