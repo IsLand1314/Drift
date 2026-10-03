@@ -73,4 +73,3 @@ git diff --check
 ```
 
 - [ ] 删除所有临时文件并提交：`test: complete M3.17.1 GitRevert sandbox acceptance`。
-
