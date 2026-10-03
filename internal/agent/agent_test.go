@@ -1223,12 +1223,89 @@ func TestRunDeniedPreviewDoesNotExecuteWrite(t *testing.T) {
 	runner.SetPermissionPrompt(func(context.Context, PermissionRequest) (PermissionDecision, error) {
 		return PermissionDecision{Reason: "user denied"}, nil
 	})
-	if err := runner.RunEvents(context.Background(), "change a file", nil); err != nil {
+	var events []Event
+	if err := runner.RunEvents(context.Background(), "change a file", func(event Event) error {
+		events = append(events, event)
+		return nil
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if writer.executed {
 		t.Fatal("denied preview executed write")
 	}
+	for _, event := range events {
+		if event.Type == EventPermissionDecision && (event.PermissionOutcome != ApprovalDeny || event.PermissionSource != PermissionSourceUser) {
+			t.Fatalf("denied decision=%+v", event)
+		}
+		if event.Type == EventToolResult && (event.ExecutionStatus != "denied" || event.FailureReason != "user denied") {
+			t.Fatalf("denied result=%+v", event)
+		}
+	}
+}
+
+func TestRunEventsEmitsStructuredPermissionOutcome(t *testing.T) {
+	call := llm.ToolCall{ID: "call-write", Type: "function", Name: "WriteFile", Arguments: `{"pattern":"**/*"}`}
+	client := &scriptedClient{steps: []scriptedStep{
+		{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{call}}, FinishReason: "tool_calls"}},
+		{events: []llm.StreamEvent{{Text: "done"}}, completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "done"}, FinishReason: "stop"}},
+	}}
+	writer := &permissionTestTool{}
+	registry, err := tool.NewRegistry(writer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := NewRunner(client, t.TempDir(), "", registry)
+	runner.SetPermissionPrompt(func(context.Context, PermissionRequest) (PermissionDecision, error) {
+		return PermissionDecision{Allow: true, Policy: PolicyAsk, Approval: ApprovalAllowOnce, Source: PermissionSourceUser}, nil
+	})
+	var events []Event
+	if err := runner.RunEvents(context.Background(), "change a file", func(event Event) error {
+		events = append(events, event)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var decision, result *Event
+	for i := range events {
+		switch events[i].Type {
+		case EventPermissionDecision:
+			decision = &events[i]
+		case EventToolResult:
+			result = &events[i]
+		}
+	}
+	if decision == nil || decision.PermissionOutcome != ApprovalAllowOnce || decision.PermissionSource != PermissionSourceUser || decision.Policy != PolicyAsk {
+		t.Fatalf("permission decision=%+v", decision)
+	}
+	if result == nil || result.ExecutionStatus != "success" {
+		t.Fatalf("tool result=%+v", result)
+	}
+}
+
+func TestRunEventsRecordsRequiredSandboxRefusal(t *testing.T) {
+	call := llm.ToolCall{ID: "call-bash", Type: "function", Name: "Bash", Arguments: `{"command":"echo blocked"}`}
+	client := &scriptedClient{steps: []scriptedStep{
+		{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{call}}, FinishReason: "tool_calls"}},
+		{events: []llm.StreamEvent{{Text: "blocked"}}, completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "blocked"}, FinishReason: "stop"}},
+	}}
+	root := t.TempDir()
+	runner := NewRunner(client, root, "", tool.NewChatRegistryWithSandbox(tool.SandboxRequired))
+	var events []Event
+	if err := runner.RunEvents(context.Background(), "run command", func(event Event) error {
+		events = append(events, event)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for i := range events {
+		if events[i].Type == EventToolResult {
+			if events[i].ExecutionStatus != "denied" || events[i].SandboxMode != string(tool.SandboxRequired) || events[i].FailureReason != "sandbox_unavailable" {
+				t.Fatalf("sandbox refusal event=%+v", events[i])
+			}
+			return
+		}
+	}
+	t.Fatal("sandbox refusal did not emit a tool result event")
 }
 
 type registryTestTool struct {

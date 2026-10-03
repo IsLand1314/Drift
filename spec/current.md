@@ -1,6 +1,20 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M3.15-C。M3.14 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M3.16。M3.15 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+
+## M3.16：安全闭环收口
+
+M3.16 统一策略决策（`allow/ask/deny`）与人工审批结果（`allow_once/allow_persistent/deny/cancelled`），把 required 沙箱拒绝和工具失败写入结构化审计，并验证 partial change set 不会被不安全地恢复。
+
+### 验收
+
+| ID | 验证方法 | 通过阈值 | 失败判定 |
+| --- | --- | --- | --- |
+| AC-M316-001 | `go test ./internal/app -run 'TestPermission|TestApproval' -count=1` | 模式、精确规则、一次允许、持久化允许、拒绝和取消结果明确分离 | 权限模式或审批结果混淆 |
+| AC-M316-002 | `go test ./internal/agent -run 'TestRunDeniedPreviewDoesNotExecuteWrite|TestRunEventsEmitsStructuredPermissionOutcome|TestRunEventsRecordsRequiredSandboxRefusal' -count=1` | 权限拒绝、沙箱拒绝和成功结果分别记录 | 允许绕过、拒绝原因丢失或工具误执行 |
+| AC-M316-003 | `go test ./internal/session -run TestJSONLWriterRecordsStructuredPermissionAndSandboxOutcome -count=1` | 审计含结构化字段且正文/结果继续脱敏 | 审计泄露正文或缺少沙箱字段 |
+| AC-M316-004 | `go test ./internal/changes -run 'TestRestore(CreateAndEdit|RefusesStaleTargetWithoutChanges|RefusesPartialChangeSetWithoutTouchingTarget|DeletedFile)' -count=1` | stale/partial change set 整体拒绝且不覆盖当前文件 | 发生部分恢复或覆盖外部修改 |
+| AC-M316-005 | `go test ./... -count=1`、`go vet ./...`、`go build ./cmd/drift`、Windows 交叉编译 | 全量测试、静态检查、构建和 Windows 目标编译通过 | 任一命令失败 |
 
 ## M3.15-C：Windows AppContainer 正式执行
 

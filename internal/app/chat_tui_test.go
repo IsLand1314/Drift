@@ -213,11 +213,21 @@ func TestApprovalDecisionDefersPersistentPolicyUntilSuccess(t *testing.T) {
 	memory := newPermissionMemory()
 	request := agent.PermissionRequest{ToolName: "WriteFile", Operation: "create_file", Path: "tmp/hello.txt"}
 	decision := approvalDecision(1, memory, request)
-	if decision.Reason != "persistent_pattern_pending" {
-		t.Fatalf("reason=%q, want persistent_pattern_pending", decision.Reason)
+	if decision.Reason != "persistent_pattern_pending" || decision.Policy != agent.PolicyAsk || decision.Approval != agent.ApprovalAllowPersistent || decision.Source != agent.PermissionSourceUser {
+		t.Fatalf("decision=%+v", decision)
 	}
 	if memory.Allow(request) {
 		t.Fatal("remembered approval was added before the operation succeeded")
+	}
+}
+
+func TestApprovalEscapeIsCancelled(t *testing.T) {
+	reply := make(chan agent.PermissionDecision, 1)
+	m := tuiFullScreen{approval: &tuiApproval{reply: reply}}
+	m.handleApproval(tea.KeyMsg{Type: tea.KeyEscape})
+	decision := <-reply
+	if decision.Allow || decision.Approval != agent.ApprovalCancelled || decision.Source != agent.PermissionSourceUser {
+		t.Fatalf("decision=%+v", decision)
 	}
 }
 

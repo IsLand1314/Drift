@@ -34,6 +34,17 @@ type SandboxDecision struct {
 	Probe        string
 }
 
+// SandboxDeniedError carries the decision that prevented a required command
+// from running, so callers can audit a sandbox refusal without parsing text.
+type SandboxDeniedError struct {
+	Mode     SandboxMode
+	Decision SandboxDecision
+}
+
+func (e *SandboxDeniedError) Error() string {
+	return fmt.Sprintf("sandbox %s unavailable (probe=%s)", e.Mode, e.Decision.Probe)
+}
+
 func ParseSandboxMode(value string) (SandboxMode, error) {
 	switch SandboxMode(strings.TrimSpace(value)) {
 	case SandboxOff, SandboxAuto, SandboxRequired:
@@ -125,7 +136,7 @@ func SelectSandbox(mode SandboxMode, capabilities SandboxCapabilities) (SandboxD
 		return decision, nil
 	}
 	if mode == SandboxRequired && !decision.Available {
-		return decision, fmt.Errorf("sandbox required but no reliable OS backend is available")
+		return decision, &SandboxDeniedError{Mode: mode, Decision: decision}
 	}
 	return decision, nil
 }

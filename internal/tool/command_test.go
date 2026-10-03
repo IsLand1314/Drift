@@ -2,6 +2,7 @@ package tool
 
 import (
 	"context"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -101,6 +102,26 @@ func TestRunCommandRequiredSandboxFailsClosedWithoutBackend(t *testing.T) {
 	root := t.TempDir()
 	if _, err := RunCommandPreviewWithSandbox(root, `{"command":"echo blocked"}`, SandboxRequired); err == nil {
 		t.Fatal("required sandbox unexpectedly accepted without reliable backend")
+	} else {
+		var denied *SandboxDeniedError
+		if !errors.As(err, &denied) {
+			t.Fatalf("error=%T %v, want SandboxDeniedError", err, err)
+		}
+	}
+}
+
+func TestExecuteCommandRequiredSandboxFailsClosedWithDecision(t *testing.T) {
+	root := t.TempDir()
+	_, err := ExecuteCommand(context.Background(), root, Preview{
+		Command:     "echo blocked",
+		CWD:         ".",
+		Timeout:     time.Second,
+		SandboxMode: SandboxRequired,
+		Sandbox:     SandboxDecision{Mode: SandboxRequired, Probe: "unavailable:missing"},
+	})
+	var denied *SandboxDeniedError
+	if !errors.As(err, &denied) || denied.Mode != SandboxRequired {
+		t.Fatalf("error=%T %v", err, err)
 	}
 }
 

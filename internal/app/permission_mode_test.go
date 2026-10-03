@@ -13,19 +13,21 @@ func TestPermissionModeDecision(t *testing.T) {
 		request agent.PermissionRequest
 		allow   bool
 		reason  string
+		policy  agent.PolicyDecision
+		source  agent.PermissionSource
 	}{
-		{"default asks", permissionModeDefault, agent.PermissionRequest{ToolName: "WriteFile", Operation: "create_file"}, false, "approval_required"},
-		{"accept edits writes", permissionModeAcceptEdits, agent.PermissionRequest{ToolName: "EditFile", Operation: "edit_file"}, true, "mode_accept_edits"},
-		{"accept edits still asks delete", permissionModeAcceptEdits, agent.PermissionRequest{ToolName: "DeleteFile", Operation: "delete_file"}, false, "approval_required"},
-		{"plan denies writes", permissionModePlan, agent.PermissionRequest{ToolName: "WriteFile", Operation: "create_file"}, false, "plan_read_only"},
-		{"plan denies commands", permissionModePlan, agent.PermissionRequest{ToolName: "Bash", Operation: "run_command"}, false, "plan_read_only"},
-		{"bypass allows ordinary write", permissionModeBypass, agent.PermissionRequest{ToolName: "WriteFile", Operation: "create_file"}, true, "mode_bypass"},
+		{"default asks", permissionModeDefault, agent.PermissionRequest{ToolName: "WriteFile", Operation: "create_file"}, false, "approval_required", agent.PolicyAsk, ""},
+		{"accept edits writes", permissionModeAcceptEdits, agent.PermissionRequest{ToolName: "EditFile", Operation: "edit_file"}, true, "mode_accept_edits", agent.PolicyAllow, agent.PermissionSourceMode},
+		{"accept edits still asks delete", permissionModeAcceptEdits, agent.PermissionRequest{ToolName: "DeleteFile", Operation: "delete_file"}, false, "approval_required", agent.PolicyAsk, ""},
+		{"plan denies writes", permissionModePlan, agent.PermissionRequest{ToolName: "WriteFile", Operation: "create_file"}, false, "plan_read_only", agent.PolicyDeny, agent.PermissionSourceMode},
+		{"plan denies commands", permissionModePlan, agent.PermissionRequest{ToolName: "Bash", Operation: "run_command"}, false, "plan_read_only", agent.PolicyDeny, agent.PermissionSourceMode},
+		{"bypass allows ordinary write", permissionModeBypass, agent.PermissionRequest{ToolName: "WriteFile", Operation: "create_file"}, true, "mode_bypass", agent.PolicyAllow, agent.PermissionSourceMode},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := decidePermission(tt.mode, tt.request)
-			if got.Allow != tt.allow || got.Reason != tt.reason {
-				t.Fatalf("decidePermission(%q, %+v) = %+v, want allow=%v reason=%q", tt.mode, tt.request, got, tt.allow, tt.reason)
+			if got.Allow != tt.allow || got.Reason != tt.reason || got.Policy != tt.policy || got.Source != tt.source {
+				t.Fatalf("decidePermission(%q, %+v) = %+v, want allow=%v reason=%q policy=%q source=%q", tt.mode, tt.request, got, tt.allow, tt.reason, tt.policy, tt.source)
 			}
 		})
 	}

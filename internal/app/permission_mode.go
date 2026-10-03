@@ -34,15 +34,15 @@ func parsePermissionMode(value string) (permissionMode, error) {
 func decidePermission(mode permissionMode, request agent.PermissionRequest) agent.PermissionDecision {
 	switch mode {
 	case permissionModePlan:
-		return agent.PermissionDecision{Reason: "plan_read_only"}
+		return agent.PermissionDecision{Reason: "plan_read_only", Policy: agent.PolicyDeny, Source: agent.PermissionSourceMode}
 	case permissionModeBypass:
-		return agent.PermissionDecision{Allow: true, Reason: "mode_bypass"}
+		return agent.PermissionDecision{Allow: true, Reason: "mode_bypass", Policy: agent.PolicyAllow, Source: agent.PermissionSourceMode}
 	case permissionModeAcceptEdits:
 		if request.ToolName == "WriteFile" || request.ToolName == "EditFile" {
-			return agent.PermissionDecision{Allow: true, Reason: "mode_accept_edits"}
+			return agent.PermissionDecision{Allow: true, Reason: "mode_accept_edits", Policy: agent.PolicyAllow, Source: agent.PermissionSourceMode}
 		}
 	}
-	return agent.PermissionDecision{Reason: "approval_required"}
+	return agent.PermissionDecision{Reason: "approval_required", Policy: agent.PolicyAsk}
 }
 
 func parsePermissionModeCommand(command string) (permissionMode, bool, error) {

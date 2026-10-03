@@ -61,6 +61,42 @@ func TestJSONLWriterAppendsVersionedEntries(t *testing.T) {
 	}
 }
 
+func TestJSONLWriterRecordsStructuredPermissionAndSandboxOutcome(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "run.jsonl")
+	writer, err := NewJSONLWriter(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Append(agent.Event{
+		Type:              agent.EventToolResult,
+		ToolName:          "Bash",
+		PermissionSource:  agent.PermissionSourcePersistent,
+		PermissionOutcome: agent.ApprovalAllowPersistent,
+		SandboxMode:       "required",
+		SandboxBackend:    "appcontainer",
+		SandboxAvailable:  true,
+		SandboxProbe:      "passed",
+		ExecutionStatus:   "success",
+		Result:            "secret command output",
+		FailureReason:     "",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := ReadEntries(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].PermissionSource != string(agent.PermissionSourcePersistent) || entries[0].SandboxBackend != "appcontainer" || entries[0].ExecutionStatus != "success" {
+		t.Fatalf("entries=%+v", entries)
+	}
+	if entries[0].Result != "<redacted>" || strings.Contains(string(mustReadFile(t, path)), "secret command output") {
+		t.Fatalf("audit leaked result: %+v", entries[0])
+	}
+}
+
 func TestJSONLWriterRecordsOnlySkillName(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "run.jsonl")
 	writer, err := NewJSONLWriter(path)

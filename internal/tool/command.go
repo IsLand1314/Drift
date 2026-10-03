@@ -146,7 +146,7 @@ func RunCommandPreviewWithSandbox(root, raw string, sandboxMode SandboxMode) (Pr
 
 func ExecuteCommand(parent context.Context, root string, preview Preview) (string, error) {
 	if preview.SandboxMode == SandboxRequired && !preview.Sandbox.Available {
-		return "", fmt.Errorf("sandbox required but unavailable")
+		return "", &SandboxDeniedError{Mode: preview.SandboxMode, Decision: preview.Sandbox}
 	}
 	ctx, cancel := context.WithTimeout(parent, preview.Timeout)
 	defer cancel()

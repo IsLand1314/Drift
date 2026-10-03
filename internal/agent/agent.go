@@ -313,8 +313,14 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) (
 				return err
 			}
 			var content string
+			var result string
 			var errorSummary string
 			var operation, path, command, cwd string
+			var sandboxMode, sandboxBackend, sandboxProbe string
+			var sandboxAvailable bool
+			var sandboxDenied bool
+			var permissionDenied bool
+			var permissionFailure string
 			var oldBytes, newBytes int
 			if toolCalls >= MaxToolCalls {
 				content = call.Name + " failed: request/tool budget exceeded"
@@ -323,28 +329,42 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) (
 			} else {
 				toolCalls++
 				registeredTool, _ := r.registry.Lookup(call.Name)
-				var result string
 				var toolErr error
 				if previewable, ok := registeredTool.(tool.Previewable); ok {
 					preview, previewErr := previewable.Preview(ctx, r.root, call.Arguments)
 					if previewErr != nil {
 						toolErr = previewErr
+						var denied *tool.SandboxDeniedError
+						if errors.As(previewErr, &denied) {
+							sandboxDenied = true
+							sandboxMode = string(denied.Mode)
+							sandboxBackend = denied.Decision.Backend
+							sandboxAvailable = denied.Decision.Available
+							sandboxProbe = denied.Decision.Probe
+						}
 					} else {
 						operation, path = preview.Operation, preview.Path
 						command, cwd = preview.Command, preview.CWD
+						sandboxMode = string(preview.SandboxMode)
+						sandboxBackend = preview.Sandbox.Backend
+						sandboxAvailable = preview.Sandbox.Available
+						sandboxProbe = preview.Sandbox.Probe
 						oldBytes, newBytes = preview.OldBytes, preview.NewBytes
 						request := PermissionRequest{ToolName: call.Name, Operation: preview.Operation, Path: preview.Path, Command: preview.Command, CWD: preview.CWD, OldBytes: preview.OldBytes, NewBytes: preview.NewBytes, Diff: preview.Diff}
 						if err := emit(Event{Type: EventPermissionRequest, ToolCallID: call.ID, ToolName: call.Name, Operation: preview.Operation, Path: preview.Path, Command: preview.Command, CWD: preview.CWD, OldBytes: preview.OldBytes, NewBytes: preview.NewBytes}); err != nil {
 							return err
 						}
-						decision := PermissionDecision{Reason: "permission denied"}
+						decision := PermissionDecision{Reason: "permission denied", Policy: PolicyAsk, Approval: ApprovalDeny, Source: PermissionSourceSystem}
 						if r.permissionPrompt != nil {
 							decision, toolErr = r.permissionPrompt(ctx, request)
 						}
+						decision = normalizePermissionDecision(decision)
 						if toolErr == nil && !decision.Allow {
+							permissionDenied = true
+							permissionFailure = decision.Reason
 							toolErr = errors.New("permission denied")
 						}
-						if err := emit(Event{Type: EventPermissionDecision, ToolCallID: call.ID, ToolName: call.Name, Operation: preview.Operation, Path: preview.Path, Command: preview.Command, CWD: preview.CWD, OldBytes: preview.OldBytes, NewBytes: preview.NewBytes, Allowed: decision.Allow, DecisionReason: decision.Reason}); err != nil {
+						if err := emit(Event{Type: EventPermissionDecision, ToolCallID: call.ID, ToolName: call.Name, Operation: preview.Operation, Path: preview.Path, Command: preview.Command, CWD: preview.CWD, OldBytes: preview.OldBytes, NewBytes: preview.NewBytes, Allowed: decision.Allow, DecisionReason: decision.Reason, PermissionSource: decision.Source, PermissionOutcome: decision.Approval, Policy: decision.Policy}); err != nil {
 							return err
 						}
 						if toolErr == nil {
@@ -378,8 +398,30 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) (
 					resultBytes += len(result)
 				}
 			}
+			executionStatus := "success"
+			failureReason := ""
+			if permissionDenied {
+				executionStatus = "denied"
+				failureReason = permissionFailure
+			}
+			if sandboxDenied {
+				executionStatus = "denied"
+				failureReason = "sandbox_unavailable"
+			}
+			if errorSummary != "" && !sandboxDenied && !permissionDenied {
+				executionStatus = "failed"
+				failureReason = errorSummary
+			}
+			if call.Name == "Bash" {
+				if status := commandStatus(result); status != "" {
+					executionStatus = status
+					if status != "success" {
+						failureReason = "command " + status
+					}
+				}
+			}
 			r.messages = append(r.messages, llm.Message{Role: "tool", Content: content, ToolCallID: call.ID})
-			if err := emit(Event{Type: EventToolResult, ToolCallID: call.ID, ToolName: call.Name, Result: content, ErrorSummary: errorSummary, Operation: operation, Path: path, Command: command, CWD: cwd, OldBytes: oldBytes, NewBytes: newBytes}); err != nil {
+			if err := emit(Event{Type: EventToolResult, ToolCallID: call.ID, ToolName: call.Name, Result: content, ErrorSummary: errorSummary, Operation: operation, Path: path, Command: command, CWD: cwd, OldBytes: oldBytes, NewBytes: newBytes, SandboxMode: sandboxMode, SandboxBackend: sandboxBackend, SandboxAvailable: sandboxAvailable, SandboxProbe: sandboxProbe, ExecutionStatus: executionStatus, FailureReason: failureReason}); err != nil {
 				return err
 			}
 		}
@@ -410,6 +452,41 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) (
 		forceFinal = limitReached
 	}
 	return fail(errRequestToolBudgetExceeded)
+}
+
+func normalizePermissionDecision(decision PermissionDecision) PermissionDecision {
+	if decision.Policy == "" {
+		if decision.Reason == "mode_bypass" || decision.Reason == "mode_accept_edits" {
+			decision.Policy = PolicyAllow
+		} else {
+			decision.Policy = PolicyAsk
+		}
+	}
+	if decision.Approval == "" {
+		switch {
+		case strings.Contains(decision.Reason, "cancel"):
+			decision.Approval = ApprovalCancelled
+		case decision.Allow:
+			decision.Approval = ApprovalAllowOnce
+		default:
+			decision.Approval = ApprovalDeny
+		}
+	}
+	if decision.Source == "" {
+		switch {
+		case strings.HasPrefix(decision.Reason, "mode_"):
+			decision.Source = PermissionSourceMode
+		case strings.Contains(decision.Reason, "persistent"):
+			decision.Source = PermissionSourcePersistent
+		case strings.Contains(decision.Reason, "session"):
+			decision.Source = PermissionSourceSession
+		case strings.Contains(decision.Reason, "user") || decision.Approval == ApprovalCancelled:
+			decision.Source = PermissionSourceUser
+		default:
+			decision.Source = PermissionSourceSystem
+		}
+	}
+	return decision
 }
 
 func commandStatus(result string) string {

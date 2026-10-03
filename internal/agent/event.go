@@ -5,6 +5,33 @@ import "context"
 // EventType 是 Agent 对上层输出的稳定事件分类。
 type EventType string
 
+type PolicyDecision string
+
+const (
+	PolicyAllow PolicyDecision = "allow"
+	PolicyAsk   PolicyDecision = "ask"
+	PolicyDeny  PolicyDecision = "deny"
+)
+
+type ApprovalDecision string
+
+const (
+	ApprovalAllowOnce       ApprovalDecision = "allow_once"
+	ApprovalAllowPersistent ApprovalDecision = "allow_persistent"
+	ApprovalDeny            ApprovalDecision = "deny"
+	ApprovalCancelled       ApprovalDecision = "cancelled"
+)
+
+type PermissionSource string
+
+const (
+	PermissionSourceMode       PermissionSource = "mode"
+	PermissionSourcePersistent PermissionSource = "persistent"
+	PermissionSourceSession    PermissionSource = "session"
+	PermissionSourceUser       PermissionSource = "user"
+	PermissionSourceSystem     PermissionSource = "system"
+)
+
 const (
 	EventRunStarted         EventType = "run_started"
 	EventTextDelta          EventType = "text_delta"
@@ -23,33 +50,42 @@ const (
 // Event 是脱离 Provider SSE 分片后的 Runtime 事件。
 // Agent 只对内部错误做最小脱敏；完整的凭据和路径脱敏由持久化消费者负责。
 type Event struct {
-	Type           EventType
-	Text           string
-	SkillName      string
-	ToolCallID     string
-	ToolName       string
-	Arguments      string
-	Result         string
-	ErrorSummary   string
-	Error          string
-	Stage          string
-	FinishReason   string
-	BeforeBytes    int
-	AfterBytes     int
-	MessageCount   int
-	KeptMessages   int
-	Operation      string
-	Path           string
-	Command        string
-	CWD            string
-	OldBytes       int
-	NewBytes       int
-	Allowed        bool
-	DecisionReason string
-	InputTokens    int
-	OutputTokens   int
-	TotalTokens    int
-	UsageAvailable bool
+	Type              EventType
+	Text              string
+	SkillName         string
+	ToolCallID        string
+	ToolName          string
+	Arguments         string
+	Result            string
+	ErrorSummary      string
+	Error             string
+	Stage             string
+	FinishReason      string
+	BeforeBytes       int
+	AfterBytes        int
+	MessageCount      int
+	KeptMessages      int
+	Operation         string
+	Path              string
+	Command           string
+	CWD               string
+	OldBytes          int
+	NewBytes          int
+	Allowed           bool
+	DecisionReason    string
+	PermissionSource  PermissionSource
+	PermissionOutcome ApprovalDecision
+	Policy            PolicyDecision
+	SandboxMode       string
+	SandboxBackend    string
+	SandboxAvailable  bool
+	SandboxProbe      string
+	ExecutionStatus   string
+	FailureReason     string
+	InputTokens       int
+	OutputTokens      int
+	TotalTokens       int
+	UsageAvailable    bool
 }
 
 // PermissionRequest describes a side effect before it is executed.
@@ -66,8 +102,11 @@ type PermissionRequest struct {
 
 // PermissionDecision is returned by the interactive approval callback.
 type PermissionDecision struct {
-	Allow  bool
-	Reason string
+	Allow    bool
+	Reason   string
+	Policy   PolicyDecision
+	Approval ApprovalDecision
+	Source   PermissionSource
 }
 
 // PermissionPrompt asks the caller whether a previewed operation may execute.

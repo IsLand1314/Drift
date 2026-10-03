@@ -609,25 +609,36 @@ func permissionAlreadyAllowed(memory *permissionMemory, policy *permissionPolicy
 	return memory.Allow(request) || policy.allows(request)
 }
 
-func confirmWrite(ctx context.Context, input chatInput, out io.Writer, mode permissionMode, memory *permissionMemory, policy *permissionPolicy, request agent.PermissionRequest) (agent.PermissionDecision, error) {
-	if decision := decidePermission(mode, request); decision.Reason != "approval_required" {
-		return decision, nil
+func resolvePermission(mode permissionMode, memory *permissionMemory, policy *permissionPolicy, request agent.PermissionRequest) agent.PermissionDecision {
+	decision := decidePermission(mode, request)
+	if decision.Policy != agent.PolicyAsk {
+		return decision
 	}
-	if permissionAlreadyAllowed(memory, policy, request) {
-		return agent.PermissionDecision{Allow: true, Reason: "session_pattern_approved"}, nil
+	if policy != nil && policy.allows(request) {
+		return agent.PermissionDecision{Allow: true, Reason: "persistent_pattern_approved", Policy: agent.PolicyAsk, Approval: agent.ApprovalAllowPersistent, Source: agent.PermissionSourcePersistent}
+	}
+	if memory != nil && memory.Allow(request) {
+		return agent.PermissionDecision{Allow: true, Reason: "session_pattern_approved", Policy: agent.PolicyAsk, Approval: agent.ApprovalAllowOnce, Source: agent.PermissionSourceSession}
+	}
+	return decision
+}
+
+func confirmWrite(ctx context.Context, input chatInput, out io.Writer, mode permissionMode, memory *permissionMemory, policy *permissionPolicy, request agent.PermissionRequest) (agent.PermissionDecision, error) {
+	if decision := resolvePermission(mode, memory, policy, request); decision.Policy != agent.PolicyAsk {
+		return decision, nil
 	}
 	if _, ok := input.(*tuiMainScreenInput); ok {
 		choice, err := readApprovalChoice(ctx, input, request)
 		if err != nil {
-			return agent.PermissionDecision{Reason: "approval_cancelled"}, err
+			return agent.PermissionDecision{Reason: "approval_cancelled", Policy: agent.PolicyAsk, Approval: agent.ApprovalCancelled, Source: agent.PermissionSourceUser}, err
 		}
 		switch choice {
 		case approveOnce:
-			return agent.PermissionDecision{Allow: true, Reason: "user_approved"}, nil
+			return agent.PermissionDecision{Allow: true, Reason: "user_approved", Policy: agent.PolicyAsk, Approval: agent.ApprovalAllowOnce, Source: agent.PermissionSourceUser}, nil
 		case approvePattern:
-			return agent.PermissionDecision{Allow: true, Reason: "persistent_pattern_pending"}, nil
+			return agent.PermissionDecision{Allow: true, Reason: "persistent_pattern_pending", Policy: agent.PolicyAsk, Approval: agent.ApprovalAllowPersistent, Source: agent.PermissionSourceUser}, nil
 		default:
-			return agent.PermissionDecision{Reason: "user_denied"}, nil
+			return agent.PermissionDecision{Reason: "user_denied", Policy: agent.PolicyAsk, Approval: agent.ApprovalDeny, Source: agent.PermissionSourceUser}, nil
 		}
 	}
 	if request.ToolName == "Bash" {
@@ -638,15 +649,15 @@ func confirmWrite(ctx context.Context, input chatInput, out io.Writer, mode perm
 	fmt.Fprint(out, "Allow this change? [y/N] ")
 	choice, err := readApprovalChoice(ctx, input, request)
 	if err != nil {
-		return agent.PermissionDecision{Reason: "confirmation input unavailable"}, err
+		return agent.PermissionDecision{Reason: "confirmation input unavailable", Policy: agent.PolicyAsk, Approval: agent.ApprovalCancelled, Source: agent.PermissionSourceUser}, err
 	}
 	if choice == approveOnce {
-		return agent.PermissionDecision{Allow: true, Reason: "user_approved"}, nil
+		return agent.PermissionDecision{Allow: true, Reason: "user_approved", Policy: agent.PolicyAsk, Approval: agent.ApprovalAllowOnce, Source: agent.PermissionSourceUser}, nil
 	}
 	if choice == approvePattern {
-		return agent.PermissionDecision{Allow: true, Reason: "persistent_pattern_pending"}, nil
+		return agent.PermissionDecision{Allow: true, Reason: "persistent_pattern_pending", Policy: agent.PolicyAsk, Approval: agent.ApprovalAllowPersistent, Source: agent.PermissionSourceUser}, nil
 	}
-	return agent.PermissionDecision{Reason: "user_denied"}, nil
+	return agent.PermissionDecision{Reason: "user_denied", Policy: agent.PolicyAsk, Approval: agent.ApprovalDeny, Source: agent.PermissionSourceUser}, nil
 }
 
 func safeToolPath(arguments string) string {

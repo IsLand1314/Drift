@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -22,6 +23,17 @@ func TestSelectSandboxFailsClosedWhenRequiredUnavailable(t *testing.T) {
 	decision, err := SelectSandbox(SandboxRequired, SandboxCapabilities{})
 	if err == nil || decision.Available {
 		t.Fatalf("required unavailable decision=%+v err=%v", decision, err)
+	}
+}
+
+func TestSandboxRequiredErrorCarriesDecision(t *testing.T) {
+	decision, err := SelectSandbox(SandboxRequired, SandboxCapabilities{Probe: "unavailable:missing"})
+	if err == nil {
+		t.Fatal("required sandbox unexpectedly accepted")
+	}
+	var denied *SandboxDeniedError
+	if !errors.As(err, &denied) || denied.Mode != SandboxRequired || denied.Decision.Mode != decision.Mode || denied.Decision.Probe != decision.Probe {
+		t.Fatalf("error=%T %v decision=%+v", err, err, decision)
 	}
 }
 

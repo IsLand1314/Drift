@@ -67,6 +67,30 @@ func TestRestoreRefusesStaleTargetWithoutChanges(t *testing.T) {
 	}
 }
 
+func TestRestoreRefusesPartialChangeSetWithoutTouchingTarget(t *testing.T) {
+	root := t.TempDir()
+	set, err := Begin(root, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := set.RecordMutation(Manifest{Operation: "create_file", Path: "partial.txt"}, "", nil, false, []byte("partial"), "partial.txt"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "partial.txt"), []byte("partial"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := set.Finalize("partial"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Restore(root, set.dir); err == nil {
+		t.Fatal("partial change set unexpectedly restored")
+	}
+	got, err := os.ReadFile(filepath.Join(root, "partial.txt"))
+	if err != nil || string(got) != "partial" {
+		t.Fatalf("partial target changed: %q err=%v", got, err)
+	}
+}
+
 func TestRestoreDeletedFile(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "nested"), 0o755); err != nil {

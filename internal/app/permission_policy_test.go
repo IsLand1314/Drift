@@ -138,3 +138,18 @@ func TestPermissionApprovalChecksPersistentPolicyAfterSessionMemory(t *testing.T
 		t.Fatal("different path unexpectedly matched persistent policy")
 	}
 }
+
+func TestResolvePermissionPersistentAllowCannotOverridePlanDeny(t *testing.T) {
+	root := t.TempDir()
+	request := agent.PermissionRequest{ToolName: "WriteFile", Operation: "create_file", Path: "tmp/hello.txt"}
+	policy := newPermissionPolicy(root)
+	if err := policy.remember(request); err != nil {
+		t.Fatal(err)
+	}
+	if got := resolvePermission(permissionModePlan, newPermissionMemory(), policy, request); got.Allow || got.Policy != agent.PolicyDeny || got.Source != agent.PermissionSourceMode {
+		t.Fatalf("plan decision=%+v", got)
+	}
+	if got := resolvePermission(permissionModeDefault, newPermissionMemory(), policy, request); !got.Allow || got.Approval != agent.ApprovalAllowPersistent || got.Source != agent.PermissionSourcePersistent {
+		t.Fatalf("persistent decision=%+v", got)
+	}
+}

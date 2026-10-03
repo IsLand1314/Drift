@@ -128,11 +128,8 @@ func newTuiFullScreen(ctx context.Context, runner *agent.Runner, audit session.W
 	}
 	if runner != nil {
 		runner.SetPermissionPrompt(func(promptCtx context.Context, request agent.PermissionRequest) (agent.PermissionDecision, error) {
-			if decision := decidePermission(*m.permissionMode, request); decision.Reason != "approval_required" {
+			if decision := resolvePermission(*m.permissionMode, m.permissionMemory, m.permissionPolicy, request); decision.Policy != agent.PolicyAsk {
 				return decision, nil
-			}
-			if permissionAlreadyAllowed(m.permissionMemory, m.permissionPolicy, request) {
-				return agent.PermissionDecision{Allow: true, Reason: "session_pattern_approved"}, nil
 			}
 			reply := make(chan agent.PermissionDecision, 1)
 			select {
@@ -512,19 +509,19 @@ func (m *tuiFullScreen) handleApproval(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.reply <- decision
 		m.approval = nil
 	case tea.KeyEscape, tea.KeyCtrlC:
-		a.reply <- agent.PermissionDecision{Reason: "user_denied"}
+		a.reply <- agent.PermissionDecision{Reason: "approval_cancelled", Policy: agent.PolicyAsk, Approval: agent.ApprovalCancelled, Source: agent.PermissionSourceUser}
 		m.approval = nil
 	}
 	return m, nil
 }
 func approvalDecision(selected int, memory *permissionMemory, request agent.PermissionRequest) agent.PermissionDecision {
 	if selected == 1 {
-		return agent.PermissionDecision{Allow: true, Reason: "persistent_pattern_pending"}
+		return agent.PermissionDecision{Allow: true, Reason: "persistent_pattern_pending", Policy: agent.PolicyAsk, Approval: agent.ApprovalAllowPersistent, Source: agent.PermissionSourceUser}
 	}
 	if selected == 0 {
-		return agent.PermissionDecision{Allow: true, Reason: "user_approved"}
+		return agent.PermissionDecision{Allow: true, Reason: "user_approved", Policy: agent.PolicyAsk, Approval: agent.ApprovalAllowOnce, Source: agent.PermissionSourceUser}
 	}
-	return agent.PermissionDecision{Reason: "user_denied"}
+	return agent.PermissionDecision{Reason: "user_denied", Policy: agent.PolicyAsk, Approval: agent.ApprovalDeny, Source: agent.PermissionSourceUser}
 }
 func (m *tuiFullScreen) handleResume(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if len(m.resume.items) == 0 {
