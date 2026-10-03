@@ -18,13 +18,14 @@ import (
 
 // TaskState is the durable state of one task in a chat session.
 type TaskState struct {
-	ID          string `json:"id"`
-	Subject     string `json:"subject"`
-	Description string `json:"description,omitempty"`
-	Status      string `json:"status"`
-	Worktree    string `json:"worktree,omitempty"`
-	Result      string `json:"result,omitempty"`
-	Error       string `json:"error,omitempty"`
+	ID          string   `json:"id"`
+	Subject     string   `json:"subject"`
+	Description string   `json:"description,omitempty"`
+	Status      string   `json:"status"`
+	Worktree    string   `json:"worktree,omitempty"`
+	DependsOn   []string `json:"depends_on,omitempty"`
+	Result      string   `json:"result,omitempty"`
+	Error       string   `json:"error,omitempty"`
 }
 
 var taskWorktreePattern = regexp.MustCompile(`^\.worktrees/[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
@@ -92,6 +93,7 @@ func (t taskCreateTool) Definition() llm.ToolDefinition {
 		"subject":     map[string]any{"type": "string", "description": "Short task title."},
 		"description": map[string]any{"type": "string", "description": "Optional task details."},
 		"worktree":    map[string]any{"type": "string", "description": "Optional managed worktree path, for example .worktrees/agent-1."},
+		"depends_on":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "maxItems": 32},
 	}, []string{"subject"})
 }
 
@@ -108,9 +110,10 @@ func (t taskGetTool) Definition() llm.ToolDefinition {
 func (t taskUpdateTool) Definition() llm.ToolDefinition {
 	return controlDefinition(t.Name(), "Update a task status or description.", map[string]any{
 		"task_id":     map[string]any{"type": "string"},
-		"status":      map[string]any{"type": "string", "enum": []string{"pending", "in_progress", "completed", "failed", "cancelled", "timeout"}},
+		"status":      map[string]any{"type": "string", "enum": []string{"pending", "blocked", "running", "completed", "failed", "cancelled", "timeout"}},
 		"description": map[string]any{"type": "string"},
 		"worktree":    map[string]any{"type": "string", "description": "Optional managed worktree path."},
+		"depends_on":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "maxItems": 32},
 	}, []string{"task_id"})
 }
 
@@ -138,9 +141,10 @@ func (t taskCancelTool) Definition() llm.ToolDefinition {
 
 func (t taskCreateTool) Execute(_ context.Context, _ string, raw string) (string, error) {
 	var args struct {
-		Subject     string `json:"subject"`
-		Description string `json:"description"`
-		Worktree    string `json:"worktree"`
+		Subject     string   `json:"subject"`
+		Description string   `json:"description"`
+		Worktree    string   `json:"worktree"`
+		DependsOn   []string `json:"depends_on"`
 	}
 	if err := decodeTaskArgs(raw, &args); err != nil {
 		return "", fmt.Errorf("decode TaskCreate arguments: %w", err)
@@ -148,13 +152,19 @@ func (t taskCreateTool) Execute(_ context.Context, _ string, raw string) (string
 	args.Subject = strings.TrimSpace(args.Subject)
 	args.Description = strings.TrimSpace(args.Description)
 	args.Worktree = normalizeTaskWorktree(args.Worktree)
-	if args.Subject == "" || len([]rune(args.Subject)) > 200 || len([]rune(args.Description)) > 2000 || (args.Worktree != "" && !validTaskWorktree(args.Worktree)) {
+	args.DependsOn = normalizeTaskDependencies(args.DependsOn)
+	if args.Subject == "" || len([]rune(args.Subject)) > 200 || len([]rune(args.Description)) > 2000 || len(args.DependsOn) > 32 || !validTaskDependencies(args.DependsOn) || (args.Worktree != "" && !validTaskWorktree(args.Worktree)) {
 		return "", fmt.Errorf("TaskCreate arguments are invalid")
 	}
 	t.store.mu.Lock()
 	defer t.store.mu.Unlock()
+	for _, dependency := range args.DependsOn {
+		if _, exists := t.store.tasks[dependency]; !exists {
+			return "", fmt.Errorf("TaskCreate dependency %q not found", dependency)
+		}
+	}
 	t.store.next++
-	item := TaskState{ID: fmt.Sprintf("task-%d", t.store.next), Subject: args.Subject, Description: args.Description, Status: "pending", Worktree: args.Worktree}
+	item := TaskState{ID: fmt.Sprintf("task-%d", t.store.next), Subject: args.Subject, Description: args.Description, Status: "pending", Worktree: args.Worktree, DependsOn: args.DependsOn}
 	t.store.tasks[item.ID] = item
 	return formatTask(item), nil
 }
@@ -196,10 +206,11 @@ func (t taskGetTool) Execute(_ context.Context, _ string, raw string) (string, e
 
 func (t taskUpdateTool) Execute(_ context.Context, _ string, raw string) (string, error) {
 	var args struct {
-		TaskID      string `json:"task_id"`
-		Status      string `json:"status"`
-		Description string `json:"description"`
-		Worktree    string `json:"worktree"`
+		TaskID      string   `json:"task_id"`
+		Status      string   `json:"status"`
+		Description string   `json:"description"`
+		Worktree    string   `json:"worktree"`
+		DependsOn   []string `json:"depends_on"`
 	}
 	if err := decodeTaskArgs(raw, &args); err != nil {
 		return "", fmt.Errorf("decode TaskUpdate arguments: %w", err)
@@ -208,7 +219,11 @@ func (t taskUpdateTool) Execute(_ context.Context, _ string, raw string) (string
 	args.Status = strings.TrimSpace(args.Status)
 	args.Description = strings.TrimSpace(args.Description)
 	args.Worktree = normalizeTaskWorktree(args.Worktree)
-	if args.Status != "" && !validTaskStatus(args.Status) || len([]rune(args.Description)) > 2000 || (args.Worktree != "" && !validTaskWorktree(args.Worktree)) {
+	args.DependsOn = normalizeTaskDependencies(args.DependsOn)
+	if args.Status == "in_progress" {
+		args.Status = "running"
+	}
+	if args.Status != "" && !validTaskStatus(args.Status) || len([]rune(args.Description)) > 2000 || len(args.DependsOn) > 32 || !validTaskDependencies(args.DependsOn) || (args.Worktree != "" && !validTaskWorktree(args.Worktree)) {
 		return "", fmt.Errorf("TaskUpdate arguments are invalid")
 	}
 	t.store.mu.Lock()
@@ -216,6 +231,21 @@ func (t taskUpdateTool) Execute(_ context.Context, _ string, raw string) (string
 	item, ok := t.store.tasks[args.TaskID]
 	if !ok {
 		return "", fmt.Errorf("TaskUpdate task %q not found", args.TaskID)
+	}
+	if args.DependsOn != nil {
+		for _, dependency := range args.DependsOn {
+			if _, exists := t.store.tasks[dependency]; !exists {
+				return "", fmt.Errorf("TaskUpdate dependency %q not found", dependency)
+			}
+		}
+		candidate := item
+		candidate.DependsOn = args.DependsOn
+		t.store.tasks[item.ID] = candidate
+		if hasDependencyCycleLocked(t.store.tasks, item.ID) {
+			t.store.tasks[item.ID] = item
+			return "", fmt.Errorf("TaskUpdate dependency cycle detected")
+		}
+		item = candidate
 	}
 	if args.Status != "" {
 		item.Status = args.Status
@@ -277,12 +307,18 @@ func (t taskRunTool) Execute(ctx context.Context, root, raw string) (string, err
 	t.store.mu.Lock()
 	item, ok := t.store.tasks[args.TaskID]
 	runner := t.store.runner
-	if ok && item.Status == "in_progress" {
+	if ok && (item.Status == "running" || item.Status == "in_progress") {
 		t.store.mu.Unlock()
 		return "", fmt.Errorf("TaskRun task %q is already running", args.TaskID)
 	}
 	if ok {
-		item.Status = "in_progress"
+		if !dependenciesCompletedLocked(t.store.tasks, item) {
+			item.Status = "blocked"
+			t.store.tasks[item.ID] = item
+			t.store.mu.Unlock()
+			return "", fmt.Errorf("TaskRun task %q is blocked by dependencies", args.TaskID)
+		}
+		item.Status = "running"
 		t.store.tasks[item.ID] = item
 	}
 	t.store.mu.Unlock()
@@ -422,7 +458,7 @@ func (s *taskStore) fail(id, message string) {
 
 func validTaskStatus(status string) bool {
 	switch status {
-	case "pending", "in_progress", "completed", "failed", "cancelled", "timeout":
+	case "pending", "blocked", "running", "in_progress", "completed", "failed", "cancelled", "timeout":
 		return true
 	default:
 		return false
@@ -436,6 +472,9 @@ func formatTask(item TaskState) string {
 	}
 	if item.Worktree != "" {
 		result += "\nworktree: " + item.Worktree
+	}
+	if len(item.DependsOn) > 0 {
+		result += "\ndepends_on: " + strings.Join(item.DependsOn, ", ")
 	}
 	if item.Result != "" {
 		result += "\nresult: " + item.Result
@@ -451,7 +490,7 @@ func ValidTaskStatus(status string) bool { return validTaskStatus(status) }
 
 // ValidateTaskState validates state crossing the session persistence boundary.
 func ValidateTaskState(item TaskState) bool {
-	if item.Subject == "" || len([]rune(item.Subject)) > 200 || len([]rune(item.Description)) > 2000 || len([]rune(item.Result)) > 8000 || len([]rune(item.Error)) > 2000 || !validTaskStatus(item.Status) || !strings.HasPrefix(item.ID, "task-") || (item.Worktree != "" && !validTaskWorktree(item.Worktree)) {
+	if item.Subject == "" || len([]rune(item.Subject)) > 200 || len([]rune(item.Description)) > 2000 || len(item.DependsOn) > 32 || !validTaskDependencies(item.DependsOn) || len([]rune(item.Result)) > 8000 || len([]rune(item.Error)) > 2000 || !validTaskStatus(item.Status) || !strings.HasPrefix(item.ID, "task-") || (item.Worktree != "" && !validTaskWorktree(item.Worktree)) {
 		return false
 	}
 	number, err := strconv.Atoi(strings.TrimPrefix(item.ID, "task-"))
@@ -464,6 +503,83 @@ func normalizeTaskWorktree(path string) string {
 		return ""
 	}
 	return filepath.ToSlash(filepath.Clean(path))
+}
+
+func normalizeTaskDependencies(dependencies []string) []string {
+	if dependencies == nil {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(dependencies))
+	result := make([]string, 0, len(dependencies))
+	for _, dependency := range dependencies {
+		dependency = strings.TrimSpace(dependency)
+		if dependency == "" {
+			continue
+		}
+		if _, exists := seen[dependency]; exists {
+			continue
+		}
+		seen[dependency] = struct{}{}
+		result = append(result, dependency)
+	}
+	sort.Strings(result)
+	return result
+}
+
+func validTaskDependencies(dependencies []string) bool {
+	seen := make(map[string]struct{}, len(dependencies))
+	for _, dependency := range dependencies {
+		if !validTaskID(dependency) {
+			return false
+		}
+		if _, exists := seen[dependency]; exists {
+			return false
+		}
+		seen[dependency] = struct{}{}
+	}
+	return true
+}
+
+func validTaskID(id string) bool {
+	if !strings.HasPrefix(id, "task-") {
+		return false
+	}
+	number, err := strconv.Atoi(strings.TrimPrefix(id, "task-"))
+	return err == nil && number > 0
+}
+
+func dependenciesCompletedLocked(tasks map[string]TaskState, item TaskState) bool {
+	for _, dependency := range item.DependsOn {
+		state, ok := tasks[dependency]
+		if !ok || state.Status != "completed" {
+			return false
+		}
+	}
+	return true
+}
+
+func hasDependencyCycleLocked(tasks map[string]TaskState, start string) bool {
+	visiting := make(map[string]bool)
+	visited := make(map[string]bool)
+	var visit func(string) bool
+	visit = func(id string) bool {
+		if visiting[id] {
+			return true
+		}
+		if visited[id] {
+			return false
+		}
+		visiting[id] = true
+		for _, dependency := range tasks[id].DependsOn {
+			if visit(dependency) {
+				return true
+			}
+		}
+		delete(visiting, id)
+		visited[id] = true
+		return false
+	}
+	return visit(start)
 }
 
 func validTaskWorktree(path string) bool { return taskWorktreePattern.MatchString(path) }
@@ -488,6 +604,10 @@ func (s *taskStore) restore(items []TaskState) error {
 		if !ValidateTaskState(item) {
 			return fmt.Errorf("invalid task state")
 		}
+		item.DependsOn = normalizeTaskDependencies(item.DependsOn)
+		if item.Status == "in_progress" {
+			item.Status = "running"
+		}
 		var number int
 		number, _ = strconv.Atoi(strings.TrimPrefix(item.ID, "task-"))
 		if _, exists := restored[item.ID]; exists {
@@ -497,6 +617,29 @@ func (s *taskStore) restore(items []TaskState) error {
 			next = number
 		}
 		restored[item.ID] = item
+	}
+	for id, item := range restored {
+		for _, dependency := range item.DependsOn {
+			if _, exists := restored[dependency]; !exists {
+				return fmt.Errorf("task %q dependency %q not found", id, dependency)
+			}
+		}
+		if hasDependencyCycleLocked(restored, id) {
+			return fmt.Errorf("task dependency cycle detected")
+		}
+	}
+	for id, item := range restored {
+		if item.Status == "running" {
+			item.Status = "pending"
+		}
+		if item.Status == "pending" || item.Status == "blocked" {
+			if dependenciesCompletedLocked(restored, item) {
+				item.Status = "pending"
+			} else {
+				item.Status = "blocked"
+			}
+		}
+		restored[id] = item
 	}
 	s.tasks = restored
 	s.next = next

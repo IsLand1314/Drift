@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -53,7 +54,7 @@ func TestStorePreservesTaskState(t *testing.T) {
 		t.Fatal(err)
 	}
 	loaded, err := store.Load(snapshot.ID)
-	if err != nil || len(loaded.Tasks) != 1 || loaded.Tasks[0] != snapshot.Tasks[0] {
+	if err != nil || len(loaded.Tasks) != 1 || !reflect.DeepEqual(loaded.Tasks[0], snapshot.Tasks[0]) {
 		t.Fatalf("loaded tasks=%+v err=%v", loaded.Tasks, err)
 	}
 }

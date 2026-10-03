@@ -1,14 +1,18 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M4.2。M3.17 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M4.3。M3.17 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
 
 ## M4：多 Agent 交付主线
 
 M4 的阶段目标、自动化验收和独立 LLM 验收门禁见 [`m4-multi-agent.md`](m4-multi-agent.md)。M3.30 及更早阶段作为基础能力保留，不再扩展为 M3.31。
 
-### M4.2：多子 Agent 并行（当前阶段）
+### M4.3：任务依赖和状态同步（当前阶段）
 
-见 [`m4.2-parallel-agents.md`](m4.2-parallel-agents.md)。确定性并行验收已通过，但真实 DeepSeek 工具调用仍受 M4.1 记录的伪工具格式阻塞，完整阶段门禁暂为 `BLOCKED`。
+见 [`m4.3-task-dag.md`](m4.3-task-dag.md)。确定性 DAG、状态转换和重启恢复验收已完成；真实 DeepSeek 工具调用仍受 M4.1 记录的伪工具格式阻塞，完整阶段门禁暂为 `BLOCKED`。
+
+### M4.2：多子 Agent 并行
+
+见 [`m4.2-parallel-agents.md`](m4.2-parallel-agents.md)。确定性并行验收已通过，但真实 DeepSeek 工具调用仍受 M4.1 记录的伪工具格式阻塞。
 
 ### M4.1：单子 Agent 闭环
 

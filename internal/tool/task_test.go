@@ -85,11 +85,11 @@ func TestTaskRunStatusAndCancelControlOneChild(t *testing.T) {
 	})
 	run, _ := registry.Lookup("TaskRun")
 	started, err := run.Execute(context.Background(), root, `{"task_id":"task-1","prompt":"inspect"}`)
-	if err != nil || !strings.Contains(started, "in_progress") {
+	if err != nil || !strings.Contains(started, "running") {
 		t.Fatalf("started=%q err=%v", started, err)
 	}
 	status, _ := registry.Lookup("TaskStatus")
-	if got, err := status.Execute(context.Background(), root, `{"task_id":"task-1"}`); err != nil || !strings.Contains(got, "in_progress") {
+	if got, err := status.Execute(context.Background(), root, `{"task_id":"task-1"}`); err != nil || !strings.Contains(got, "running") {
 		t.Fatalf("status=%q err=%v", got, err)
 	}
 	cancel, _ := registry.Lookup("TaskCancel")
@@ -174,6 +174,97 @@ func TestTaskRunKeepsIndependentTaskResultsIsolated(t *testing.T) {
 	}
 }
 
+func TestTaskDependenciesBlockUntilPrerequisiteCompletes(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"one", "two"} {
+		if err := os.MkdirAll(filepath.Join(root, ".worktrees", name), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	registry := NewChatRegistry()
+	search, _ := registry.Lookup("ToolSearch")
+	if _, err := search.Execute(context.Background(), root, `{"query":"task","load":["TaskCreate","TaskRun","TaskStatus"]}`); err != nil {
+		t.Fatal(err)
+	}
+	create, _ := registry.Lookup("TaskCreate")
+	if _, err := create.Execute(context.Background(), root, `{"subject":"one","worktree":".worktrees/one"}`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := create.Execute(context.Background(), root, `{"subject":"two","worktree":".worktrees/two","depends_on":["task-1"]}`); err != nil {
+		t.Fatal(err)
+	}
+	handles := map[string]*testTaskHandle{"task-1": newTestTaskHandle(), "task-2": newTestTaskHandle()}
+	started := make([]string, 0, 2)
+	registry.(TaskRegistry).SetTaskRunner(func(_ context.Context, task TaskState, _ string, _ time.Duration) (TaskHandle, error) {
+		started = append(started, task.ID)
+		return handles[task.ID], nil
+	})
+	run, _ := registry.Lookup("TaskRun")
+	if _, err := run.Execute(context.Background(), root, `{"task_id":"task-2","prompt":"blocked"}`); err == nil {
+		t.Fatal("dependent task started before prerequisite")
+	}
+	status, _ := registry.Lookup("TaskStatus")
+	blocked, err := status.Execute(context.Background(), root, `{"task_id":"task-2"}`)
+	if err != nil || !strings.Contains(blocked, "· blocked ·") || len(started) != 0 {
+		t.Fatalf("blocked=%q started=%v err=%v", blocked, started, err)
+	}
+	if _, err := run.Execute(context.Background(), root, `{"task_id":"task-1","prompt":"first"}`); err != nil {
+		t.Fatal(err)
+	}
+	handles["task-1"].complete(TaskExecutionResult{State: "completed", Output: "first done"})
+	waitForTaskStatus(t, registry, "completed")
+	if _, err := run.Execute(context.Background(), root, `{"task_id":"task-2","prompt":"second"}`); err != nil {
+		t.Fatal(err)
+	}
+	if len(started) != 2 || started[1] != "task-2" {
+		t.Fatalf("started=%v", started)
+	}
+}
+
+func TestTaskDependencyCycleIsRejected(t *testing.T) {
+	registry := NewChatRegistry()
+	search, _ := registry.Lookup("ToolSearch")
+	if _, err := search.Execute(context.Background(), t.TempDir(), `{"query":"task","load":["TaskCreate","TaskUpdate"]}`); err != nil {
+		t.Fatal(err)
+	}
+	create, _ := registry.Lookup("TaskCreate")
+	if _, err := create.Execute(context.Background(), t.TempDir(), `{"subject":"one"}`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := create.Execute(context.Background(), t.TempDir(), `{"subject":"two","depends_on":["task-1"]}`); err != nil {
+		t.Fatal(err)
+	}
+	update, _ := registry.Lookup("TaskUpdate")
+	if _, err := update.Execute(context.Background(), t.TempDir(), `{"task_id":"task-1","depends_on":["task-2"]}`); err == nil {
+		t.Fatal("dependency cycle accepted")
+	}
+}
+
+func TestTaskRestoreRecomputesBlockedAndRecoversRunning(t *testing.T) {
+	registry := NewChatRegistry()
+	tasks := registry.(TaskRegistry)
+	if err := tasks.RestoreTasks([]TaskState{
+		{ID: "task-1", Subject: "one", Status: "running"},
+		{ID: "task-2", Subject: "two", Status: "pending", DependsOn: []string{"task-1"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	items := tasks.ExportTasks()
+	if items[0].Status != "pending" || items[1].Status != "blocked" {
+		t.Fatalf("recovered=%+v", items)
+	}
+	if err := tasks.RestoreTasks([]TaskState{
+		{ID: "task-1", Subject: "one", Status: "completed"},
+		{ID: "task-2", Subject: "two", Status: "blocked", DependsOn: []string{"task-1"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	items = tasks.ExportTasks()
+	if items[1].Status != "pending" {
+		t.Fatalf("completed dependency did not unblock: %+v", items)
+	}
+}
+
 func TestTaskToolsCreateListGetAndUpdateWithinChat(t *testing.T) {
 	registry := NewChatRegistry()
 	search, _ := registry.Lookup("ToolSearch")
@@ -186,13 +277,13 @@ func TestTaskToolsCreateListGetAndUpdateWithinChat(t *testing.T) {
 		t.Fatalf("create=%q err=%v", created, err)
 	}
 	update, _ := registry.Lookup("TaskUpdate")
-	updated, err := update.Execute(context.Background(), t.TempDir(), `{"task_id":"task-1","status":"in_progress"}`)
-	if err != nil || !strings.Contains(updated, "in_progress") {
+	updated, err := update.Execute(context.Background(), t.TempDir(), `{"task_id":"task-1","status":"running"}`)
+	if err != nil || !strings.Contains(updated, "running") {
 		t.Fatalf("update=%q err=%v", updated, err)
 	}
 	get, _ := registry.Lookup("TaskGet")
 	got, err := get.Execute(context.Background(), t.TempDir(), `{"task_id":"task-1"}`)
-	if err != nil || !strings.Contains(got, "cover the new task flow") || !strings.Contains(got, "in_progress") {
+	if err != nil || !strings.Contains(got, "cover the new task flow") || !strings.Contains(got, "running") {
 		t.Fatalf("get=%q err=%v", got, err)
 	}
 	list, _ := registry.Lookup("TaskList")
@@ -293,7 +384,7 @@ func TestTaskStateCanBeExportedAndRestored(t *testing.T) {
 		t.Fatal(err)
 	}
 	update, _ := first.Lookup("TaskUpdate")
-	if _, err := update.Execute(context.Background(), t.TempDir(), `{"task_id":"task-1","status":"in_progress"}`); err != nil {
+	if _, err := update.Execute(context.Background(), t.TempDir(), `{"task_id":"task-1","status":"running"}`); err != nil {
 		t.Fatal(err)
 	}
 
@@ -308,7 +399,7 @@ func TestTaskStateCanBeExportedAndRestored(t *testing.T) {
 	}
 	get, _ := second.Lookup("TaskGet")
 	got, err := get.Execute(context.Background(), t.TempDir(), `{"task_id":"task-1"}`)
-	if err != nil || !strings.Contains(got, "persist me") || !strings.Contains(got, "in_progress") {
+	if err != nil || !strings.Contains(got, "persist me") || !strings.Contains(got, "pending") {
 		t.Fatalf("restored=%q err=%v", got, err)
 	}
 }
