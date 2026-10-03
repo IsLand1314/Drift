@@ -152,15 +152,19 @@ func ExecuteCommand(parent context.Context, root string, preview Preview) (strin
 	defer cancel()
 	process := newCommandProcess(ctx, preview.Command, root, preview.CWD, preview.Sandbox)
 	cmd := process.cmd
-	cmd.Dir = filepath.Join(root, filepath.FromSlash(preview.CWD))
+	if cmd != nil {
+		cmd.Dir = filepath.Join(root, filepath.FromSlash(preview.CWD))
+	}
 	limit := preview.OutputLimit
 	if limit <= 0 || limit > MaxCommandOutputBytes {
 		limit = MaxCommandOutputBytes
 	}
 	stdout, stderr := &limitedBuffer{limit: limit / 2}, &limitedBuffer{limit: limit - limit/2}
-	cmd.Stdout, cmd.Stderr = stdout, stderr
 	started := time.Now()
-	if err := cmd.Start(); err != nil {
+	if process.start == nil {
+		return "", fmt.Errorf("command process has no start implementation")
+	}
+	if err := process.start(stdout, stderr); err != nil {
 		_ = process.close()
 		return "", err
 	}
@@ -169,7 +173,12 @@ func ExecuteCommand(parent context.Context, root string, preview Preview) (strin
 		_ = process.close()
 		return "", err
 	}
-	err := cmd.Wait()
+	if process.wait == nil {
+		_ = process.cancel()
+		_ = process.close()
+		return "", fmt.Errorf("command process has no wait implementation")
+	}
+	err := process.wait()
 	_ = process.close()
 	duration := time.Since(started).Round(time.Millisecond)
 	status, exitCode := "success", 0
