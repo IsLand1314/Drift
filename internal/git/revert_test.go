@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/IsLand1314/Drift/internal/tool"
 )
 
 func TestPreflightRevertResolvesCleanCommit(t *testing.T) {
@@ -47,6 +49,31 @@ func TestPreflightRevertRejectsInvalidAndMergeTargets(t *testing.T) {
 	gitRun(t, root, "commit", "-m", "initial")
 	if _, err := PreflightRevert(context.Background(), root, "not-a-commit"); err == nil || !strings.Contains(err.Error(), "invalid_target") {
 		t.Fatalf("invalid target error = %v", err)
+	}
+}
+
+func TestRevertCreatesReverseCommit(t *testing.T) {
+	root := newGitFixture(t)
+	writeGitFile(t, root, "one.txt", "one\n")
+	gitRun(t, root, "add", "one.txt")
+	gitRun(t, root, "commit", "-m", "initial")
+	writeGitFile(t, root, "one.txt", "two\n")
+	gitRun(t, root, "commit", "-am", "change")
+	preflight, err := PreflightRevert(context.Background(), root, "HEAD")
+	if err != nil {
+		t.Fatalf("PreflightRevert() error = %v", err)
+	}
+
+	result, err := Revert(context.Background(), preflight, tool.SandboxOff)
+	if err != nil {
+		t.Fatalf("Revert() error = %v", err)
+	}
+	if result.Status != "success" || result.AfterHEAD == result.BeforeHEAD {
+		t.Fatalf("Revert() result = %+v", result)
+	}
+	data, err := os.ReadFile(filepath.Join(root, "one.txt"))
+	if err != nil || strings.TrimSpace(string(data)) != "one" {
+		t.Fatalf("one.txt = %q, err=%v; want initial content", data, err)
 	}
 }
 
