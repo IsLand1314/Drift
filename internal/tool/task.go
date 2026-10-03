@@ -5,26 +5,36 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
 	"github.com/IsLand1314/Drift/internal/llm"
 )
 
-type task struct {
-	ID          string
-	Subject     string
-	Description string
-	Status      string
+// TaskState is the durable state of one task in a chat session.
+type TaskState struct {
+	ID          string `json:"id"`
+	Subject     string `json:"subject"`
+	Description string `json:"description,omitempty"`
+	Status      string `json:"status"`
+}
+
+// TaskRegistry exposes the task state owned by a chat tool registry.
+type TaskRegistry interface {
+	Registry
+	ExportTasks() []TaskState
+	RestoreTasks([]TaskState) error
+	ResetTasks()
 }
 
 type taskStore struct {
 	mu    sync.Mutex
 	next  int
-	tasks map[string]task
+	tasks map[string]TaskState
 }
 
-func newTaskStore() *taskStore { return &taskStore{tasks: make(map[string]task)} }
+func newTaskStore() *taskStore { return &taskStore{tasks: make(map[string]TaskState)} }
 
 type taskCreateTool struct{ store *taskStore }
 type taskListTool struct{ store *taskStore }
@@ -77,7 +87,7 @@ func (t taskCreateTool) Execute(_ context.Context, _ string, raw string) (string
 	t.store.mu.Lock()
 	defer t.store.mu.Unlock()
 	t.store.next++
-	item := task{ID: fmt.Sprintf("task-%d", t.store.next), Subject: args.Subject, Description: args.Description, Status: "pending"}
+	item := TaskState{ID: fmt.Sprintf("task-%d", t.store.next), Subject: args.Subject, Description: args.Description, Status: "pending"}
 	t.store.tasks[item.ID] = item
 	return formatTask(item), nil
 }
@@ -88,7 +98,7 @@ func (t taskListTool) Execute(_ context.Context, _ string, raw string) (string, 
 		return "", err
 	}
 	t.store.mu.Lock()
-	items := make([]task, 0, len(t.store.tasks))
+	items := make([]TaskState, 0, len(t.store.tasks))
 	for _, item := range t.store.tasks {
 		items = append(items, item)
 	}
@@ -167,12 +177,66 @@ func validTaskStatus(status string) bool {
 	}
 }
 
-func formatTask(item task) string {
+func formatTask(item TaskState) string {
 	result := item.ID + " · " + item.Status + " · " + item.Subject
 	if item.Description != "" {
 		result += "\n" + item.Description
 	}
 	return result
+}
+
+// ValidTaskStatus reports whether a persisted task status is supported.
+func ValidTaskStatus(status string) bool { return validTaskStatus(status) }
+
+// ValidateTaskState validates state crossing the session persistence boundary.
+func ValidateTaskState(item TaskState) bool {
+	if item.Subject == "" || len([]rune(item.Subject)) > 200 || len([]rune(item.Description)) > 2000 || !validTaskStatus(item.Status) || !strings.HasPrefix(item.ID, "task-") {
+		return false
+	}
+	number, err := strconv.Atoi(strings.TrimPrefix(item.ID, "task-"))
+	return err == nil && number > 0
+}
+
+func (s *taskStore) export() []TaskState {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	items := make([]TaskState, 0, len(s.tasks))
+	for _, item := range s.tasks {
+		items = append(items, item)
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
+	return items
+}
+
+func (s *taskStore) restore(items []TaskState) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	next := 0
+	restored := make(map[string]TaskState, len(items))
+	for _, item := range items {
+		if !ValidateTaskState(item) {
+			return fmt.Errorf("invalid task state")
+		}
+		var number int
+		number, _ = strconv.Atoi(strings.TrimPrefix(item.ID, "task-"))
+		if _, exists := restored[item.ID]; exists {
+			return fmt.Errorf("duplicate task id %q", item.ID)
+		}
+		if number > next {
+			next = number
+		}
+		restored[item.ID] = item
+	}
+	s.tasks = restored
+	s.next = next
+	return nil
+}
+
+func (s *taskStore) reset() {
+	s.mu.Lock()
+	s.tasks = make(map[string]TaskState)
+	s.next = 0
+	s.mu.Unlock()
 }
 
 func decodeTaskArgs(raw string, target any) error {

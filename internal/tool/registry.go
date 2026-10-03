@@ -19,6 +19,7 @@ type registry struct {
 	order     []Tool
 	enabled   map[string]bool
 	summaries map[string]toolSummary
+	tasks     *taskStore
 }
 
 // NewRegistry 创建工具注册表，并拒绝空名称和重复名称。
@@ -28,6 +29,7 @@ func NewRegistry(tools ...Tool) (Registry, error) {
 		order:     make([]Tool, 0, len(tools)),
 		enabled:   make(map[string]bool, len(tools)),
 		summaries: make(map[string]toolSummary, len(tools)),
+		tasks:     newTaskStore(),
 	}
 	for _, current := range tools {
 		if current == nil {
@@ -64,8 +66,8 @@ func NewChatRegistry() Registry {
 // NewChatRegistryWithSandbox returns the chat tools with a user-selected,
 // control-plane sandbox policy fixed into Bash.
 func NewChatRegistryWithSandbox(sandboxMode SandboxMode) Registry {
-	result := &registry{tools: make(map[string]Tool), enabled: make(map[string]bool), summaries: make(map[string]toolSummary)}
-	tasks := newTaskStore()
+	result := &registry{tools: make(map[string]Tool), enabled: make(map[string]bool), summaries: make(map[string]toolSummary), tasks: newTaskStore()}
+	tasks := result.tasks
 	for _, current := range []Tool{listFilesTool{}, searchTextTool{}, readFileTool{}, writeFileTool{}, editFileTool{}, deleteFileTool{}, runCommandTool{sandboxMode: sandboxMode}, askUserQuestionTool{}, taskCreateTool{tasks}, taskListTool{tasks}, taskGetTool{tasks}, taskUpdateTool{tasks}} {
 		result.add(current, false)
 	}
@@ -73,6 +75,12 @@ func NewChatRegistryWithSandbox(sandboxMode SandboxMode) Registry {
 	result.enable("AskUserQuestion")
 	return result
 }
+
+func (r *registry) ExportTasks() []TaskState { return r.tasks.export() }
+
+func (r *registry) RestoreTasks(items []TaskState) error { return r.tasks.restore(items) }
+
+func (r *registry) ResetTasks() { r.tasks.reset() }
 
 func (r *registry) Definitions() []llm.ToolDefinition {
 	definitions := make([]llm.ToolDefinition, 0, len(r.order))

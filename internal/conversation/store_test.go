@@ -12,6 +12,7 @@ import (
 
 	"github.com/IsLand1314/Drift/internal/layout"
 	"github.com/IsLand1314/Drift/internal/llm"
+	"github.com/IsLand1314/Drift/internal/tool"
 )
 
 func TestListIncludesLocalPreviewWithoutPersistingIt(t *testing.T) {
@@ -38,6 +39,22 @@ func TestListIncludesLocalPreviewWithoutPersistingIt(t *testing.T) {
 	}
 	if bytes.Contains(raw, []byte(`"preview"`)) {
 		t.Fatal("preview must not be persisted")
+	}
+}
+
+func TestStorePreservesTaskState(t *testing.T) {
+	store := NewStore(t.TempDir())
+	snapshot, err := store.Create("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot.Tasks = []tool.TaskState{{ID: "task-1", Subject: "persist task", Description: "resume it", Status: "in_progress"}}
+	if err := store.Save(snapshot); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.Load(snapshot.ID)
+	if err != nil || len(loaded.Tasks) != 1 || loaded.Tasks[0] != snapshot.Tasks[0] {
+		t.Fatalf("loaded tasks=%+v err=%v", loaded.Tasks, err)
 	}
 }
 

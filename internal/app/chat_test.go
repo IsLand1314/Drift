@@ -272,6 +272,49 @@ func TestStartNewChatSessionKeepsOldSnapshot(t *testing.T) {
 	}
 }
 
+func TestChatPersistenceRestoresTaskStateWithSession(t *testing.T) {
+	root := t.TempDir()
+	store := conversation.NewStore(root)
+	snapshot, err := store.Create("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry := tool.NewChatRegistry()
+	search, _ := registry.Lookup("ToolSearch")
+	if _, err := search.Execute(context.Background(), root, `{"query":"task","load":["TaskCreate"]}`); err != nil {
+		t.Fatal(err)
+	}
+	create, _ := registry.Lookup("TaskCreate")
+	if _, err := create.Execute(context.Background(), root, `{"subject":"persist through app"}`); err != nil {
+		t.Fatal(err)
+	}
+	runner := agent.NewRunner(nil, root, "", registry)
+	persistence := &chatPersistence{store: store, snapshot: snapshot, persistent: true, registry: registry}
+	if err := persistence.saveRunner(runner); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.Load(snapshot.ID)
+	if err != nil || len(loaded.Tasks) != 1 {
+		t.Fatalf("loaded=%+v err=%v", loaded, err)
+	}
+
+	otherRegistry := tool.NewChatRegistry()
+	otherPersistence := &chatPersistence{store: store, snapshot: snapshot, persistent: true, registry: otherRegistry}
+	otherRunner := agent.NewRunner(nil, root, "", otherRegistry)
+	if err := switchChatSession(otherRunner, otherPersistence, snapshot.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := otherRegistry.(tool.TaskRegistry).ExportTasks(); len(got) != 1 || got[0].Subject != "persist through app" {
+		t.Fatalf("restored tasks=%+v", got)
+	}
+	if err := startNewChatSession(otherRunner, otherPersistence); err != nil {
+		t.Fatal(err)
+	}
+	if got := otherRegistry.(tool.TaskRegistry).ExportTasks(); len(got) != 0 {
+		t.Fatalf("new session retained tasks=%+v", got)
+	}
+}
+
 func TestChatNewCommandCreatesPersistentSession(t *testing.T) {
 	root := t.TempDir()
 	store := conversation.NewStore(root)

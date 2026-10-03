@@ -36,6 +36,7 @@ type chatPersistence struct {
 	snapshot   conversation.Snapshot
 	persistent bool
 	usage      usageTotals
+	registry   tool.Registry
 }
 
 type usageTotals struct {
@@ -57,6 +58,11 @@ func switchChatSession(runner *agent.Runner, persistence *chatPersistence, targe
 		ReportedRequests:   target.ReportedRequests,
 		UnreportedRequests: target.UnreportedRequests,
 	}
+	if tasks, ok := persistence.registry.(tool.TaskRegistry); ok {
+		if err := tasks.RestoreTasks(target.Tasks); err != nil {
+			return fmt.Errorf("chat: restore tasks: %w", err)
+		}
+	}
 	runner.RestoreMessages(target.Messages)
 	persistence.snapshot = target
 	persistence.usage = usage
@@ -75,6 +81,9 @@ func startNewChatSession(runner *agent.Runner, persistence *chatPersistence) err
 	runner.ResetContext()
 	persistence.snapshot = target
 	persistence.usage = usageTotals{}
+	if tasks, ok := persistence.registry.(tool.TaskRegistry); ok {
+		tasks.ResetTasks()
+	}
 	return nil
 }
 
@@ -115,6 +124,9 @@ func (p *chatPersistence) saveRunner(runner *agent.Runner) error {
 	p.snapshot.OutputTokens = p.usage.OutputTokens
 	p.snapshot.ReportedRequests = p.usage.ReportedRequests
 	p.snapshot.UnreportedRequests = p.usage.UnreportedRequests
+	if tasks, ok := p.registry.(tool.TaskRegistry); ok {
+		p.snapshot.Tasks = tasks.ExportTasks()
+	}
 	p.snapshot.UpdatedAt = time.Now().UTC()
 	return p.store.Save(p.snapshot)
 }
@@ -129,11 +141,15 @@ func (p *chatPersistence) clearRunner(runner *agent.Runner) error {
 	cleared.ContextBytes = 0
 	cleared.InputTokens, cleared.OutputTokens = 0, 0
 	cleared.ReportedRequests, cleared.UnreportedRequests = 0, 0
+	cleared.Tasks = nil
 	cleared.UpdatedAt = time.Now().UTC()
 	if err := p.store.Save(cleared); err != nil {
 		return err
 	}
 	p.snapshot = cleared
+	if tasks, ok := p.registry.(tool.TaskRegistry); ok {
+		tasks.ResetTasks()
+	}
 	runner.ResetContext()
 	return nil
 }

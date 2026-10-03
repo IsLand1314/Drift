@@ -251,8 +251,14 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 					return 2
 				}
 			}
+			if tasks, ok := registry.(tool.TaskRegistry); ok {
+				if taskErr := tasks.RestoreTasks(snapshot.Tasks); taskErr != nil {
+					fmt.Fprintln(stderr, "错误：无法恢复会话任务：", taskErr)
+					return 2
+				}
+			}
 			runner = agent.NewRunnerWithMessagesAndSystemContext(modelClient{Client: client, model: *model}, selection.Root, snapshot.Focus, selectedSkill.Name, selectedSkill.Content, registry, snapshot.Messages)
-			persistence = &chatPersistence{store: store, snapshot: snapshot, persistent: true}
+			persistence = &chatPersistence{store: store, snapshot: snapshot, persistent: true, registry: registry}
 			persistence.usage = usageTotals{InputTokens: snapshot.InputTokens, OutputTokens: snapshot.OutputTokens, ReportedRequests: snapshot.ReportedRequests, UnreportedRequests: snapshot.UnreportedRequests}
 			if _, _, isTTY := tuiMainScreenFiles(in, out); !isTTY {
 				fmt.Fprintf(stderr, "Session ID: %s\n注意：此会话会保存完整本地上下文，可能包含用户输入和读取结果；使用 --no-session 可关闭\n", snapshot.ID)
@@ -264,13 +270,13 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 				return 1
 			}
 			runner = agent.NewRunnerWithSystemContext(modelClient{Client: client, model: *model}, selection.Root, selection.Focus, selectedSkill.Name, selectedSkill.Content, registry)
-			persistence = &chatPersistence{store: store, snapshot: snapshot, persistent: true}
+			persistence = &chatPersistence{store: store, snapshot: snapshot, persistent: true, registry: registry}
 			if _, _, isTTY := tuiMainScreenFiles(in, out); !isTTY {
 				fmt.Fprintf(stderr, "Session ID: %s\n注意：此会话会保存完整本地上下文，可能包含用户输入和读取结果；使用 --no-session 可关闭\n", snapshot.ID)
 			}
 		} else {
 			runner = agent.NewRunnerWithSystemContext(modelClient{Client: client, model: *model}, selection.Root, selection.Focus, selectedSkill.Name, selectedSkill.Content, registry)
-			persistence = &chatPersistence{persistent: false}
+			persistence = &chatPersistence{persistent: false, registry: registry}
 			if _, _, isTTY := tuiMainScreenFiles(in, out); !isTTY {
 				fmt.Fprintln(stderr, "已禁用完整会话保存（--no-session）；仍保留脱敏审计")
 			}
