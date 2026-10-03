@@ -4,7 +4,7 @@
 
 ## M3.16：安全闭环收口
 
-M3.16 统一策略决策（`allow/ask/deny`）与人工审批结果（`allow_once/allow_persistent/deny/cancelled`），把 required 沙箱拒绝和工具失败写入结构化审计，并验证 partial change set 不会被不安全地恢复。
+M3.16 统一四种用户可见权限模式（`default/acceptEdits/plan/bypassPermissions`）、内部策略决策（`allow/ask/deny`）与人工审批结果（`allow_once/allow_persistent/deny/cancelled`），把 required 沙箱拒绝和工具失败写入结构化审计，并验证 partial change set 不会被不安全地恢复。`ask` 不是权限模式，只表示需要进入人工审批。
 
 ### 验收
 
