@@ -118,8 +118,9 @@ func PreflightRevert(ctx context.Context, root, target string) (Preflight, error
 	if strings.TrimSpace(target) == "" {
 		return Preflight{}, fmt.Errorf("invalid_target: commit is blank")
 	}
-	if _, err := gitOutput(ctx, root, "rev-parse", "--show-toplevel"); err != nil {
-		return Preflight{}, fmt.Errorf("not_git: %w", err)
+	root, err = RepositoryRoot(ctx, root)
+	if err != nil {
+		return Preflight{}, err
 	}
 	status, err := gitOutput(ctx, root, "status", "--porcelain")
 	if err != nil {
@@ -148,6 +149,22 @@ func PreflightRevert(ctx context.Context, root, target string) (Preflight, error
 		return Preflight{}, fmt.Errorf("invalid_target: cannot create preview: %w", err)
 	}
 	return Preflight{Root: root, Commit: string(commit), Branch: strings.TrimSpace(string(branch)), Preview: strings.TrimSpace(string(preview))}, nil
+}
+
+func RepositoryRoot(ctx context.Context, root string) (string, error) {
+	root, err := filepath.Abs(strings.TrimSpace(root))
+	if err != nil || root == "" {
+		return "", fmt.Errorf("not_git: workspace path is invalid")
+	}
+	resolvedBytes, err := gitOutput(ctx, root, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return "", fmt.Errorf("not_git: %w", err)
+	}
+	resolved, err := filepath.Abs(strings.TrimSpace(string(resolvedBytes)))
+	if err != nil || resolved == "" {
+		return "", fmt.Errorf("not_git: repository root is invalid")
+	}
+	return resolved, nil
 }
 
 func gitOutput(ctx context.Context, root string, args ...string) ([]byte, error) {

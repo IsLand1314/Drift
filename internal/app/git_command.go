@@ -60,6 +60,9 @@ func runGitCommandContext(ctx context.Context, args []string, out, stderr io.Wri
 		fmt.Fprintln(stderr, "错误：workspace 路径无效：", err)
 		return 2
 	}
+	if repositoryRoot, rootErr := gitops.RepositoryRoot(ctx, root); rootErr == nil {
+		root = repositoryRoot
+	}
 	started := time.Now().UTC()
 	storage := layout.ForWorkspace(root)
 	if err := storage.Prepare(); err != nil {
