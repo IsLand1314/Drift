@@ -24,14 +24,14 @@
 
 - [ ] Add failing tests for pending/running/completed, failed, cancelled, and timeout results.
 - [ ] Add typed lifecycle state and result structures with timestamps, task ID, worktree, error category, and output summary.
-- [ ] Add a manager that guarantees one active child and rejects a second start.
+- [x] Add a manager that guarantees one active child and rejects a second start.
 - [ ] Run targeted tests.
 
 ### Task 2: Child Runner execution
 
 **Files:** `internal/agent/subagent.go`, `internal/agent/subagent_test.go`
 
-- [ ] Add a child Runner factory using a fresh chat registry and the task Worktree as root.
+- [x] Add a child Runner factory using a fresh chat registry and the task Worktree as root.
 - [ ] Execute with a child context and propagate cancellation/timeout distinctly.
 - [ ] Verify parent context remains usable after each terminal state.
 - [ ] Run success, tool failure, cancellation, timeout, and missing Worktree tests.
@@ -40,16 +40,16 @@
 
 **Files:** `internal/agent/subagent.go`, `internal/app/chat.go`, `internal/tool/task.go`, tests
 
-- [ ] Emit start, terminal result, and cleanup audit events with task ID and outcome.
-- [ ] Update task status to `in_progress`, `completed`, `failed`, `cancelled`, or `timeout`.
-- [ ] Ensure cleanup only releases child resources and never deletes the Worktree.
-- [ ] Test persistence of terminal state.
+- [x] Emit start, terminal result, and cleanup audit events with task ID and outcome.
+- [x] Update task status to `in_progress`, `completed`, `failed`, `cancelled`, or `timeout`.
+- [x] Ensure cleanup only releases child resources and never deletes the Worktree.
+- [x] Test persistence of terminal state.
 
 ### Task 4: Control surface and documentation
 
 **Files:** `internal/tool/task.go`, `internal/tool/registry.go`, `spec/current.md`, `spec/m4.1-single-agent.md`
 
-- [ ] Expose the smallest control surface needed by the parent: start/status/cancel.
+- [x] Expose the smallest control surface needed by the parent: start/status/cancel.
 - [ ] Keep the child control surface from recursively starting another child.
 - [ ] Document explicit confirmation and failure semantics.
 

@@ -5,8 +5,126 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
+
+type testTaskHandle struct {
+	mu       sync.Mutex
+	result   TaskExecutionResult
+	done     chan struct{}
+	canceled bool
+}
+
+func newTestTaskHandle() *testTaskHandle { return &testTaskHandle{done: make(chan struct{})} }
+
+func (h *testTaskHandle) Cancel() {
+	h.mu.Lock()
+	if !h.canceled {
+		h.canceled = true
+		h.result = TaskExecutionResult{State: "cancelled"}
+		close(h.done)
+	}
+	h.mu.Unlock()
+}
+
+func (h *testTaskHandle) complete(result TaskExecutionResult) {
+	h.mu.Lock()
+	if h.result.State == "" {
+		h.result = result
+		close(h.done)
+	}
+	h.mu.Unlock()
+}
+
+func (h *testTaskHandle) Wait(ctx context.Context) (TaskExecutionResult, error) {
+	select {
+	case <-h.done:
+		h.mu.Lock()
+		result := h.result
+		h.mu.Unlock()
+		return result, nil
+	case <-ctx.Done():
+		return TaskExecutionResult{}, ctx.Err()
+	}
+}
+
+func waitForTaskStatus(t *testing.T, registry Registry, status string) string {
+	t.Helper()
+	tool, _ := registry.Lookup("TaskStatus")
+	for deadline := time.Now().Add(time.Second); time.Now().Before(deadline); {
+		got, err := tool.Execute(context.Background(), t.TempDir(), `{"task_id":"task-1"}`)
+		if err == nil && strings.Contains(got, "· "+status+" ·") {
+			return got
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("task did not reach %q", status)
+	return ""
+}
+
+func TestTaskRunStatusAndCancelControlOneChild(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".worktrees", "agent-1"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	registry := NewChatRegistry()
+	search, _ := registry.Lookup("ToolSearch")
+	if _, err := search.Execute(context.Background(), root, `{"query":"task","load":["TaskCreate","TaskRun","TaskStatus","TaskCancel"]}`); err != nil {
+		t.Fatal(err)
+	}
+	create, _ := registry.Lookup("TaskCreate")
+	if _, err := create.Execute(context.Background(), root, `{"subject":"child","worktree":".worktrees/agent-1"}`); err != nil {
+		t.Fatal(err)
+	}
+	handle := newTestTaskHandle()
+	registry.(TaskRegistry).SetTaskRunner(func(context.Context, TaskState, string, time.Duration) (TaskHandle, error) {
+		return handle, nil
+	})
+	run, _ := registry.Lookup("TaskRun")
+	started, err := run.Execute(context.Background(), root, `{"task_id":"task-1","prompt":"inspect"}`)
+	if err != nil || !strings.Contains(started, "in_progress") {
+		t.Fatalf("started=%q err=%v", started, err)
+	}
+	status, _ := registry.Lookup("TaskStatus")
+	if got, err := status.Execute(context.Background(), root, `{"task_id":"task-1"}`); err != nil || !strings.Contains(got, "in_progress") {
+		t.Fatalf("status=%q err=%v", got, err)
+	}
+	cancel, _ := registry.Lookup("TaskCancel")
+	if _, err := cancel.Execute(context.Background(), root, `{"task_id":"task-1"}`); err != nil {
+		t.Fatal(err)
+	}
+	if got := waitForTaskStatus(t, registry, "cancelled"); !strings.Contains(got, "child") {
+		t.Fatalf("cancelled=%q", got)
+	}
+}
+
+func TestTaskRunCompletesAndReturnsChildOutputInStatus(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".worktrees", "agent-1"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	registry := NewChatRegistry()
+	search, _ := registry.Lookup("ToolSearch")
+	if _, err := search.Execute(context.Background(), root, `{"query":"task","load":["TaskCreate","TaskRun","TaskStatus"]}`); err != nil {
+		t.Fatal(err)
+	}
+	create, _ := registry.Lookup("TaskCreate")
+	if _, err := create.Execute(context.Background(), root, `{"subject":"child","worktree":".worktrees/agent-1"}`); err != nil {
+		t.Fatal(err)
+	}
+	handle := newTestTaskHandle()
+	registry.(TaskRegistry).SetTaskRunner(func(context.Context, TaskState, string, time.Duration) (TaskHandle, error) { return handle, nil })
+	run, _ := registry.Lookup("TaskRun")
+	if _, err := run.Execute(context.Background(), root, `{"task_id":"task-1","prompt":"inspect"}`); err != nil {
+		t.Fatal(err)
+	}
+	handle.complete(TaskExecutionResult{State: "completed", Output: "verified"})
+	if got := waitForTaskStatus(t, registry, "completed"); !strings.Contains(got, "result: verified") {
+		t.Fatalf("status=%q", got)
+	}
+}
 
 func TestTaskToolsCreateListGetAndUpdateWithinChat(t *testing.T) {
 	registry := NewChatRegistry()

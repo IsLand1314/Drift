@@ -97,6 +97,27 @@ func TestJSONLWriterRecordsStructuredPermissionAndSandboxOutcome(t *testing.T) {
 	}
 }
 
+func TestJSONLWriterRecordsChildLifecycleMetadata(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "run.jsonl")
+	writer, err := NewJSONLWriter(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Append(agent.Event{Type: agent.EventRunFinished, TaskID: "task-1", ChildState: "cancelled", ExecutionStatus: "cancelled"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := ReadEntries(path)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("entries=%+v err=%v", entries, err)
+	}
+	if entries[0].TaskID != "task-1" || entries[0].ChildState != "cancelled" || entries[0].ExecutionStatus != "cancelled" {
+		t.Fatalf("entry=%+v", entries[0])
+	}
+}
+
 func TestJSONLWriterRecordsMCPMetadataWithoutResultBody(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "run.jsonl")
 	writer, err := NewJSONLWriter(path)

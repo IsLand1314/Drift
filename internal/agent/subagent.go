@@ -34,7 +34,8 @@ type ChildResult struct {
 
 type ChildManager struct {
 	mu     sync.Mutex
-	active bool
+	active *ChildHandle
+	taskID string
 }
 
 type ChildHandle struct {
@@ -42,6 +43,7 @@ type ChildHandle struct {
 	cancel  context.CancelFunc
 	done    chan ChildResult
 	once    sync.Once
+	taskID  string
 }
 
 // Start launches one child Runner. M4.1 deliberately rejects a second child.
@@ -53,23 +55,26 @@ func (m *ChildManager) Start(parent context.Context, client llm.Client, taskID, 
 	if err != nil || !info.IsDir() {
 		return nil, fmt.Errorf("child worktree unavailable: %s", worktree)
 	}
-	m.mu.Lock()
-	if m.active {
-		m.mu.Unlock()
-		return nil, errors.New("child agent already running")
-	}
-	m.active = true
-	m.mu.Unlock()
 	ctx, cancel := context.WithCancel(parent)
 	if timeout > 0 {
 		ctx, cancel = context.WithTimeout(parent, timeout)
 	}
-	handle := &ChildHandle{manager: m, cancel: cancel, done: make(chan ChildResult, 1)}
+	handle := &ChildHandle{manager: m, cancel: cancel, done: make(chan ChildResult, 1), taskID: taskID}
+	m.mu.Lock()
+	if m.active != nil {
+		m.mu.Unlock()
+		cancel()
+		return nil, errors.New("child agent already running")
+	}
+	m.taskID = taskID
+	m.active = handle
+	m.mu.Unlock()
 	started := time.Now().UTC()
 	go func() {
 		defer func() {
 			m.mu.Lock()
-			m.active = false
+			m.active = nil
+			m.taskID = ""
 			m.mu.Unlock()
 		}()
 		if sink != nil {
@@ -94,6 +99,31 @@ func (m *ChildManager) Start(parent context.Context, client llm.Client, taskID, 
 		handle.done <- result
 	}()
 	return handle, nil
+}
+
+func (m *ChildManager) Cancel(taskID string) error {
+	m.mu.Lock()
+	handle, activeTask := m.active, m.taskID
+	m.mu.Unlock()
+	if handle == nil || activeTask != taskID {
+		return fmt.Errorf("child agent task %q is not running", taskID)
+	}
+	handle.Cancel()
+	return nil
+}
+
+// Shutdown cancels the active child and waits for it to release its process
+// slot before the parent closes its audit/session resources.
+func (m *ChildManager) Shutdown(ctx context.Context) error {
+	m.mu.Lock()
+	handle := m.active
+	m.mu.Unlock()
+	if handle == nil {
+		return nil
+	}
+	handle.Cancel()
+	_, err := handle.Wait(ctx)
+	return err
 }
 
 func childFailure(result ChildResult) string {

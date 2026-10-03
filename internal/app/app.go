@@ -228,9 +228,23 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 	}
 	var persistence *chatPersistence
 	var runner *agent.Runner
+	var childManager *agent.ChildManager
 	registry := tool.NewDefaultRegistry()
 	if chat {
 		registry = tool.NewChatRegistryWithSandbox(sandboxMode)
+		childManager = &agent.ChildManager{}
+		if tasks, ok := registry.(tool.TaskRegistry); ok {
+			childSink := func(event agent.Event) error {
+				if err := sessionWriter.Append(event); err != nil {
+					return err
+				}
+				if traceSink != nil {
+					_ = traceSink(event)
+				}
+				return nil
+			}
+			tasks.SetTaskRunner(childTaskRunner(childManager, client, selection.Root, childSink))
+		}
 	}
 	if chat {
 		store := conversation.NewStore(selection.Root)
@@ -287,6 +301,11 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 	if chat {
 		status := chatStatus{Model: *model, Workspace: selection.Root, ToolCount: len(registry.Definitions()), Registry: registry, PermissionMode: permissionMode, SandboxMode: sandboxMode}
 		code := runChatLoopWithPersistence(runCtx, runner, sessionWriter, traceSink, persistence, status, coordinator, in, out, stderr)
+		if childManager != nil {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			_ = childManager.Shutdown(shutdownCtx)
+			cancel()
+		}
 		if closeErr := sessionWriter.Close(); closeErr != nil && code == 0 {
 			fmt.Fprintln(stderr, "错误：", closeErr)
 			return 1

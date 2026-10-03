@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/IsLand1314/Drift/internal/llm"
 )
@@ -22,6 +23,8 @@ type TaskState struct {
 	Description string `json:"description,omitempty"`
 	Status      string `json:"status"`
 	Worktree    string `json:"worktree,omitempty"`
+	Result      string `json:"result,omitempty"`
+	Error       string `json:"error,omitempty"`
 }
 
 var taskWorktreePattern = regexp.MustCompile(`^\.worktrees/[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
@@ -32,6 +35,7 @@ type TaskRegistry interface {
 	ExportTasks() []TaskState
 	RestoreTasks([]TaskState) error
 	ResetTasks()
+	SetTaskRunner(TaskRunner)
 }
 
 // TaskSwitcher resolves the active task's worktree for the Agent runner.
@@ -39,26 +43,49 @@ type TaskSwitcher interface {
 	ActiveWorktree(root string) (string, error)
 }
 
-type taskStore struct {
-	mu     sync.Mutex
-	next   int
-	tasks  map[string]TaskState
-	active string
+type TaskExecutionResult struct {
+	State  string
+	Output string
+	Err    error
 }
 
-func newTaskStore() *taskStore { return &taskStore{tasks: make(map[string]TaskState)} }
+type TaskHandle interface {
+	Cancel()
+	Wait(context.Context) (TaskExecutionResult, error)
+}
+
+type TaskRunner func(context.Context, TaskState, string, time.Duration) (TaskHandle, error)
+
+type taskStore struct {
+	mu      sync.Mutex
+	next    int
+	tasks   map[string]TaskState
+	active  string
+	runner  TaskRunner
+	running map[string]TaskHandle
+}
+
+func newTaskStore() *taskStore {
+	return &taskStore{tasks: make(map[string]TaskState), running: make(map[string]TaskHandle)}
+}
 
 type taskCreateTool struct{ store *taskStore }
 type taskListTool struct{ store *taskStore }
 type taskGetTool struct{ store *taskStore }
 type taskUpdateTool struct{ store *taskStore }
 type taskSwitchTool struct{ store *taskStore }
+type taskRunTool struct{ store *taskStore }
+type taskStatusTool struct{ store *taskStore }
+type taskCancelTool struct{ store *taskStore }
 
 func (taskCreateTool) Name() string { return "TaskCreate" }
 func (taskListTool) Name() string   { return "TaskList" }
 func (taskGetTool) Name() string    { return "TaskGet" }
 func (taskUpdateTool) Name() string { return "TaskUpdate" }
 func (taskSwitchTool) Name() string { return "TaskSwitch" }
+func (taskRunTool) Name() string    { return "TaskRun" }
+func (taskStatusTool) Name() string { return "TaskStatus" }
+func (taskCancelTool) Name() string { return "TaskCancel" }
 
 func (t taskCreateTool) Definition() llm.ToolDefinition {
 	return controlDefinition(t.Name(), "Create a session task.", map[string]any{
@@ -81,7 +108,7 @@ func (t taskGetTool) Definition() llm.ToolDefinition {
 func (t taskUpdateTool) Definition() llm.ToolDefinition {
 	return controlDefinition(t.Name(), "Update a task status or description.", map[string]any{
 		"task_id":     map[string]any{"type": "string"},
-		"status":      map[string]any{"type": "string", "enum": []string{"pending", "in_progress", "completed", "cancelled"}},
+		"status":      map[string]any{"type": "string", "enum": []string{"pending", "in_progress", "completed", "failed", "cancelled", "timeout"}},
 		"description": map[string]any{"type": "string"},
 		"worktree":    map[string]any{"type": "string", "description": "Optional managed worktree path."},
 	}, []string{"task_id"})
@@ -91,6 +118,22 @@ func (t taskSwitchTool) Definition() llm.ToolDefinition {
 	return controlDefinition(t.Name(), "Switch the Agent to a task's existing managed worktree.", map[string]any{
 		"task_id": map[string]any{"type": "string"},
 	}, []string{"task_id"})
+}
+
+func (t taskRunTool) Definition() llm.ToolDefinition {
+	return controlDefinition(t.Name(), "Run one child Agent in the task's existing worktree.", map[string]any{
+		"task_id":    map[string]any{"type": "string"},
+		"prompt":     map[string]any{"type": "string"},
+		"timeout_ms": map[string]any{"type": "integer", "minimum": 1, "maximum": 600000},
+	}, []string{"task_id", "prompt"})
+}
+
+func (t taskStatusTool) Definition() llm.ToolDefinition {
+	return controlDefinition(t.Name(), "Read one task and its child Agent status.", map[string]any{"task_id": map[string]any{"type": "string"}}, []string{"task_id"})
+}
+
+func (t taskCancelTool) Definition() llm.ToolDefinition {
+	return controlDefinition(t.Name(), "Cancel one running child Agent.", map[string]any{"task_id": map[string]any{"type": "string"}}, []string{"task_id"})
 }
 
 func (t taskCreateTool) Execute(_ context.Context, _ string, raw string) (string, error) {
@@ -218,6 +261,94 @@ func (t taskSwitchTool) Execute(_ context.Context, root string, raw string) (str
 	return formatTask(item), nil
 }
 
+func (t taskRunTool) Execute(ctx context.Context, root, raw string) (string, error) {
+	var args struct {
+		TaskID    string `json:"task_id"`
+		Prompt    string `json:"prompt"`
+		TimeoutMS int    `json:"timeout_ms"`
+	}
+	if err := decodeTaskArgs(raw, &args); err != nil {
+		return "", fmt.Errorf("decode TaskRun arguments: %w", err)
+	}
+	args.TaskID, args.Prompt = strings.TrimSpace(args.TaskID), strings.TrimSpace(args.Prompt)
+	if args.TaskID == "" || args.Prompt == "" || len([]rune(args.Prompt)) > 4000 || args.TimeoutMS < 0 || args.TimeoutMS > 600000 {
+		return "", fmt.Errorf("TaskRun arguments are invalid")
+	}
+	t.store.mu.Lock()
+	item, ok := t.store.tasks[args.TaskID]
+	runner := t.store.runner
+	if ok && item.Status == "in_progress" {
+		t.store.mu.Unlock()
+		return "", fmt.Errorf("TaskRun task %q is already running", args.TaskID)
+	}
+	if ok {
+		item.Status = "in_progress"
+		t.store.tasks[item.ID] = item
+	}
+	t.store.mu.Unlock()
+	if !ok {
+		return "", fmt.Errorf("TaskRun task %q not found", args.TaskID)
+	}
+	if item.Worktree == "" {
+		t.store.fail(args.TaskID, "task has no worktree")
+		return "", fmt.Errorf("TaskRun task %q has no worktree", args.TaskID)
+	}
+	if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(item.Worktree))); err != nil {
+		t.store.fail(args.TaskID, err.Error())
+		return "", fmt.Errorf("TaskRun worktree unavailable: %w", err)
+	}
+	if runner == nil {
+		t.store.fail(args.TaskID, "TaskRun is unavailable in this host")
+		return "", fmt.Errorf("TaskRun is unavailable in this host")
+	}
+	timeout := time.Duration(args.TimeoutMS) * time.Millisecond
+	handle, err := runner(ctx, item, args.Prompt, timeout)
+	if err != nil {
+		t.store.mu.Lock()
+		item.Status = "failed"
+		t.store.tasks[item.ID] = item
+		t.store.mu.Unlock()
+		return "", err
+	}
+	t.store.mu.Lock()
+	t.store.running[item.ID] = handle
+	t.store.mu.Unlock()
+	go t.store.finishTask(context.Background(), item.ID, handle)
+	return formatTask(item), nil
+}
+
+func (t taskStatusTool) Execute(_ context.Context, _ string, raw string) (string, error) {
+	var args struct {
+		TaskID string `json:"task_id"`
+	}
+	if err := decodeTaskArgs(raw, &args); err != nil {
+		return "", fmt.Errorf("decode TaskStatus arguments: %w", err)
+	}
+	return t.store.get(strings.TrimSpace(args.TaskID))
+}
+
+func (t taskCancelTool) Execute(_ context.Context, _ string, raw string) (string, error) {
+	var args struct {
+		TaskID string `json:"task_id"`
+	}
+	if err := decodeTaskArgs(raw, &args); err != nil {
+		return "", fmt.Errorf("decode TaskCancel arguments: %w", err)
+	}
+	args.TaskID = strings.TrimSpace(args.TaskID)
+	t.store.mu.Lock()
+	item, ok := t.store.tasks[args.TaskID]
+	handle := t.store.running[args.TaskID]
+	t.store.mu.Unlock()
+	if !ok {
+		return "", fmt.Errorf("TaskCancel task %q not found", args.TaskID)
+	}
+	if handle == nil {
+		return "", fmt.Errorf("TaskCancel task %q is not running", args.TaskID)
+	}
+	handle.Cancel()
+	return "cancel requested: " + formatTask(item), nil
+}
+
 func (s *taskStore) get(id string) (string, error) {
 	s.mu.Lock()
 	item, ok := s.tasks[id]
@@ -244,9 +375,54 @@ func (s *taskStore) activeWorktree(root string) (string, error) {
 	return filepath.Abs(path)
 }
 
+func (r *registry) SetTaskRunner(runner TaskRunner) {
+	r.tasks.mu.Lock()
+	r.tasks.runner = runner
+	r.tasks.mu.Unlock()
+}
+
+func (s *taskStore) finishTask(ctx context.Context, id string, handle TaskHandle) {
+	result, waitErr := handle.Wait(ctx)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, ok := s.tasks[id]
+	if !ok {
+		return
+	}
+	delete(s.running, id)
+	if waitErr != nil {
+		item.Status = "failed"
+		item.Error = waitErr.Error()
+	} else if result.State != "" {
+		item.Status = result.State
+		item.Result = result.Output
+		if result.Err != nil {
+			item.Error = result.Err.Error()
+		}
+	} else {
+		item.Status, item.Result = "completed", result.Output
+		if result.Err != nil {
+			item.Error = result.Err.Error()
+		}
+	}
+	s.tasks[id] = item
+}
+
+func (s *taskStore) fail(id, message string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, ok := s.tasks[id]
+	if !ok {
+		return
+	}
+	item.Status = "failed"
+	item.Error = message
+	s.tasks[id] = item
+}
+
 func validTaskStatus(status string) bool {
 	switch status {
-	case "pending", "in_progress", "completed", "cancelled":
+	case "pending", "in_progress", "completed", "failed", "cancelled", "timeout":
 		return true
 	default:
 		return false
@@ -261,6 +437,12 @@ func formatTask(item TaskState) string {
 	if item.Worktree != "" {
 		result += "\nworktree: " + item.Worktree
 	}
+	if item.Result != "" {
+		result += "\nresult: " + item.Result
+	}
+	if item.Error != "" {
+		result += "\nerror: " + item.Error
+	}
 	return result
 }
 
@@ -269,7 +451,7 @@ func ValidTaskStatus(status string) bool { return validTaskStatus(status) }
 
 // ValidateTaskState validates state crossing the session persistence boundary.
 func ValidateTaskState(item TaskState) bool {
-	if item.Subject == "" || len([]rune(item.Subject)) > 200 || len([]rune(item.Description)) > 2000 || !validTaskStatus(item.Status) || !strings.HasPrefix(item.ID, "task-") || (item.Worktree != "" && !validTaskWorktree(item.Worktree)) {
+	if item.Subject == "" || len([]rune(item.Subject)) > 200 || len([]rune(item.Description)) > 2000 || len([]rune(item.Result)) > 8000 || len([]rune(item.Error)) > 2000 || !validTaskStatus(item.Status) || !strings.HasPrefix(item.ID, "task-") || (item.Worktree != "" && !validTaskWorktree(item.Worktree)) {
 		return false
 	}
 	number, err := strconv.Atoi(strings.TrimPrefix(item.ID, "task-"))

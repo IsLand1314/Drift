@@ -15,6 +15,7 @@ type Entry struct {
 	Skill             string    `json:"skill,omitempty"`
 	TextBytes         int       `json:"text_bytes,omitempty"`
 	ToolCallID        string    `json:"tool_call_id,omitempty"`
+	TaskID            string    `json:"task_id,omitempty"`
 	Tool              string    `json:"tool,omitempty"`
 	MCPServer         string    `json:"mcp_server,omitempty"`
 	Path              string    `json:"path,omitempty"`
@@ -45,6 +46,7 @@ type Entry struct {
 	SandboxAvailable  bool      `json:"sandbox_available"`
 	SandboxProbe      string    `json:"sandbox_probe,omitempty"`
 	ExecutionStatus   string    `json:"execution_status,omitempty"`
+	ChildState        string    `json:"child_state,omitempty"`
 	FailureReason     string    `json:"failure_reason,omitempty"`
 	InputTokens       int       `json:"input_tokens,omitempty"`
 	OutputTokens      int       `json:"output_tokens,omitempty"`

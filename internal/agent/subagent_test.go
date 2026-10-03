@@ -9,17 +9,43 @@ import (
 	"github.com/IsLand1314/Drift/internal/llm"
 )
 
-type childClient struct{ wait bool }
+type childClient struct{ wait, fail bool }
 
 func (c childClient) Stream(ctx context.Context, _ llm.Request, emit func(llm.StreamEvent) error) (llm.Completion, error) {
 	if c.wait {
 		<-ctx.Done()
 		return llm.Completion{}, ctx.Err()
 	}
+	if c.fail {
+		return llm.Completion{}, errors.New("child failed")
+	}
 	if err := emit(llm.StreamEvent{Text: "child complete"}); err != nil {
 		return llm.Completion{}, err
 	}
 	return llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "child complete"}, FinishReason: "stop"}, nil
+}
+
+func TestChildManagerReportsFailureAndMissingWorktree(t *testing.T) {
+	manager := &ChildManager{}
+	root := t.TempDir()
+	handle, err := manager.Start(context.Background(), childClient{fail: true}, "task-fail", root, "work", 0, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := handle.Wait(context.Background())
+	if err != nil || result.State != ChildFailed || result.Err == nil {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	if _, err := manager.Start(context.Background(), childClient{}, "task-missing", root+"-missing", "work", 0, nil); err == nil {
+		t.Fatal("missing worktree accepted")
+	}
+	cleanup, err := manager.Start(context.Background(), childClient{}, "task-after-failure", root, "work", 0, nil)
+	if err != nil {
+		t.Fatalf("manager not reusable after failure: %v", err)
+	}
+	if _, err := cleanup.Wait(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestChildManagerCompletesAndRejectsConcurrentStart(t *testing.T) {
