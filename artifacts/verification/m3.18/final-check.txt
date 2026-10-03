@@ -1,0 +1,11 @@
+M3.18 final verification
+Date: 2026-10-03
+
+  go test ./... -count=1 -> PASS
+  go vet ./... -> PASS
+  go build ./cmd/drift -> PASS
+  git diff --check -> PASS
+
+Scope check:
+  GitRevert and .git sandbox policy were not changed.
+  Temporary test workspaces are created by Go tests under t.TempDir and removed by the test runtime.
