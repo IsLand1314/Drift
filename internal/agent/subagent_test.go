@@ -25,6 +25,117 @@ func (c childClient) Stream(ctx context.Context, _ llm.Request, emit func(llm.St
 	return llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "child complete"}, FinishReason: "stop"}, nil
 }
 
+type parallelChildClient struct {
+	started chan<- struct{}
+	release <-chan struct{}
+	fail    bool
+}
+
+func (c parallelChildClient) Stream(ctx context.Context, _ llm.Request, emit func(llm.StreamEvent) error) (llm.Completion, error) {
+	if c.started != nil {
+		c.started <- struct{}{}
+	}
+	if c.fail {
+		return llm.Completion{}, errors.New("parallel child failed")
+	}
+	if c.release != nil {
+		select {
+		case <-c.release:
+		case <-ctx.Done():
+			return llm.Completion{}, ctx.Err()
+		}
+	}
+	if err := emit(llm.StreamEvent{Text: "parallel child complete"}); err != nil {
+		return llm.Completion{}, err
+	}
+	return llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "parallel child complete"}, FinishReason: "stop"}, nil
+}
+
+func TestChildManagerRunsUpToLimitInParallelAndRejectsOverflow(t *testing.T) {
+	manager := NewChildManager(2)
+	root := t.TempDir()
+	started := make(chan struct{}, 2)
+	release := make(chan struct{})
+	client := parallelChildClient{started: started, release: release}
+	first, err := manager.Start(context.Background(), client, "task-1", root, "one", 0, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := manager.Start(context.Background(), client, "task-2", root, "two", 0, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("first child did not start")
+	}
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("second child did not start in parallel")
+	}
+	if _, err := manager.Start(context.Background(), client, "task-3", root, "three", 0, nil); err == nil {
+		t.Fatal("child over concurrency limit accepted")
+	}
+	close(release)
+	for _, handle := range []*ChildHandle{first, second} {
+		result, err := handle.Wait(context.Background())
+		if err != nil || result.State != ChildCompleted {
+			t.Fatalf("result=%+v err=%v", result, err)
+		}
+	}
+}
+
+func TestChildManagerFailureDoesNotCancelOtherChildren(t *testing.T) {
+	manager := NewChildManager(2)
+	root := t.TempDir()
+	release := make(chan struct{})
+	failed, err := manager.Start(context.Background(), parallelChildClient{fail: true}, "task-fail", root, "fail", 0, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	survivor, err := manager.Start(context.Background(), parallelChildClient{release: release}, "task-ok", root, "ok", 0, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failure, err := failed.Wait(context.Background())
+	if err != nil || failure.State != ChildFailed {
+		t.Fatalf("failure=%+v err=%v", failure, err)
+	}
+	close(release)
+	result, err := survivor.Wait(context.Background())
+	if err != nil || result.State != ChildCompleted {
+		t.Fatalf("survivor=%+v err=%v", result, err)
+	}
+}
+
+func TestChildManagerCancelsOneParallelChildWithoutStoppingAnother(t *testing.T) {
+	manager := NewChildManager(2)
+	root := t.TempDir()
+	release := make(chan struct{})
+	first, err := manager.Start(context.Background(), parallelChildClient{release: release}, "task-cancel", root, "cancel", 0, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := manager.Start(context.Background(), parallelChildClient{release: release}, "task-keep", root, "keep", 0, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Cancel("task-cancel"); err != nil {
+		t.Fatal(err)
+	}
+	cancelled, err := first.Wait(context.Background())
+	if err != nil || cancelled.State != ChildCancelled {
+		t.Fatalf("cancelled=%+v err=%v", cancelled, err)
+	}
+	close(release)
+	kept, err := second.Wait(context.Background())
+	if err != nil || kept.State != ChildCompleted {
+		t.Fatalf("kept=%+v err=%v", kept, err)
+	}
+}
+
 func TestChildManagerReportsFailureAndMissingWorktree(t *testing.T) {
 	manager := &ChildManager{}
 	root := t.TempDir()

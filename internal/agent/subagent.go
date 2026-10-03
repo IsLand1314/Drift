@@ -14,6 +14,8 @@ import (
 
 type ChildState string
 
+const DefaultChildConcurrency = 4
+
 const (
 	ChildRunning   ChildState = "running"
 	ChildCompleted ChildState = "completed"
@@ -34,8 +36,8 @@ type ChildResult struct {
 
 type ChildManager struct {
 	mu     sync.Mutex
-	active *ChildHandle
-	taskID string
+	active map[string]*ChildHandle
+	limit  int
 }
 
 type ChildHandle struct {
@@ -44,6 +46,14 @@ type ChildHandle struct {
 	done    chan ChildResult
 	once    sync.Once
 	taskID  string
+}
+
+// NewChildManager creates a manager with a bounded number of concurrent children.
+func NewChildManager(limit int) *ChildManager {
+	if limit < 1 {
+		limit = 1
+	}
+	return &ChildManager{active: make(map[string]*ChildHandle), limit: limit}
 }
 
 // Start launches one child Runner. M4.1 deliberately rejects a second child.
@@ -61,22 +71,30 @@ func (m *ChildManager) Start(parent context.Context, client llm.Client, taskID, 
 	}
 	handle := &ChildHandle{manager: m, cancel: cancel, done: make(chan ChildResult, 1), taskID: taskID}
 	m.mu.Lock()
-	if m.active != nil {
+	if m.active == nil {
+		m.active = make(map[string]*ChildHandle)
+	}
+	limit := m.limit
+	if limit < 1 {
+		limit = 1
+	}
+	if _, exists := m.active[taskID]; exists || len(m.active) >= limit {
 		m.mu.Unlock()
 		cancel()
-		return nil, errors.New("child agent already running")
+		return nil, errors.New("child agent concurrency limit reached")
 	}
-	m.taskID = taskID
-	m.active = handle
+	m.active[taskID] = handle
 	m.mu.Unlock()
 	started := time.Now().UTC()
 	go func() {
-		defer func() {
+		release := func() {
 			m.mu.Lock()
-			m.active = nil
-			m.taskID = ""
+			if m.active[taskID] == handle {
+				delete(m.active, taskID)
+			}
 			m.mu.Unlock()
-		}()
+		}
+		defer release()
 		if sink != nil {
 			_ = sink(Event{Type: EventRunStarted, TaskID: taskID, CWD: worktree, ExecutionStatus: string(ChildRunning)})
 		}
@@ -96,6 +114,7 @@ func (m *ChildManager) Start(parent context.Context, client llm.Client, taskID, 
 		if sink != nil {
 			_ = sink(Event{Type: EventRunFinished, TaskID: taskID, CWD: worktree, ExecutionStatus: string(result.State), ChildState: string(result.State), FailureReason: childFailure(result)})
 		}
+		release()
 		handle.done <- result
 	}()
 	return handle, nil
@@ -103,9 +122,9 @@ func (m *ChildManager) Start(parent context.Context, client llm.Client, taskID, 
 
 func (m *ChildManager) Cancel(taskID string) error {
 	m.mu.Lock()
-	handle, activeTask := m.active, m.taskID
+	handle := m.active[taskID]
 	m.mu.Unlock()
-	if handle == nil || activeTask != taskID {
+	if handle == nil {
 		return fmt.Errorf("child agent task %q is not running", taskID)
 	}
 	handle.Cancel()
@@ -116,14 +135,23 @@ func (m *ChildManager) Cancel(taskID string) error {
 // slot before the parent closes its audit/session resources.
 func (m *ChildManager) Shutdown(ctx context.Context) error {
 	m.mu.Lock()
-	handle := m.active
+	handles := make([]*ChildHandle, 0, len(m.active))
+	for _, handle := range m.active {
+		handles = append(handles, handle)
+	}
 	m.mu.Unlock()
-	if handle == nil {
+	if len(handles) == 0 {
 		return nil
 	}
-	handle.Cancel()
-	_, err := handle.Wait(ctx)
-	return err
+	for _, handle := range handles {
+		handle.Cancel()
+	}
+	for _, handle := range handles {
+		if _, err := handle.Wait(ctx); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func childFailure(result ChildResult) string {

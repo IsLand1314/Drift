@@ -1,14 +1,18 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M4.1。M3.17 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M4.2。M3.17 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
 
 ## M4：多 Agent 交付主线
 
 M4 的阶段目标、自动化验收和独立 LLM 验收门禁见 [`m4-multi-agent.md`](m4-multi-agent.md)。M3.30 及更早阶段作为基础能力保留，不再扩展为 M3.31。
 
-### M4.1：单子 Agent 闭环（当前阶段）
+### M4.2：多子 Agent 并行（当前阶段）
 
-见 [`m4.1-single-agent.md`](m4.1-single-agent.md)。当前只实现一个子 Agent 的创建、运行、取消、超时、回收和审计；不实现并行子 Agent、任务 DAG 或 Agent 间消息。
+见 [`m4.2-parallel-agents.md`](m4.2-parallel-agents.md)。确定性并行验收已通过，但真实 DeepSeek 工具调用仍受 M4.1 记录的伪工具格式阻塞，完整阶段门禁暂为 `BLOCKED`。
+
+### M4.1：单子 Agent 闭环
+
+见 [`m4.1-single-agent.md`](m4.1-single-agent.md)。该阶段范围是一个子 Agent 的创建、运行、取消、超时、回收和审计；并行、任务 DAG 和 Agent 间消息由后续阶段负责。
 
 ## M3.30：Worktree 自动合并与冲突安全处理
 

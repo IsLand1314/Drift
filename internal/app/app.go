@@ -232,7 +232,7 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 	registry := tool.NewDefaultRegistry()
 	if chat {
 		registry = tool.NewChatRegistryWithSandbox(sandboxMode)
-		childManager = &agent.ChildManager{}
+		childManager = agent.NewChildManager(agent.DefaultChildConcurrency)
 		if tasks, ok := registry.(tool.TaskRegistry); ok {
 			childSink := func(event agent.Event) error {
 				if err := sessionWriter.Append(event); err != nil {

@@ -2,6 +2,7 @@ package tool
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -123,6 +124,53 @@ func TestTaskRunCompletesAndReturnsChildOutputInStatus(t *testing.T) {
 	handle.complete(TaskExecutionResult{State: "completed", Output: "verified"})
 	if got := waitForTaskStatus(t, registry, "completed"); !strings.Contains(got, "result: verified") {
 		t.Fatalf("status=%q", got)
+	}
+}
+
+func TestTaskRunKeepsIndependentTaskResultsIsolated(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"agent-1", "agent-2"} {
+		if err := os.MkdirAll(filepath.Join(root, ".worktrees", name), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	registry := NewChatRegistry()
+	search, _ := registry.Lookup("ToolSearch")
+	if _, err := search.Execute(context.Background(), root, `{"query":"task","load":["TaskCreate","TaskRun","TaskStatus"]}`); err != nil {
+		t.Fatal(err)
+	}
+	create, _ := registry.Lookup("TaskCreate")
+	if _, err := create.Execute(context.Background(), root, `{"subject":"one","worktree":".worktrees/agent-1"}`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := create.Execute(context.Background(), root, `{"subject":"two","worktree":".worktrees/agent-2"}`); err != nil {
+		t.Fatal(err)
+	}
+	handles := map[string]*testTaskHandle{"task-1": newTestTaskHandle(), "task-2": newTestTaskHandle()}
+	registry.(TaskRegistry).SetTaskRunner(func(_ context.Context, task TaskState, _ string, _ time.Duration) (TaskHandle, error) {
+		return handles[task.ID], nil
+	})
+	run, _ := registry.Lookup("TaskRun")
+	if _, err := run.Execute(context.Background(), root, `{"task_id":"task-1","prompt":"one"}`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run.Execute(context.Background(), root, `{"task_id":"task-2","prompt":"two"}`); err != nil {
+		t.Fatal(err)
+	}
+	handles["task-1"].complete(TaskExecutionResult{State: "failed", Err: errors.New("one failed")})
+	handles["task-2"].complete(TaskExecutionResult{State: "completed", Output: "two complete"})
+	status, _ := registry.Lookup("TaskStatus")
+	var first, second string
+	for deadline := time.Now().Add(time.Second); time.Now().Before(deadline); {
+		first, _ = status.Execute(context.Background(), root, `{"task_id":"task-1"}`)
+		second, _ = status.Execute(context.Background(), root, `{"task_id":"task-2"}`)
+		if strings.Contains(first, "· failed ·") && strings.Contains(second, "result: two complete") {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if !strings.Contains(first, "error: one failed") || !strings.Contains(second, "· completed ·") || strings.Contains(second, "one failed") {
+		t.Fatalf("first=%q second=%q", first, second)
 	}
 }
 
