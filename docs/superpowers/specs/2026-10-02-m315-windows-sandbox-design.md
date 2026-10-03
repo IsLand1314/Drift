@@ -125,11 +125,11 @@ macOS 使用 `sandbox_backend=`、`sandboxed=false`、`sandbox_probe=unavailable
 
 M3.15-A 已交付：平台检测边界已显式化，Windows 和 macOS 在没有完整后端时均 fail-closed，Linux `bwrap` 行为保持不变。AppContainer token、workspace ACL、网络隔离和 Windows runtime 验收均明确留到 M3.15-B/C。
 
-## 11. M3.15-B 原型边界
+## 11. M3.15-B 交付状态
 
-M3.15-B 的第一步只交付安全边界，不宣称已经具备 Windows 隔离能力：沙箱检测现在接收实际 workspace 根路径，Windows AppContainer 探针通过独立 seam 注入测试结果；真实原生探针尚未实现时返回 unavailable。只有真实探针同时验证 workspace 写入、`.drift/.git` 隔离、网络拒绝、子进程清理和 ACL/profile 清理后，才能报告 `Reliable=true` 并允许 `required` 模式。
+M3.15-B 已完成 Windows 原生探针：沙箱检测接收实际 workspace 根路径，创建临时 AppContainer profile，授予 marker 文件显式 ACL，使用 `SECURITY_CAPABILITIES` 启动进程并加入 Job Object。探针会验证 workspace 写入、`.drift/.git` 拒绝、网络无 `TTL=`、子进程 containment 和 profile/ACL/marker 清理；任一项失败都返回 unavailable。
 
-这一步特意不把 Job Object 当作完整沙箱：Job Object 只负责进程树生命周期，不能替代 AppContainer 的文件和网络隔离。
+Job Object 只负责进程树生命周期，AppContainer 负责文件和网络隔离；两者缺一不可。
 
 ## 12. CubeSandbox 参考边界
 

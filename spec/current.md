@@ -1,17 +1,17 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M3.15-A。M3.14 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M3.15-B。M3.14 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
 
-## M3.15-A：跨平台沙箱能力检测契约
+## M3.15-B：Windows AppContainer 沙箱验证
 
-M3.15-A 只交付平台能力检测和 fail-closed 契约，不把 Windows Job Object 冒充完整文件/网络沙箱。
+M3.15-B 在 M3.15-A fail-closed 契约之上，验证 Windows AppContainer 的 workspace ACL、网络隔离、进程树生命周期和清理行为。
 
 ### 当前范围
 
 - Linux 继续使用已通过 M3.13/M3.14 runtime 验收的 `bwrap`。
-- Windows 明确返回无可靠 OS 沙箱；`auto` 可继续执行并记录 `sandboxed=false`，`required` 拒绝执行。
+- Windows 在临时 workspace 完整探针通过时报告 `sandboxed=true`；任一验证失败时仍由 `required` 拒绝、`auto` 记录 `sandboxed=false`。
 - macOS 明确返回空能力，不调用 `sandbox-exec`；`auto` 记录未启用，`required` 拒绝执行。
-- Windows AppContainer、workspace ACL 和网络隔离进入 M3.15-B，未在本阶段伪造完成。
+- Windows AppContainer 使用临时 profile、显式文件 ACL 和 Job Object；不使用全局防火墙规则。
 
 ### 验收
 

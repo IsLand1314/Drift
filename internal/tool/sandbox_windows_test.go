@@ -3,6 +3,8 @@
 package tool
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -37,5 +39,20 @@ func TestProbeWindowsSandboxAcceptsOnlyVerifiedCapabilities(t *testing.T) {
 		if got.Capabilities[i] != want[i] {
 			t.Fatalf("capabilities=%v, want %v", got.Capabilities, want)
 		}
+	}
+}
+
+func TestProbeWindowsSandboxWithProtectedDirectories(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".drift"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".git"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	got := probeWindowsSandbox(root)
+	t.Logf("protected workspace probe=%+v", got)
+	if !got.Reliable || got.Backend != "appcontainer" || got.Probe != "passed" {
+		t.Fatalf("protected workspace probe=%+v, want reliable AppContainer", got)
 	}
 }

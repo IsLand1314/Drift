@@ -28,7 +28,7 @@ var windowsSandboxProbe = func(root string) SandboxCapabilities {
 	if err := probeWindowsAppContainerProcess(root, sid); err != nil {
 		return windowsSandboxUnavailable("runtime:" + err.Error())
 	}
-	return windowsSandboxUnavailable("runtime-isolation-not-verified")
+	return SandboxCapabilities{Backend: "appcontainer", Reliable: true, Probe: "passed", Capabilities: []string{"workspace-write", "network-isolated", "process-tree"}}
 }
 
 func probeWindowsSandbox(root string) SandboxCapabilities {
@@ -102,48 +102,85 @@ type windowsSecurityCapabilities struct {
 
 func probeWindowsAppContainerProcess(root string, sid *windows.SID) error {
 	marker := filepath.Join(root, ".drift-appcontainer-probe-marker")
+	networkMarker := filepath.Join(root, ".drift-appcontainer-network-marker")
+	childMarker := filepath.Join(root, ".drift-appcontainer-child-marker")
 	_ = os.Remove(marker)
+	_ = os.Remove(networkMarker)
+	_ = os.Remove(childMarker)
 	if err := os.WriteFile(marker, nil, 0600); err != nil {
 		return fmt.Errorf("create workspace marker: %w", err)
 	}
+	if err := os.WriteFile(networkMarker, nil, 0600); err != nil {
+		return fmt.Errorf("create network marker: %w", err)
+	}
+	if err := os.WriteFile(childMarker, nil, 0600); err != nil {
+		return fmt.Errorf("create child marker: %w", err)
+	}
 	defer os.Remove(marker)
+	defer os.Remove(networkMarker)
+	defer os.Remove(childMarker)
 
-	sd, err := windows.GetNamedSecurityInfo(marker, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION)
-	if err != nil {
-		return fmt.Errorf("read workspace ACL: %w", err)
+	for _, path := range []string{marker, networkMarker, childMarker} {
+		restore, err := grantWindowsProbeFileAccess(path, sid)
+		if err != nil {
+			return err
+		}
+		defer restore()
 	}
-	dacl, _, err := sd.DACL()
-	if err != nil {
-		return fmt.Errorf("read workspace DACL: %w", err)
-	}
-	entry := windows.EXPLICIT_ACCESS{
-		AccessPermissions: windows.GENERIC_ALL,
-		AccessMode:        windows.GRANT_ACCESS,
-		Inheritance:       windows.NO_INHERITANCE,
-		Trustee: windows.TRUSTEE{
-			TrusteeForm:  windows.TRUSTEE_IS_SID,
-			TrusteeType:  windows.TRUSTEE_IS_UNKNOWN,
-			TrusteeValue: windows.TrusteeValueFromSID(sid),
-		},
-	}
-	acl, err := windows.ACLFromEntries([]windows.EXPLICIT_ACCESS{entry}, dacl)
-	if err != nil {
-		return fmt.Errorf("build workspace ACL: %w", err)
-	}
-	if err := windows.SetNamedSecurityInfo(marker, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION, nil, nil, acl, nil); err != nil {
-		return fmt.Errorf("grant workspace marker ACL: %w", err)
-	}
-	defer func() {
-		_, _, _ = sd.DACL()
-		_ = windows.SetNamedSecurityInfo(marker, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION, nil, nil, dacl, nil)
-	}()
 
 	cmdPath := os.Getenv("ComSpec")
 	if cmdPath == "" {
 		cmdPath = filepath.Join(os.Getenv("SystemRoot"), "System32", "cmd.exe")
 	}
-	markerArg := fmt.Sprintf(`/d /s /c "echo drift-appcontainer > \"%s\""`, marker)
-	return runWindowsAppContainerProcess(cmdPath, markerArg, root, sid)
+	markerArg := `/d /s /c "echo drift-appcontainer > .drift-appcontainer-probe-marker"`
+	if err := runWindowsAppContainerProcess(cmdPath, markerArg, root, sid); err != nil {
+		return fmt.Errorf("workspace marker: %w", err)
+	}
+	for _, protected := range []string{".drift", ".git"} {
+		path := filepath.Join(root, protected)
+		info, err := os.Stat(path)
+		if err != nil || !info.IsDir() {
+			return fmt.Errorf("protected directory %s unavailable", protected)
+		}
+		attempt := fmt.Sprintf(`/d /s /c "echo blocked > %s\\drift-probe-denied"`, protected)
+		if err := runWindowsAppContainerProcess(cmdPath, attempt, root, sid); err == nil {
+			return fmt.Errorf("protected directory %s accepted a write", protected)
+		}
+	}
+	networkArg := `/d /s /c "ping.exe -n 1 -w 250 127.0.0.1 > .drift-appcontainer-network-marker"`
+	_ = runWindowsAppContainerProcess(cmdPath, networkArg, root, sid)
+	if output, err := os.ReadFile(networkMarker); err == nil && strings.Contains(string(output), "TTL=") {
+		return fmt.Errorf("network access was not isolated")
+	}
+	childArg := `/d /s /c "start /b \"\" cmd.exe /d /s /c \"ping.exe -n 4 127.0.0.1 >nul & echo escaped > .drift-appcontainer-child-marker\""`
+	_ = runWindowsAppContainerProcess(cmdPath, childArg, root, sid)
+	time.Sleep(500 * time.Millisecond)
+	if output, err := os.ReadFile(childMarker); err == nil && strings.Contains(string(output), "escaped") {
+		return fmt.Errorf("child process escaped job containment")
+	}
+	return nil
+}
+
+func grantWindowsProbeFileAccess(path string, sid *windows.SID) (func(), error) {
+	sd, err := windows.GetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION)
+	if err != nil {
+		return nil, fmt.Errorf("read probe ACL: %w", err)
+	}
+	dacl, _, err := sd.DACL()
+	if err != nil {
+		return nil, fmt.Errorf("read probe DACL: %w", err)
+	}
+	entry := windows.EXPLICIT_ACCESS{AccessPermissions: windows.GENERIC_ALL, AccessMode: windows.GRANT_ACCESS, Inheritance: windows.NO_INHERITANCE, Trustee: windows.TRUSTEE{TrusteeForm: windows.TRUSTEE_IS_SID, TrusteeType: windows.TRUSTEE_IS_UNKNOWN, TrusteeValue: windows.TrusteeValueFromSID(sid)}}
+	acl, err := windows.ACLFromEntries([]windows.EXPLICIT_ACCESS{entry}, dacl)
+	if err != nil {
+		return nil, fmt.Errorf("build probe ACL: %w", err)
+	}
+	if err := windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION, nil, nil, acl, nil); err != nil {
+		return nil, fmt.Errorf("grant probe ACL: %w", err)
+	}
+	return func() {
+		_ = windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION, nil, nil, dacl, nil)
+	}, nil
 }
 
 func runWindowsAppContainerProcess(appPath, args, cwd string, sid *windows.SID) error {
