@@ -40,6 +40,18 @@ func TestToolSearchLoadsOnlySelectedMatchingSchemas(t *testing.T) {
 	}
 }
 
+func TestToolSearchMatchesMeaningfulWordsInsteadOfOnlyTheWholeQuery(t *testing.T) {
+	registry := NewChatRegistry()
+	search, _ := registry.Lookup("ToolSearch")
+	result, err := search.Execute(context.Background(), t.TempDir(), `{"query":"send progress message from child to main","load":["AgentMessageSend"]}`)
+	if err != nil || !strings.Contains(result, "AgentMessageSend") {
+		t.Fatalf("result=%q err=%v", result, err)
+	}
+	if _, ok := registry.Lookup("AgentMessageSend"); !ok {
+		t.Fatal("AgentMessageSend schema was not loaded")
+	}
+}
+
 func TestAskUserQuestionParsesStructuredArguments(t *testing.T) {
 	registry := NewChatRegistry()
 	questionTool, ok := registry.Lookup("AskUserQuestion")

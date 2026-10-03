@@ -3,7 +3,9 @@ package tool
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/IsLand1314/Drift/internal/llm"
 	"github.com/IsLand1314/Drift/internal/message"
@@ -137,15 +139,38 @@ func (r *registry) add(current Tool, enabled bool) {
 func (r *registry) enable(name string) { r.enabled[name] = true }
 
 func (r *registry) search(query string) []toolSummary {
-	needle := strings.ToLower(query)
-	results := make([]toolSummary, 0)
+	needle := strings.ToLower(strings.TrimSpace(query))
+	tokens := strings.FieldsFunc(needle, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsNumber(r) })
+	if needle == "" || len(tokens) == 0 {
+		return nil
+	}
+	type scored struct {
+		summary toolSummary
+		score   int
+	}
+	results := make([]scored, 0)
 	for _, current := range r.order {
 		summary := r.summaries[current.Name()]
-		if strings.Contains(strings.ToLower(summary.Name+" "+summary.Category+" "+summary.Description), needle) {
-			results = append(results, summary)
+		haystack := strings.ToLower(summary.Name + " " + summary.Category + " " + summary.Description)
+		score := 0
+		if strings.Contains(haystack, needle) {
+			score += len(tokens) + 1
+		}
+		for _, token := range tokens {
+			if strings.Contains(haystack, token) {
+				score++
+			}
+		}
+		if score > 0 {
+			results = append(results, scored{summary: summary, score: score})
 		}
 	}
-	return results
+	sort.SliceStable(results, func(i, j int) bool { return results[i].score > results[j].score })
+	out := make([]toolSummary, len(results))
+	for i, item := range results {
+		out[i] = item.summary
+	}
+	return out
 }
 
 func toolCategory(name string) string {
