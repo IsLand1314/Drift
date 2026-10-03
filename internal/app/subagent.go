@@ -42,7 +42,13 @@ func childTaskRunner(manager *agent.ChildManager, client llm.Client, root string
 func childTaskMerger(queue *gitops.MergeQueue) tool.TaskMerger {
 	return func(ctx context.Context, root string, task tool.TaskState) (tool.TaskMergeResult, error) {
 		worktree := filepath.Join(root, filepath.FromSlash(task.Worktree))
-		result, err := queue.Submit(ctx, root, task.ID, worktree)
+		var result gitops.MergeResult
+		var err error
+		if task.MergeStatus == "conflict" {
+			result, err = queue.Retry(ctx, root, task.ID)
+		} else {
+			result, err = queue.Submit(ctx, root, task.ID, worktree)
+		}
 		return tool.TaskMergeResult{Status: result.Status, AfterHEAD: result.AfterHEAD, Conflicts: result.Conflicts}, err
 	}
 }

@@ -91,6 +91,7 @@ type taskSwitchTool struct{ store *taskStore }
 type taskRunTool struct{ store *taskStore }
 type taskStatusTool struct{ store *taskStore }
 type taskCancelTool struct{ store *taskStore }
+type taskMergeTool struct{ store *taskStore }
 
 func (taskCreateTool) Name() string { return "TaskCreate" }
 func (taskListTool) Name() string   { return "TaskList" }
@@ -100,6 +101,7 @@ func (taskSwitchTool) Name() string { return "TaskSwitch" }
 func (taskRunTool) Name() string    { return "TaskRun" }
 func (taskStatusTool) Name() string { return "TaskStatus" }
 func (taskCancelTool) Name() string { return "TaskCancel" }
+func (taskMergeTool) Name() string  { return "TaskMerge" }
 
 func (t taskCreateTool) Definition() llm.ToolDefinition {
 	return controlDefinition(t.Name(), "Create a session task.", map[string]any{
@@ -150,6 +152,12 @@ func (t taskStatusTool) Definition() llm.ToolDefinition {
 
 func (t taskCancelTool) Definition() llm.ToolDefinition {
 	return controlDefinition(t.Name(), "Cancel one running child Agent.", map[string]any{"task_id": map[string]any{"type": "string"}}, []string{"task_id"})
+}
+
+func (t taskMergeTool) Definition() llm.ToolDefinition {
+	return controlDefinition(t.Name(), "Retry a queued task worktree merge after conflicts have been resolved.", map[string]any{
+		"task_id": map[string]any{"type": "string"},
+	}, []string{"task_id"})
 }
 
 func (t taskCreateTool) Execute(_ context.Context, _ string, raw string) (string, error) {
@@ -396,6 +404,54 @@ func (t taskCancelTool) Execute(_ context.Context, _ string, raw string) (string
 	}
 	handle.Cancel()
 	return "cancel requested: " + formatTask(item), nil
+}
+
+func (t taskMergeTool) Execute(ctx context.Context, root, raw string) (string, error) {
+	var args struct {
+		TaskID string `json:"task_id"`
+	}
+	if err := decodeTaskArgs(raw, &args); err != nil {
+		return "", fmt.Errorf("decode TaskMerge arguments: %w", err)
+	}
+	args.TaskID = strings.TrimSpace(args.TaskID)
+	t.store.mu.Lock()
+	item, ok := t.store.tasks[args.TaskID]
+	merger := t.store.merger
+	t.store.mu.Unlock()
+	if !ok {
+		return "", fmt.Errorf("TaskMerge task %q not found", args.TaskID)
+	}
+	if item.MergeStatus != "conflict" {
+		return "", fmt.Errorf("TaskMerge task %q has no queued conflict", args.TaskID)
+	}
+	if merger == nil {
+		return "", fmt.Errorf("TaskMerge is unavailable in this host")
+	}
+	result, err := merger(ctx, root, item)
+	t.store.mu.Lock()
+	defer t.store.mu.Unlock()
+	item, ok = t.store.tasks[args.TaskID]
+	if !ok {
+		return "", fmt.Errorf("TaskMerge task %q disappeared", args.TaskID)
+	}
+	if err != nil {
+		item.MergeStatus = "failed"
+		item.Error = err.Error()
+	} else {
+		switch result.Status {
+		case "success":
+			item.MergeStatus = "merged"
+			item.MergeCommit = result.AfterHEAD
+			item.MergeConflicts = nil
+		case "conflict":
+			item.MergeStatus = "conflict"
+			item.MergeConflicts = append([]string(nil), result.Conflicts...)
+		default:
+			item.MergeStatus = "failed"
+		}
+	}
+	t.store.tasks[args.TaskID] = item
+	return formatTask(item), err
 }
 
 func (s *taskStore) get(id string) (string, error) {

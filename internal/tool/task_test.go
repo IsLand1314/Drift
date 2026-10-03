@@ -174,6 +174,54 @@ func TestTaskRunAutomaticallyMergesCompletedWorktree(t *testing.T) {
 	t.Fatalf("status=%q", got)
 }
 
+func TestTaskMergeRetriesQueuedConflict(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".worktrees", "agent-1"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	registry := NewChatRegistry()
+	search, _ := registry.Lookup("ToolSearch")
+	if _, err := search.Execute(context.Background(), root, `{"query":"task","load":["TaskCreate","TaskRun","TaskStatus","TaskMerge"]}`); err != nil {
+		t.Fatal(err)
+	}
+	create, _ := registry.Lookup("TaskCreate")
+	if _, err := create.Execute(context.Background(), root, `{"subject":"child","worktree":".worktrees/agent-1"}`); err != nil {
+		t.Fatal(err)
+	}
+	handle := newTestTaskHandle()
+	merges := 0
+	control := registry.(TaskRegistry)
+	control.SetTaskRunner(func(context.Context, TaskState, string, time.Duration) (TaskHandle, error) { return handle, nil })
+	control.SetTaskMerger(func(_ context.Context, _ string, task TaskState) (TaskMergeResult, error) {
+		merges++
+		if task.MergeStatus == "conflict" {
+			return TaskMergeResult{Status: "success", AfterHEAD: "merge-2"}, nil
+		}
+		return TaskMergeResult{Status: "conflict", Conflicts: []string{"same.txt"}}, nil
+	})
+	run, _ := registry.Lookup("TaskRun")
+	if _, err := run.Execute(context.Background(), root, `{"task_id":"task-1","prompt":"inspect"}`); err != nil {
+		t.Fatal(err)
+	}
+	handle.complete(TaskExecutionResult{State: "completed", Output: "verified"})
+	waitForTaskStatus(t, registry, "completed")
+	status, _ := registry.Lookup("TaskStatus")
+	for deadline := time.Now().Add(time.Second); time.Now().Before(deadline); {
+		got, _ := status.Execute(context.Background(), root, `{"task_id":"task-1"}`)
+		if strings.Contains(got, "merge: conflict") {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	merge, _ := registry.Lookup("TaskMerge")
+	if got, err := merge.Execute(context.Background(), root, `{"task_id":"task-1"}`); err != nil || !strings.Contains(got, "merge: merged") {
+		t.Fatalf("merge=%q err=%v", got, err)
+	}
+	if merges != 2 {
+		t.Fatalf("merge attempts=%d", merges)
+	}
+}
+
 func TestTaskRunKeepsIndependentTaskResultsIsolated(t *testing.T) {
 	root := t.TempDir()
 	for _, name := range []string{"agent-1", "agent-2"} {
