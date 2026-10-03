@@ -25,6 +25,7 @@ type Result struct {
 	AfterHEAD     string
 	Output        string
 	ExitCode      int
+	Sandbox       tool.SandboxDecision
 }
 
 var commandStatusPattern = regexp.MustCompile(`(?:^|\s)status=([a-z_]+)(?:\s|$)`)
@@ -46,6 +47,7 @@ func Revert(ctx context.Context, preflight Preflight, sandbox tool.SandboxMode) 
 	decision, err := tool.SelectSandbox(sandbox, tool.DetectSandboxForWorkspace(preflight.Root))
 	if err != nil {
 		if denied, ok := err.(*tool.SandboxDeniedError); ok {
+			result.Sandbox = denied.Decision
 			result.Status = "denied"
 			result.FailureReason = "sandbox_denied"
 			return result, denied

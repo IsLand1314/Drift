@@ -90,6 +90,9 @@ func runGitCommandContext(ctx context.Context, args []string, out, stderr io.Wri
 	emit(agent.Event{Type: agent.EventPermissionDecision, ToolName: "GitRevert", Command: "git revert --no-edit " + preflight.Commit, CWD: ".", Revision: preflight.Commit, Allowed: true, DecisionReason: "cli_explicit_confirmation", PermissionSource: agent.PermissionSourceUser, PermissionOutcome: agent.ApprovalAllowOnce, Policy: agent.PolicyAsk})
 	result, err := gitops.Revert(ctx, preflight, tool.SandboxRequired)
 	event := agent.Event{Type: agent.EventToolResult, ToolName: "GitRevert", Command: "git revert --no-edit " + preflight.Commit, CWD: ".", Revision: preflight.Commit, Result: result.Output, ExecutionStatus: result.Status, FailureReason: result.FailureReason, SandboxMode: string(tool.SandboxRequired)}
+	event.SandboxBackend = result.Sandbox.Backend
+	event.SandboxAvailable = result.Sandbox.Available
+	event.SandboxProbe = result.Sandbox.Probe
 	if err != nil && event.FailureReason == "" {
 		event.FailureReason = gitFailureReason(err)
 	}
@@ -112,6 +115,9 @@ func gitFailureReason(err error) string {
 		if strings.Contains(message, reason) {
 			return reason
 		}
+	}
+	if strings.Contains(message, "sandbox") {
+		return "sandbox_denied"
 	}
 	return "failed"
 }
