@@ -26,6 +26,7 @@ type chatStatus struct {
 	Model          string
 	Workspace      string
 	ToolCount      int
+	Registry       tool.Registry
 	PermissionMode permissionMode
 	SandboxMode    tool.SandboxMode
 }
@@ -189,6 +190,17 @@ func runTuiMainScreenLoop(ctx context.Context, runner *agent.Runner, audit sessi
 			return decision, decisionErr
 		})
 	}
+	var mcpManager *mcpManager
+	if status.Registry != nil && status.Workspace != "" {
+		manager, managerErr := newMCPManager(status.Workspace, status.Registry)
+		if managerErr != nil {
+			fmt.Fprintln(out, "⚠ MCP 配置加载失败：", managerErr)
+		} else {
+			mcpManager = manager
+			mcpManager.SetAudit(audit)
+			defer mcpManager.Close()
+		}
+	}
 	interactiveInput := false
 	if _, ok := input.(*tuiMainScreenInput); ok {
 		interactiveInput = true
@@ -235,6 +247,12 @@ func runTuiMainScreenLoop(ctx context.Context, runner *agent.Runner, audit sessi
 		prompt = strings.TrimSpace(strings.TrimSuffix(prompt, "\r"))
 		if prompt == "" {
 			continue
+		}
+		if mcpManager != nil {
+			if message, handled := handleMCPCommand(ctx, prompt, mcpManager); handled {
+				fmt.Fprintln(out, message)
+				continue
+			}
 		}
 		if prompt == "exit" || prompt == "/exit" || prompt == "quit" {
 			return 0

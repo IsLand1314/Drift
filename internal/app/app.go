@@ -279,7 +279,7 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 		runner = agent.NewRunnerWithSystemContext(modelClient{Client: client, model: *model}, selection.Root, selection.Focus, selectedSkill.Name, selectedSkill.Content, registry)
 	}
 	if chat {
-		status := chatStatus{Model: *model, Workspace: selection.Root, ToolCount: len(registry.Definitions()), PermissionMode: permissionMode, SandboxMode: sandboxMode}
+		status := chatStatus{Model: *model, Workspace: selection.Root, ToolCount: len(registry.Definitions()), Registry: registry, PermissionMode: permissionMode, SandboxMode: sandboxMode}
 		code := runChatLoopWithPersistence(runCtx, runner, sessionWriter, traceSink, persistence, status, coordinator, in, out, stderr)
 		if closeErr := sessionWriter.Close(); closeErr != nil && code == 0 {
 			fmt.Fprintln(stderr, "错误：", closeErr)
