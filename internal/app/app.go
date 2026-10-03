@@ -248,7 +248,7 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 				}
 				return nil
 			}
-			tasks.SetTaskRunner(childTaskRunner(childManager, client, selection.Root, childSink))
+			tasks.SetTaskRunner(childTaskRunner(childManager, modelClient{Client: client, model: *model}, selection.Root, childSink))
 			tasks.SetTaskMerger(childTaskMerger(mergeQueue))
 		}
 	}

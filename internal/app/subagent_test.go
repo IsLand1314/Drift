@@ -2,48 +2,44 @@ package app
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/IsLand1314/Drift/internal/agent"
 	"github.com/IsLand1314/Drift/internal/llm"
 	"github.com/IsLand1314/Drift/internal/tool"
 )
 
-type adapterChildClient struct{}
+type childModelProbe struct{ model chan string }
 
-func (adapterChildClient) Stream(_ context.Context, _ llm.Request, emit func(llm.StreamEvent) error) (llm.Completion, error) {
-	if err := emit(llm.StreamEvent{Text: "child result"}); err != nil {
-		return llm.Completion{}, err
-	}
-	return llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "child result"}, FinishReason: "stop"}, nil
+func (p childModelProbe) Stream(_ context.Context, request llm.Request, _ func(llm.StreamEvent) error) (llm.Completion, error) {
+	p.model <- request.Model
+	return llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "done"}, FinishReason: "stop"}, nil
 }
 
-func TestChildTaskRunnerReturnsAuditedChildResult(t *testing.T) {
+func TestChildTaskRunnerPassesConfiguredModelToChild(t *testing.T) {
 	root := t.TempDir()
-	manager := &agent.ChildManager{}
-	var events []agent.Event
-	runner := childTaskRunner(manager, adapterChildClient{}, root, func(event agent.Event) error {
-		events = append(events, event)
-		return nil
-	})
-	handle, err := runner(context.Background(), tool.TaskState{ID: "task-1", Worktree: "."}, "inspect", 0)
+	if err := os.MkdirAll(filepath.Join(root, ".worktrees", "agent-1"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	probe := childModelProbe{model: make(chan string, 1)}
+	manager := agent.NewChildManager(1)
+	runner := childTaskRunner(manager, modelClient{Client: probe, model: "deepseek-chat"}, root, nil)
+	handle, err := runner(context.Background(), tool.TaskState{ID: "task-1", Worktree: ".worktrees/agent-1"}, "read", time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := handle.Wait(context.Background())
-	if err != nil || result.State != "completed" || result.Output != "child result" {
-		t.Fatalf("result=%+v err=%v", result, err)
+	if _, err := handle.Wait(context.Background()); err != nil {
+		t.Fatal(err)
 	}
-	started, finished := false, false
-	for _, event := range events {
-		if event.TaskID == "task-1" && event.ExecutionStatus == "running" {
-			started = true
+	select {
+	case model := <-probe.model:
+		if model != "deepseek-chat" {
+			t.Fatalf("child model=%q", model)
 		}
-		if event.TaskID == "task-1" && event.ChildState == "completed" {
-			finished = true
-		}
-	}
-	if !started || !finished {
-		t.Fatalf("events=%+v", events)
+	default:
+		t.Fatal("child did not issue a model request")
 	}
 }

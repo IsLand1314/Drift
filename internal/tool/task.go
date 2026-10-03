@@ -359,7 +359,10 @@ func (t taskRunTool) Execute(ctx context.Context, root, raw string) (string, err
 		return "", fmt.Errorf("TaskRun is unavailable in this host")
 	}
 	timeout := time.Duration(args.TimeoutMS) * time.Millisecond
-	handle, err := runner(ctx, item, args.Prompt, timeout)
+	// TaskRun is asynchronous: the model tool-call context ends when this tool
+	// returns, so it must not cancel the child. Child cancellation is owned by
+	// TaskCancel or the runner's explicit timeout.
+	handle, err := runner(context.WithoutCancel(ctx), item, args.Prompt, timeout)
 	if err != nil {
 		t.store.mu.Lock()
 		item.Status = "failed"

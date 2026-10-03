@@ -101,6 +101,39 @@ func TestTaskRunStatusAndCancelControlOneChild(t *testing.T) {
 	}
 }
 
+func TestTaskRunDetachesChildFromToolCallContext(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".worktrees", "agent-1"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	registry := NewChatRegistry()
+	create, _ := registry.Lookup("TaskCreate")
+	if _, err := create.Execute(context.Background(), root, `{"subject":"child","worktree":".worktrees/agent-1"}`); err != nil {
+		t.Fatal(err)
+	}
+	parent, cancel := context.WithCancel(context.Background())
+	deferred := make(chan context.Context, 1)
+	handle := newTestTaskHandle()
+	registry.(TaskRegistry).SetTaskRunner(func(ctx context.Context, _ TaskState, _ string, _ time.Duration) (TaskHandle, error) {
+		deferred <- ctx
+		return handle, nil
+	})
+	run, _ := registry.Lookup("TaskRun")
+	if _, err := run.Execute(parent, root, `{"task_id":"task-1","prompt":"inspect"}`); err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	select {
+	case ctx := <-deferred:
+		if ctx.Err() != nil {
+			t.Fatalf("child context was canceled with tool call: %v", ctx.Err())
+		}
+	case <-time.After(time.Second):
+		t.Fatal("runner was not called")
+	}
+	handle.complete(TaskExecutionResult{State: "completed"})
+}
+
 func TestTaskRunCompletesAndReturnsChildOutputInStatus(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, ".worktrees", "agent-1"), 0o700); err != nil {
