@@ -16,11 +16,11 @@ M4 的阶段目标、自动化验收和独立 LLM 验收门禁见 [`m4-multi-age
 
 ### M4.3：任务依赖和状态同步
 
-见 [`m4.3-task-dag.md`](m4.3-task-dag.md)。确定性 DAG、状态转换和重启恢复验收已完成；真实 DeepSeek 工具调用仍受 M4.1 记录的伪工具格式阻塞，完整阶段门禁暂为 `BLOCKED`。
+见 [`m4.3-task-dag.md`](m4.3-task-dag.md)。确定性 DAG、状态转换和重启恢复验收已完成；真实 DeepSeek 已验证依赖阻断、解除和完成后的消息汇总，独立复审记录仍需同步。
 
 ### M4.2：多子 Agent 并行
 
-见 [`m4.2-parallel-agents.md`](m4.2-parallel-agents.md)。确定性并行验收已通过，但真实 DeepSeek 工具调用仍受 M4.1 记录的伪工具格式阻塞。
+见 [`m4.2-parallel-agents.md`](m4.2-parallel-agents.md)。确定性并行验收和一次真实 DeepSeek 双子 Agent 运行已通过；M4.3 的依赖门禁复验仍在进行。
 
 ### M4.1：单子 Agent 闭环
 

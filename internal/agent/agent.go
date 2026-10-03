@@ -460,6 +460,9 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) (
 				executionStatus = "failed"
 				failureReason = errorSummary
 			}
+			if errorSummary != "" && strings.HasPrefix(call.Name, "Task") {
+				content = call.Name + " failed: " + errorSummary
+			}
 			if call.Name == "Bash" {
 				if status := commandStatus(result); status != "" {
 					executionStatus = status
@@ -609,6 +612,8 @@ func safeToolError(root, message string) string {
 		"DeleteFile target is not a regular file",
 		"DeleteFile target is binary",
 		"target changed since preview",
+		"blocked by dependencies",
+		"TaskRun task",
 	} {
 		if strings.Contains(message, known) {
 			return known

@@ -1087,6 +1087,13 @@ func TestRunRejectsUnsupportedToolCallStates(t *testing.T) {
 	}
 }
 
+func TestSafeToolErrorPreservesTaskDependencyBlock(t *testing.T) {
+	got := safeToolError(t.TempDir(), `TaskRun task "task-4" is blocked by dependencies`)
+	if got != "blocked by dependencies" {
+		t.Fatalf("safeToolError() = %q, want dependency block", got)
+	}
+}
+
 func TestRunRecordsUnexpectedFinishReason(t *testing.T) {
 	client := &scriptedClient{steps: []scriptedStep{{
 		completion: llm.Completion{Assistant: llm.Message{Role: "assistant"}, FinishReason: "length"},
