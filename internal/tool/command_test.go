@@ -15,7 +15,7 @@ func TestRunCommandExecutesInWorkspace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if preview.Operation != "run_command" || preview.Command != "go version" || preview.CWD != "." {
+	if preview.Operation != "run_command" || preview.Command != "go version" || preview.CWD != "." || preview.Profile != SandboxProfileBash {
 		t.Fatalf("preview=%+v", preview)
 	}
 	result, err := ExecuteCommand(context.Background(), root, preview)
@@ -24,6 +24,17 @@ func TestRunCommandExecutesInWorkspace(t *testing.T) {
 	}
 	if !strings.Contains(result, "status=success") || !strings.Contains(result, "go version") {
 		t.Fatalf("result=%q", result)
+	}
+}
+
+func TestBashCommandEnvironmentDoesNotExposeProviderSecrets(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "test-openai-secret")
+	t.Setenv("ANTHROPIC_API_KEY", "test-anthropic-secret")
+	env := sanitizedCommandEnv()
+	for _, value := range env {
+		if strings.Contains(value, "OPENAI_API_KEY=") || strings.Contains(value, "ANTHROPIC_API_KEY=") {
+			t.Fatalf("provider secret remained in child environment: %q", value)
+		}
 	}
 }
 

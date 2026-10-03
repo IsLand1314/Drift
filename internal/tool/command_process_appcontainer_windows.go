@@ -119,6 +119,10 @@ func (p *appContainerCommandProcess) start(stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
+	envBlock, err := sanitizedEnvironmentBlock()
+	if err != nil {
+		return err
+	}
 	startup := windows.StartupInfoEx{}
 	startup.Cb = uint32(unsafe.Sizeof(startup))
 	startup.ProcThreadAttributeList = attrs.List()
@@ -126,7 +130,7 @@ func (p *appContainerCommandProcess) start(stdout, stderr io.Writer) error {
 	startup.StdErr = windows.Handle(stderrW.Fd())
 	startup.Flags = windows.STARTF_USESTDHANDLES
 	var info windows.ProcessInformation
-	if err := windows.CreateProcess(appName, &cmdLine[0], nil, nil, true, windows.EXTENDED_STARTUPINFO_PRESENT|windows.CREATE_NO_WINDOW|windows.CREATE_SUSPENDED, nil, workdirPtr, &startup.StartupInfo, &info); err != nil {
+	if err := windows.CreateProcess(appName, &cmdLine[0], nil, nil, true, windows.EXTENDED_STARTUPINFO_PRESENT|windows.CREATE_NO_WINDOW|windows.CREATE_SUSPENDED|windows.CREATE_UNICODE_ENVIRONMENT, &envBlock[0], workdirPtr, &startup.StartupInfo, &info); err != nil {
 		return err
 	}
 	stdoutW.Close()
@@ -143,6 +147,19 @@ func (p *appContainerCommandProcess) start(stdout, stderr io.Writer) error {
 	go func() { defer p.copyWG.Done(); _, _ = io.Copy(stdout, stdoutR) }()
 	go func() { defer p.copyWG.Done(); _, _ = io.Copy(stderr, stderrR) }()
 	return nil
+}
+
+func sanitizedEnvironmentBlock() ([]uint16, error) {
+	block := make([]uint16, 0)
+	for _, entry := range sanitizedCommandEnv() {
+		encoded, err := windows.UTF16FromString(entry)
+		if err != nil {
+			return nil, err
+		}
+		block = append(block, encoded[:len(encoded)-1]...)
+		block = append(block, 0)
+	}
+	return append(block, 0), nil
 }
 
 func (p *appContainerCommandProcess) wait() error {

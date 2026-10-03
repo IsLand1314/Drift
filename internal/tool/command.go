@@ -141,7 +141,7 @@ func RunCommandPreviewWithSandbox(root, raw string, sandboxMode SandboxMode) (Pr
 	if err != nil {
 		return Preview{}, fmt.Errorf("Bash: %w", err)
 	}
-	return Preview{Operation: "run_command", Path: args.CWD, Command: args.Command, CWD: args.CWD, Timeout: timeout, OutputLimit: maxOutput, SandboxMode: sandboxMode, Sandbox: sandbox}, nil
+	return Preview{Operation: "run_command", Path: args.CWD, Command: args.Command, CWD: args.CWD, Timeout: timeout, OutputLimit: maxOutput, SandboxMode: sandboxMode, Sandbox: sandbox, Profile: SandboxProfileBash}, nil
 }
 
 func ExecuteCommand(parent context.Context, root string, preview Preview) (string, error) {
