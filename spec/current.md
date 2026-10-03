@@ -1,8 +1,8 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前已交付版本为 M3.18；下一阶段设计为 M3.19–M3.20。M3.17 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M3.20。M3.17 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
 
-## 下一阶段设计：M3.19 收口与 M3.20 上下文管理
+## M3.19–M3.20：安全收口与上下文管理
 
 这两个阶段先于 ToolSearch、MCP 和多 Agent。它们不改变当前工具名称、权限模式、沙箱模式或 Git 回滚边界。
 
@@ -18,9 +18,9 @@ M3.19 只收口当前已实现能力：提交并回归验证 Windows 命令提�
 - 审批结果、权限模式、沙箱拒绝、工具失败和 Git 回滚失败在审计中保持可区分；
 - 通过现有 TDD、全量测试、静态检查、构建和 diff 检查。
 
-### M3.20：上下文管理最小闭环
+### M3.20：上下文管理最小闭环（已交付）
 
-M3.20 复用现有 `Runner.Compact`、会话 JSONL 和工具输出限制，补齐上下文预算和历史可恢复性，不引入向量数据库、长期记忆服务或新的外部依赖。
+M3.20 复用现有 `Runner.Compact`、会话 JSONL 和工具输出限制，补齐上下文预算和历史可恢复性，不引入向量数据库、长期记忆服务或新的外部依赖。上下文达到 80% 字节预算时，chat 会在发送下一轮前自动压缩；也可继续使用 `/compact` 手动压缩。Bash 超限结果保留头尾并标记中间内容被裁剪；会话历史可通过 `drift session search <关键词>` 或 chat 内 `/search <关键词>` 检索，结果只返回会话和消息位置，不返回正文。
 
 范围：
 
@@ -40,7 +40,7 @@ M3.20 复用现有 `Runner.Compact`、会话 JSONL 和工具输出限制，补�
 | AC-M320-004 | Chat 集成测试 | 压缩、继续提问、恢复会话后上下文语义连续 | 恢复后工具、权限或工作区状态错乱 |
 | AC-M320-005 | `go test ./... -count=1`、`go vet ./...`、`go build ./cmd/drift`、`git diff --check` | 全部通过 | 任一命令失败 |
 
-ToolSearch/MCP/多 Agent 均以后续阶段单独立项；在 M3.20 验收完成前不得把它们混入实现范围。
+ToolSearch/MCP/多 Agent 均以后续阶段单独立项，不属于 M3.20。
 
 ## M3.18：工具能力复核与补缺
 

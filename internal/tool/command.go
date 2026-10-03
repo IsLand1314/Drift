@@ -212,6 +212,8 @@ func ExecuteCommand(parent context.Context, root string, preview Preview) (strin
 type limitedBuffer struct {
 	mu        sync.Mutex
 	data      []byte
+	head      []byte
+	tail      []byte
 	n         int
 	limit     int
 	truncated bool
@@ -221,16 +223,45 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.n += len(p)
-	if len(b.data)+len(p) > b.limit {
+	if b.limit <= 0 {
+		b.truncated = len(p) > 0
+		return len(p), nil
+	}
+	headLimit := b.limit / 2
+	tailLimit := b.limit - headLimit
+	if !b.truncated && len(b.data)+len(p) <= b.limit {
+		b.data = append(b.data, p...)
+		return len(p), nil
+	}
+	if !b.truncated {
+		combined := append(append([]byte(nil), b.data...), p...)
+		b.head = append([]byte(nil), combined[:headLimit]...)
+		b.tail = append([]byte(nil), combined[len(combined)-tailLimit:]...)
+		b.data = nil
+		b.truncated = true
+		return len(p), nil
+	}
+	if b.n > b.limit {
 		b.truncated = true
 	}
-	if len(b.data) < b.limit {
-		take := len(p)
-		if remaining := b.limit - len(b.data); take > remaining {
-			take = remaining
+	if len(b.head) < headLimit {
+		take := headLimit - len(b.head)
+		if take > len(p) {
+			take = len(p)
 		}
-		b.data = append(b.data, p[:take]...)
+		b.head = append(b.head, p[:take]...)
+	}
+	b.tail = append(b.tail, p...)
+	if len(b.tail) > tailLimit {
+		b.tail = append([]byte(nil), b.tail[len(b.tail)-tailLimit:]...)
 	}
 	return len(p), nil
 }
-func (b *limitedBuffer) String() string { b.mu.Lock(); defer b.mu.Unlock(); return string(b.data) }
+func (b *limitedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if !b.truncated {
+		return string(b.data)
+	}
+	return string(b.head) + "\n...[output truncated; middle omitted]...\n" + string(b.tail)
+}

@@ -24,6 +24,7 @@ var (
 	ErrNotFound        = errors.New("conversation: not found")
 	ErrInvalidID       = errors.New("conversation: invalid id")
 	ErrInvalidSnapshot = errors.New("conversation: invalid snapshot")
+	ErrInvalidQuery    = errors.New("conversation: invalid search query")
 	idPattern          = regexp.MustCompile(`^conv-[a-z0-9-]{8,128}$`)
 )
 
@@ -52,6 +53,20 @@ type Metadata struct {
 	Focus        string
 	MessageCount int
 	ContextBytes int
+}
+
+type SearchMatch struct {
+	Index int
+	Role  string
+}
+
+type SearchResult struct {
+	ID           string
+	Title        string
+	UpdatedAt    time.Time
+	MessageCount int
+	ContextBytes int
+	Matches      []SearchMatch
 }
 
 type Store struct {
@@ -252,6 +267,60 @@ func (s *Store) List() ([]Metadata, error) {
 		return result[i].UpdatedAt.After(result[j].UpdatedAt)
 	})
 	return result, nil
+}
+
+// Search returns bounded message locations without returning message bodies.
+func (s *Store) Search(query string, limit int) ([]SearchResult, error) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return nil, ErrInvalidQuery
+	}
+	if limit <= 0 || limit > 50 {
+		limit = 50
+	}
+	needle := strings.ToLower(query)
+	metadata, err := s.List()
+	if err != nil {
+		return nil, err
+	}
+	results := make([]SearchResult, 0, minInt(limit, len(metadata)))
+	for _, item := range metadata {
+		snapshot, err := s.Load(item.ID)
+		if err != nil {
+			return nil, err
+		}
+		matches := make([]SearchMatch, 0, 8)
+		for index, message := range snapshot.Messages {
+			content := strings.ToLower(message.Content)
+			if strings.Contains(content, needle) {
+				matches = append(matches, SearchMatch{Index: index + 1, Role: message.Role})
+			}
+			for _, call := range message.ToolCalls {
+				if strings.Contains(strings.ToLower(call.Name+" "+call.Arguments), needle) {
+					matches = append(matches, SearchMatch{Index: index + 1, Role: message.Role})
+					break
+				}
+			}
+		}
+		if len(matches) == 0 {
+			continue
+		}
+		if len(matches) > 64 {
+			matches = matches[:64]
+		}
+		results = append(results, SearchResult{ID: item.ID, Title: item.Title, UpdatedAt: item.UpdatedAt, MessageCount: item.MessageCount, ContextBytes: item.ContextBytes, Matches: matches})
+		if len(results) >= limit {
+			break
+		}
+	}
+	return results, nil
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func sessionIDFromFilename(name string) (string, bool) {

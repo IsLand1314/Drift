@@ -405,6 +405,38 @@ func runTuiMainScreenLoop(ctx context.Context, runner *agent.Runner, audit sessi
 			}
 			continue
 		}
+		if prompt == "/search" || strings.HasPrefix(prompt, "/search ") {
+			query := strings.TrimSpace(strings.TrimPrefix(prompt, "/search"))
+			if persistence == nil || !persistence.persistent {
+				fmt.Fprintln(out, "当前为 --no-session 模式，无法检索历史会话")
+				continue
+			}
+			if query == "" {
+				fmt.Fprintln(out, "用法：/search <关键词>")
+				continue
+			}
+			results, searchErr := persistence.store.Search(query, 20)
+			if searchErr != nil {
+				fmt.Fprintln(out, "历史检索失败：", searchErr)
+				continue
+			}
+			if len(results) == 0 {
+				fmt.Fprintln(out, "没有匹配的历史会话")
+				continue
+			}
+			for _, result := range results {
+				writeConversationSearchResult(out, result)
+			}
+			continue
+		}
+		if runner.NeedsCompaction(len(prompt)) && len(runner.Messages()) >= 2 {
+			result, compactErr := compactChatContext(ctx, runner, audit, traceSink, persistence)
+			if compactErr != nil {
+				fmt.Fprintln(stderr, "错误：上下文自动压缩失败，本轮未发送：", compactErr)
+				continue
+			}
+			fmt.Fprintf(out, "%s上下文已自动压缩：保留最近 %d 条消息%s\n", chatMuted(out), len(result.KeptMessages), chatReset(out))
+		}
 		startedAt := time.Now()
 		var lastText string
 		wroteAssistantPrefix := false
@@ -550,6 +582,55 @@ func runTuiMainScreenLoop(ctx context.Context, runner *agent.Runner, audit sessi
 			}
 		}
 	}
+}
+
+func compactChatContext(ctx context.Context, runner *agent.Runner, audit session.Writer, traceSink agent.EventSink, persistence *chatPersistence) (agent.CompactResult, error) {
+	oldMessages := runner.Messages()
+	beforeBytes := runner.ContextBytes()
+	if err := appendChatEvent(audit, traceSink, agent.Event{Type: agent.EventCompactionStarted, BeforeBytes: beforeBytes, MessageCount: len(oldMessages)}); err != nil {
+		return agent.CompactResult{}, err
+	}
+	result, err := runner.Compact(ctx)
+	if err != nil {
+		stage := llm.ErrorStageOf(err)
+		if stage == "" {
+			stage = "agent_compaction"
+		}
+		_ = appendChatEvent(audit, traceSink, agent.Event{Type: agent.EventCompactionError, Error: err.Error(), Stage: stage, BeforeBytes: beforeBytes, MessageCount: len(oldMessages)})
+		return agent.CompactResult{}, err
+	}
+	oldUsage := usageTotals{}
+	if persistence != nil {
+		oldUsage = persistence.usage
+		if result.Usage != nil {
+			persistence.usage.InputTokens += result.Usage.InputTokens
+			persistence.usage.OutputTokens += result.Usage.OutputTokens
+			persistence.usage.ReportedRequests++
+		} else {
+			persistence.usage.UnreportedRequests++
+		}
+	}
+	if persistence != nil && persistence.persistent {
+		if err := persistence.saveRunner(runner); err != nil {
+			runner.RestoreMessages(oldMessages)
+			persistence.usage = oldUsage
+			_ = appendChatEvent(audit, traceSink, agent.Event{Type: agent.EventCompactionError, Error: err.Error(), Stage: "conversation_save", BeforeBytes: beforeBytes, MessageCount: len(oldMessages)})
+			return agent.CompactResult{}, err
+		}
+	}
+	usageEvent := agent.Event{Type: agent.EventModelUsage, UsageAvailable: result.Usage != nil}
+	if result.Usage != nil {
+		usageEvent.InputTokens = result.Usage.InputTokens
+		usageEvent.OutputTokens = result.Usage.OutputTokens
+		usageEvent.TotalTokens = result.Usage.TotalTokens
+	}
+	if err := appendChatEvent(audit, traceSink, usageEvent); err != nil {
+		return agent.CompactResult{}, err
+	}
+	if err := appendChatEvent(audit, traceSink, agent.Event{Type: agent.EventCompactionFinished, BeforeBytes: result.BeforeBytes, AfterBytes: result.AfterBytes, MessageCount: len(oldMessages), KeptMessages: len(result.KeptMessages)}); err != nil {
+		return agent.CompactResult{}, err
+	}
+	return result, nil
 }
 
 type toolProgress struct {

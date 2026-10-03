@@ -207,6 +207,18 @@ func TestRunnerContextBytesIncludesMessageParts(t *testing.T) {
 	}
 }
 
+func TestRunnerNeedsCompactionAtConfiguredThreshold(t *testing.T) {
+	runner := NewRunner(nil, t.TempDir(), "", tool.NewDefaultRegistry())
+	base := runner.ContextBytes()
+	runner.messages = []llm.Message{{Role: "user", Content: strings.Repeat("x", CompactionTriggerBytes-base-8)}}
+	if runner.NeedsCompaction(0) {
+		t.Fatal("NeedsCompaction() = true below configured threshold")
+	}
+	if !runner.NeedsCompaction(8) {
+		t.Fatal("NeedsCompaction() = false at configured threshold")
+	}
+}
+
 func TestRunnerRestoresCopiedMessages(t *testing.T) {
 	original := []llm.Message{{Role: "assistant", ToolCalls: []llm.ToolCall{{ID: "call-1", Name: "ReadFile"}}}}
 	runner := NewRunnerWithMessages(nil, t.TempDir(), "", tool.NewDefaultRegistry(), original)

@@ -75,6 +75,31 @@ func TestConversationTimelineShowsStructureWithoutBodies(t *testing.T) {
 	}
 }
 
+func TestConversationSearchPrintsLocationsWithoutBodies(t *testing.T) {
+	root := t.TempDir()
+	old, _ := os.Getwd()
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(old) })
+	store := conversation.NewStore(root)
+	snapshot, err := store.Create("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot.Messages = []llm.Message{{Role: "user", Content: "find the deployment"}}
+	if err := store.Save(snapshot); err != nil {
+		t.Fatal(err)
+	}
+	var out, stderr bytes.Buffer
+	if code := Run(context.Background(), []string{"session", "search", "deployment"}, func(string) string { return "" }, &out, &stderr); code != 0 {
+		t.Fatalf("code=%d out=%q stderr=%q", code, out.String(), stderr.String())
+	}
+	if !strings.Contains(out.String(), snapshot.ID) || !strings.Contains(out.String(), "matches=user#1") || strings.Contains(out.String(), "find the deployment") {
+		t.Fatalf("search output=%q", out.String())
+	}
+}
+
 func TestConversationListEmpty(t *testing.T) {
 	root := t.TempDir()
 	old, _ := os.Getwd()

@@ -28,6 +28,20 @@ type cancelThenAnswerClient struct {
 
 type answerClient struct{}
 
+type compactThenAnswerClient struct{ calls int }
+
+func (c *compactThenAnswerClient) Stream(_ context.Context, _ llm.Request, emit func(llm.StreamEvent) error) (llm.Completion, error) {
+	c.calls++
+	text := "summary"
+	if c.calls > 1 {
+		text = "answer after compaction"
+	}
+	if err := emit(llm.StreamEvent{Text: text}); err != nil {
+		return llm.Completion{}, err
+	}
+	return llm.Completion{Assistant: llm.Message{Role: "assistant", Content: text}, FinishReason: "stop"}, nil
+}
+
 func (answerClient) Stream(_ context.Context, _ llm.Request, emit func(llm.StreamEvent) error) (llm.Completion, error) {
 	if err := emit(llm.StreamEvent{Text: "main screen answer"}); err != nil {
 		return llm.Completion{}, err
@@ -551,6 +565,52 @@ func TestChatUserPromptLinePreservesSubmittedText(t *testing.T) {
 	got := chatUserPromptLine(&out, "请运行命令 echo auto-manual-check；不要修改任何文件。")
 	if (!strings.Contains(got, "❯") && !strings.Contains(got, ">")) || !strings.Contains(got, "echo auto-manual-check") {
 		t.Fatalf("prompt line=%q", got)
+	}
+}
+
+func TestChatSearchHistoryPrintsOnlyLocations(t *testing.T) {
+	root := t.TempDir()
+	store := conversation.NewStore(root)
+	snapshot, err := store.Create("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot.Messages = []llm.Message{{Role: "user", Content: "deployment question"}}
+	if err := store.Save(snapshot); err != nil {
+		t.Fatal(err)
+	}
+	getenv := func(key string) string {
+		return map[string]string{"OPENAI_API_KEY": "test-secret", "OPENAI_MODEL": "test-model", "OPENAI_BASE_URL": "http://127.0.0.1:1/v1"}[key]
+	}
+	var out, stderr bytes.Buffer
+	if code := RunWithInput(context.Background(), []string{"chat", "-w", root}, getenv, strings.NewReader("/search deployment\nexit\n"), &out, &stderr); code != 0 {
+		t.Fatalf("code=%d out=%q stderr=%q", code, out.String(), stderr.String())
+	}
+	if !strings.Contains(out.String(), snapshot.ID) || !strings.Contains(out.String(), "matches=user#1") || strings.Contains(out.String(), "deployment question") {
+		t.Fatalf("search output=%q", out.String())
+	}
+}
+
+func TestChatAutomaticallyCompactsBeforeNearLimitTurn(t *testing.T) {
+	root := t.TempDir()
+	audit, err := session.NewJSONLWriter(filepath.Join(root, "audit.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer audit.Close()
+	client := &compactThenAnswerClient{}
+	messages := make([]llm.Message, 0, 8)
+	for index := 0; index < 8; index++ {
+		messages = append(messages, llm.Message{Role: "user", Content: strings.Repeat("x", agent.CompactionTriggerBytes/8)})
+	}
+	runner := agent.NewRunnerWithMessages(client, root, "", tool.NewDefaultRegistry(), messages)
+	var out, stderr bytes.Buffer
+	code := runTuiMainScreenLoop(context.Background(), runner, audit, nil, nil, chatStatus{}, nil, strings.NewReader("next question\nexit\n"), &out, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d out=%q stderr=%q", code, out.String(), stderr.String())
+	}
+	if client.calls != 2 || !strings.Contains(out.String(), "上下文已自动压缩") || !strings.Contains(out.String(), "answer after compaction") {
+		t.Fatalf("calls=%d out=%q stderr=%q", client.calls, out.String(), stderr.String())
 	}
 }
 

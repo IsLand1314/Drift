@@ -98,6 +98,29 @@ func TestRunCommandTruncatesOutput(t *testing.T) {
 	}
 }
 
+func TestLimitedBufferPreservesHeadAndTailOnTruncation(t *testing.T) {
+	var buffer limitedBuffer
+	buffer.limit = 16
+	input := "HEAD-1234567890-TAIL"
+	if _, err := buffer.Write([]byte(input)); err != nil {
+		t.Fatal(err)
+	}
+	got := buffer.String()
+	if !buffer.truncated || !strings.Contains(got, "output truncated") || !strings.Contains(got, "HEAD") || !strings.Contains(got, "TAIL") {
+		t.Fatalf("buffer=%q truncated=%v", got, buffer.truncated)
+	}
+}
+
+func TestLimitedBufferPreservesAllDataBeforeLimit(t *testing.T) {
+	var buffer limitedBuffer
+	buffer.limit = 16
+	_, _ = buffer.Write([]byte("first-"))
+	_, _ = buffer.Write([]byte("second"))
+	if got := buffer.String(); got != "first-second" {
+		t.Fatalf("buffer=%q, want complete pre-limit output", got)
+	}
+}
+
 func TestRunCommandReportsNonZeroExit(t *testing.T) {
 	root := t.TempDir()
 	preview, err := RunCommandPreview(root, `{"command":"exit 7"}`)

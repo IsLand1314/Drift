@@ -13,11 +13,12 @@ import (
 )
 
 const (
-	MaxModelRequests     = 6
-	MaxToolCalls         = 12
-	MaxTotalReadBytes    = 512 << 10
-	MaxConversationBytes = 1 << 20
-	finalResponseReserve = 2
+	MaxModelRequests       = 6
+	MaxToolCalls           = 12
+	MaxTotalReadBytes      = 512 << 10
+	MaxConversationBytes   = 1 << 20
+	CompactionTriggerBytes = MaxConversationBytes * 80 / 100
+	finalResponseReserve   = 2
 
 	nativeToolSystemInstruction = "Drift is read-only. Only use the supplied native read-only tools. Bash, shell, and exec are unavailable. Never emit XML, DSML, or pseudo-tool syntax."
 )
@@ -106,6 +107,12 @@ func (r *Runner) ContextBytes() int {
 		}
 	}
 	return size
+}
+
+// NeedsCompaction reports whether the next prompt would enter the compaction
+// window. The 80% trigger leaves room for the summary request and one reply.
+func (r *Runner) NeedsCompaction(extraBytes int) bool {
+	return r.ContextBytes()+extraBytes >= CompactionTriggerBytes
 }
 
 // ResetContext 清空当前进程的对话消息，但保留 Provider、workspace、focus 和工具注册表。

@@ -3,6 +3,7 @@ package conversation
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -177,6 +178,32 @@ func TestStoreListMetadataDoesNotContainMessageBody(t *testing.T) {
 	}
 	if strings.Contains(strings.Join([]string{metadata[0].ID, metadata[0].Focus}, " "), "secret prompt") {
 		t.Fatal("metadata leaked message body")
+	}
+}
+
+func TestStoreSearchReturnsBoundedMatchLocationsWithoutBodies(t *testing.T) {
+	store := NewStore(t.TempDir())
+	snapshot, err := store.Create("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot.Messages = []llm.Message{
+		{Role: "user", Content: "inspect alpha"},
+		{Role: "assistant", Content: "alpha found"},
+		{Role: "tool", Content: "secret alpha output"},
+	}
+	if err := store.Save(snapshot); err != nil {
+		t.Fatal(err)
+	}
+	hits, err := store.Search("ALPHA", 10)
+	if err != nil || len(hits) != 1 {
+		t.Fatalf("hits=%+v err=%v", hits, err)
+	}
+	if hits[0].ID != snapshot.ID || len(hits[0].Matches) != 3 || hits[0].Matches[0].Role != "user" {
+		t.Fatalf("hit=%+v", hits[0])
+	}
+	if strings.Contains(fmt.Sprint(hits[0]), "secret alpha output") {
+		t.Fatal("search result leaked message body")
 	}
 }
 

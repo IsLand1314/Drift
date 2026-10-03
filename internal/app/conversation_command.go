@@ -87,6 +87,25 @@ func runSessionCommand(args []string, out, stderr io.Writer) int {
 		}
 		writeConversationTimeline(out, snapshot)
 		return 0
+	case "search":
+		query, limit, ok := parseConversationSearchArgs(args[1:])
+		if !ok {
+			fmt.Fprintln(stderr, "用法：drift session search <关键词> [--limit N]")
+			return 2
+		}
+		results, err := store.Search(query, limit)
+		if err != nil {
+			fmt.Fprintln(stderr, "错误：", err)
+			return 1
+		}
+		if len(results) == 0 {
+			fmt.Fprintln(out, "没有匹配的完整会话")
+			return 0
+		}
+		for _, result := range results {
+			writeConversationSearchResult(out, result)
+		}
+		return 0
 	case "rename":
 		if len(args) != 3 || strings.TrimSpace(args[1]) == "" {
 			fmt.Fprintln(stderr, "用法：drift session rename <id> <title>")
@@ -155,7 +174,7 @@ func runSessionCommand(args []string, out, stderr io.Writer) int {
 
 const timeFormat = "2006-01-02T15:04:05.999999999Z07:00"
 
-const sessionUsage = "用法：drift session list [--limit N] | drift session show <id> | drift session timeline <id> | drift session rename <id> <title> | drift session delete <id> --yes | drift session prune --before <RFC3339> [--yes]"
+const sessionUsage = "用法：drift session list [--limit N] | drift session show <id> | drift session timeline <id> | drift session search <关键词> [--limit N] | drift session rename <id> <title> | drift session delete <id> --yes | drift session prune --before <RFC3339> [--yes]"
 
 func parseConversationLimit(args []string) (int, bool) {
 	if len(args) == 0 {
@@ -166,6 +185,31 @@ func parseConversationLimit(args []string) (int, bool) {
 	}
 	limit, err := strconv.Atoi(args[1])
 	return limit, err == nil && limit > 0
+}
+
+func parseConversationSearchArgs(args []string) (string, int, bool) {
+	if len(args) == 0 {
+		return "", 0, false
+	}
+	limit := 50
+	queryParts := make([]string, 0, len(args))
+	for index := 0; index < len(args); index++ {
+		if args[index] == "--limit" {
+			if index+1 >= len(args) {
+				return "", 0, false
+			}
+			parsed, err := strconv.Atoi(args[index+1])
+			if err != nil || parsed < 1 || parsed > 50 {
+				return "", 0, false
+			}
+			limit = parsed
+			index++
+			continue
+		}
+		queryParts = append(queryParts, args[index])
+	}
+	query := strings.TrimSpace(strings.Join(queryParts, " "))
+	return query, limit, query != ""
 }
 
 func parsePruneArgs(args []string) (time.Time, bool, bool) {
@@ -193,6 +237,21 @@ func writeConversationMetadata(out io.Writer, item conversation.Metadata) {
 	fmt.Fprintf(out, " updated_at=%s messages=%d context_bytes=%d", item.UpdatedAt.UTC().Format(timeFormat), item.MessageCount, item.ContextBytes)
 	if item.Focus != "" {
 		fmt.Fprintf(out, " focus=%s", item.Focus)
+	}
+	fmt.Fprintln(out)
+}
+
+func writeConversationSearchResult(out io.Writer, item conversation.SearchResult) {
+	fmt.Fprintf(out, "%s", item.ID)
+	if item.Title != "" {
+		fmt.Fprintf(out, " title=%s", item.Title)
+	}
+	fmt.Fprintf(out, " updated_at=%s messages=%d context_bytes=%d matches=", item.UpdatedAt.UTC().Format(timeFormat), item.MessageCount, item.ContextBytes)
+	for index, match := range item.Matches {
+		if index > 0 {
+			fmt.Fprint(out, ",")
+		}
+		fmt.Fprintf(out, "%s#%d", match.Role, match.Index)
 	}
 	fmt.Fprintln(out)
 }
