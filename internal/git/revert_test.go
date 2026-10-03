@@ -42,6 +42,24 @@ func TestPreflightRevertRejectsDirtyWorktree(t *testing.T) {
 	}
 }
 
+func TestPreflightRevertIgnoresDriftAuditDirectory(t *testing.T) {
+	root := newGitFixture(t)
+	writeGitFile(t, root, "one.txt", "one\n")
+	gitRun(t, root, "add", "one.txt")
+	gitRun(t, root, "commit", "-m", "initial")
+	writeGitFile(t, root, "one.txt", "two\n")
+	gitRun(t, root, "commit", "-am", "change")
+	if err := os.MkdirAll(filepath.Join(root, ".drift", "audits"), 0o700); err != nil {
+		t.Fatalf("mkdir audit: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".drift", "audits", "run.jsonl"), []byte("audit\n"), 0o600); err != nil {
+		t.Fatalf("write audit: %v", err)
+	}
+	if _, err := PreflightRevert(context.Background(), root, "HEAD"); err != nil {
+		t.Fatalf("PreflightRevert() error = %v", err)
+	}
+}
+
 func TestPreflightRevertRejectsInvalidAndMergeTargets(t *testing.T) {
 	root := newGitFixture(t)
 	writeGitFile(t, root, "one.txt", "one\n")

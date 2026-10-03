@@ -31,7 +31,7 @@ var commandStatusPattern = regexp.MustCompile(`(?:^|\s)status=([a-z_]+)(?:\s|$)`
 
 func Revert(ctx context.Context, preflight Preflight, sandbox tool.SandboxMode) (Result, error) {
 	result := Result{}
-	status, err := gitOutput(ctx, preflight.Root, "status", "--porcelain")
+	status, err := worktreeStatus(ctx, preflight.Root)
 	if err != nil {
 		return result, fmt.Errorf("failed: check worktree: %w", err)
 	}
@@ -122,7 +122,7 @@ func PreflightRevert(ctx context.Context, root, target string) (Preflight, error
 	if err != nil {
 		return Preflight{}, err
 	}
-	status, err := gitOutput(ctx, root, "status", "--porcelain")
+	status, err := worktreeStatus(ctx, root)
 	if err != nil {
 		return Preflight{}, fmt.Errorf("not_git: %w", err)
 	}
@@ -170,4 +170,8 @@ func RepositoryRoot(ctx context.Context, root string) (string, error) {
 func gitOutput(ctx context.Context, root string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", root}, args...)...)
 	return cmd.CombinedOutput()
+}
+
+func worktreeStatus(ctx context.Context, root string) ([]byte, error) {
+	return gitOutput(ctx, root, "status", "--porcelain", "--untracked-files=all", "--", ":!.drift")
 }
