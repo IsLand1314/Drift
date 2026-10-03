@@ -73,15 +73,23 @@ func Start(ctx context.Context, server Server, env []string) (*Client, error) {
 func mergeEnv(base, overrides []string) []string {
 	values := make(map[string]string, len(base)+len(overrides))
 	order := make([]string, 0, len(base)+len(overrides))
-	for _, item := range append(append([]string(nil), base...), overrides...) {
+	for _, item := range base {
+		name, _, ok := strings.Cut(item, "=")
+		if !ok || name == "" || !isRuntimeEnv(name) {
+			continue
+		}
+		key := envKey(name)
+		if _, exists := values[key]; !exists {
+			order = append(order, key)
+		}
+		values[key] = item
+	}
+	for _, item := range overrides {
 		name, _, ok := strings.Cut(item, "=")
 		if !ok || name == "" {
 			continue
 		}
-		key := name
-		if runtime.GOOS == "windows" {
-			key = strings.ToLower(name)
-		}
+		key := envKey(name)
 		if _, exists := values[key]; !exists {
 			order = append(order, key)
 		}
@@ -92,6 +100,22 @@ func mergeEnv(base, overrides []string) []string {
 		result = append(result, values[key])
 	}
 	return result
+}
+
+func envKey(name string) string {
+	if runtime.GOOS == "windows" {
+		return strings.ToLower(name)
+	}
+	return name
+}
+
+func isRuntimeEnv(name string) bool {
+	switch strings.ToLower(name) {
+	case "path", "systemroot", "windir", "temp", "tmp", "comspec", "pathext", "home", "userprofile":
+		return true
+	default:
+		return false
+	}
 }
 
 func (c *Client) ListTools(ctx context.Context) ([]Tool, error) {

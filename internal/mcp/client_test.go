@@ -30,6 +30,17 @@ func TestClientInitializesListsAndCallsTool(t *testing.T) {
 	}
 }
 
+func TestMergeEnvKeepsRuntimePathButExcludesUnreferencedSecrets(t *testing.T) {
+	merged := mergeEnv([]string{"PATH=/runtime", "DRIFT_SECRET=not-for-mcp"}, []string{"DRIFT_TOKEN=explicit"})
+	joined := strings.Join(merged, "\x00")
+	if !strings.Contains(joined, "PATH=/runtime") || !strings.Contains(joined, "DRIFT_TOKEN=explicit") {
+		t.Fatalf("runtime/explicit environment missing: %q", joined)
+	}
+	if strings.Contains(joined, "DRIFT_SECRET=not-for-mcp") {
+		t.Fatalf("unreferenced secret leaked into MCP environment: %q", joined)
+	}
+}
+
 func TestClientCancellationClosesTheServerProcess(t *testing.T) {
 	client, err := Start(context.Background(), Server{Name: "demo", Transport: "stdio", Command: os.Args[0], Args: []string{"-test.run=TestMCPHelperProcess"}}, []string{"DRIFT_MCP_TEST_HELPER=1", "DRIFT_MCP_BLOCK_CALL=1"})
 	if err != nil {
