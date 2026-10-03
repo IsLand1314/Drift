@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/IsLand1314/Drift/internal/llm"
+	"github.com/IsLand1314/Drift/internal/message"
 )
 
 type childClient struct{ wait, fail bool }
@@ -84,6 +85,24 @@ func TestChildManagerRunsUpToLimitInParallelAndRejectsOverflow(t *testing.T) {
 		if err != nil || result.State != ChildCompleted {
 			t.Fatalf("result=%+v err=%v", result, err)
 		}
+	}
+}
+
+func TestChildManagerPublishesProgressAndResultMessages(t *testing.T) {
+	manager := NewChildManager(1)
+	bus := message.NewBus()
+	manager.SetMessageBus(bus)
+	root := t.TempDir()
+	handle, err := manager.Start(context.Background(), childClient{}, "task-1", root, "work", 0, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := handle.Wait(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	items := bus.List("task-1")
+	if len(items) != 2 || items[0].Kind != "progress" || items[1].Kind != "result" || items[0].From != "child-task-1" || items[0].To != "main" {
+		t.Fatalf("messages=%+v", items)
 	}
 }
 

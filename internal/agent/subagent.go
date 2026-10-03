@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/IsLand1314/Drift/internal/llm"
+	"github.com/IsLand1314/Drift/internal/message"
 	"github.com/IsLand1314/Drift/internal/tool"
 )
 
@@ -38,6 +39,13 @@ type ChildManager struct {
 	mu     sync.Mutex
 	active map[string]*ChildHandle
 	limit  int
+	bus    *message.Bus
+}
+
+func (m *ChildManager) SetMessageBus(bus *message.Bus) {
+	m.mu.Lock()
+	m.bus = bus
+	m.mu.Unlock()
 }
 
 type ChildHandle struct {
@@ -98,7 +106,15 @@ func (m *ChildManager) Start(parent context.Context, client llm.Client, taskID, 
 		if sink != nil {
 			_ = sink(Event{Type: EventRunStarted, TaskID: taskID, CWD: worktree, ExecutionStatus: string(ChildRunning)})
 		}
-		runner := NewRunner(client, worktree, "", tool.NewChatRegistry())
+		m.publishMessage(taskID, "progress", "child started")
+		childRegistry := tool.NewChatRegistry()
+		m.mu.Lock()
+		bus := m.bus
+		m.mu.Unlock()
+		if messages, ok := childRegistry.(tool.MessageRegistry); ok {
+			messages.SetMessageBus(bus)
+		}
+		runner := NewRunner(client, worktree, "", childRegistry)
 		err := runner.RunEvents(ctx, prompt, sink)
 		result := ChildResult{TaskID: taskID, Worktree: worktree, StartedAt: started, EndedAt: time.Now().UTC(), Output: lastChildText(runner), Err: err}
 		switch {
@@ -114,10 +130,27 @@ func (m *ChildManager) Start(parent context.Context, client llm.Client, taskID, 
 		if sink != nil {
 			_ = sink(Event{Type: EventRunFinished, TaskID: taskID, CWD: worktree, ExecutionStatus: string(result.State), ChildState: string(result.State), FailureReason: childFailure(result)})
 		}
+		text := result.Output
+		if text == "" && result.Err != nil {
+			text = result.Err.Error()
+		}
+		if text == "" {
+			text = string(result.State)
+		}
+		m.publishMessage(taskID, "result", text)
 		release()
 		handle.done <- result
 	}()
 	return handle, nil
+}
+
+func (m *ChildManager) publishMessage(taskID, kind, text string) {
+	m.mu.Lock()
+	bus := m.bus
+	m.mu.Unlock()
+	if bus != nil {
+		_, _ = bus.Send("child-"+taskID, "main", taskID, kind, text)
+	}
 }
 
 func (m *ChildManager) Cancel(taskID string) error {

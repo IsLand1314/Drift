@@ -234,6 +234,9 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 	if chat {
 		registry = tool.NewChatRegistryWithSandbox(sandboxMode)
 		childManager = agent.NewChildManager(agent.DefaultChildConcurrency)
+		if messages, ok := registry.(tool.MessageRegistry); ok {
+			childManager.SetMessageBus(messages.MessageBus())
+		}
 		if tasks, ok := registry.(tool.TaskRegistry); ok {
 			mergeQueue := gitops.NewMergeQueue()
 			childSink := func(event agent.Event) error {

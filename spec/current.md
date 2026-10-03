@@ -1,12 +1,16 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M4.4。M3.17 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M4.5。M3.17 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
 
 ## M4：多 Agent 交付主线
 
 M4 的阶段目标、自动化验收和独立 LLM 验收门禁见 [`m4-multi-agent.md`](m4-multi-agent.md)。M3.30 及更早阶段作为基础能力保留，不再扩展为 M3.31。
 
-### M4.4：Worktree 自动合并与冲突协调（当前阶段）
+### M4.5：Agent 消息与结果汇总（当前阶段）
+
+见 [`m4.5-message-summary.md`](m4.5-message-summary.md) 和 [`m4.5-acceptance.md`](m4.5-acceptance.md)。单进程消息总线、消息控制工具、子 Agent 生命周期消息和去重汇总已实现；真实 DeepSeek 工具调用仍受伪工具格式阻塞。
+
+### M4.4：Worktree 自动合并与冲突协调
 
 见 [`m4.4-worktree-merge.md`](m4.4-worktree-merge.md) 和 [`m4.4-acceptance.md`](m4.4-acceptance.md)。自动合并、冲突队列、重试和任务合并状态已实现；真实 DeepSeek 工具调用仍受 M4.1 记录的伪工具格式阻塞。
 

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/IsLand1314/Drift/internal/llm"
+	"github.com/IsLand1314/Drift/internal/message"
 )
 
 // Registry 提供稳定顺序的工具 schema 和按名称查找。
@@ -20,6 +21,7 @@ type registry struct {
 	enabled   map[string]bool
 	summaries map[string]toolSummary
 	tasks     *taskStore
+	messages  *message.Bus
 }
 
 // NewRegistry 创建工具注册表，并拒绝空名称和重复名称。
@@ -30,6 +32,7 @@ func NewRegistry(tools ...Tool) (Registry, error) {
 		enabled:   make(map[string]bool, len(tools)),
 		summaries: make(map[string]toolSummary, len(tools)),
 		tasks:     newTaskStore(),
+		messages:  message.NewBus(),
 	}
 	for _, current := range tools {
 		if current == nil {
@@ -66,14 +69,35 @@ func NewChatRegistry() Registry {
 // NewChatRegistryWithSandbox returns the chat tools with a user-selected,
 // control-plane sandbox policy fixed into Bash.
 func NewChatRegistryWithSandbox(sandboxMode SandboxMode) Registry {
-	result := &registry{tools: make(map[string]Tool), enabled: make(map[string]bool), summaries: make(map[string]toolSummary), tasks: newTaskStore()}
+	result := &registry{tools: make(map[string]Tool), enabled: make(map[string]bool), summaries: make(map[string]toolSummary), tasks: newTaskStore(), messages: message.NewBus()}
 	tasks := result.tasks
-	for _, current := range []Tool{listFilesTool{}, searchTextTool{}, readFileTool{}, writeFileTool{}, editFileTool{}, deleteFileTool{}, runCommandTool{sandboxMode: sandboxMode}, askUserQuestionTool{}, taskCreateTool{tasks}, taskListTool{tasks}, taskGetTool{tasks}, taskUpdateTool{tasks}, taskSwitchTool{tasks}, taskRunTool{tasks}, taskStatusTool{tasks}, taskCancelTool{tasks}, taskMergeTool{tasks}} {
+	for _, current := range []Tool{listFilesTool{}, searchTextTool{}, readFileTool{}, writeFileTool{}, editFileTool{}, deleteFileTool{}, runCommandTool{sandboxMode: sandboxMode}, askUserQuestionTool{}, taskCreateTool{tasks}, taskListTool{tasks}, taskGetTool{tasks}, taskUpdateTool{tasks}, taskSwitchTool{tasks}, taskRunTool{tasks}, taskStatusTool{tasks}, taskCancelTool{tasks}, taskMergeTool{tasks}, agentMessageSendTool{result.messages}, agentMessageListTool{result.messages}, agentSummaryTool{result.messages}} {
 		result.add(current, false)
 	}
 	result.add(toolSearchTool{registry: result}, true)
 	result.enable("AskUserQuestion")
 	return result
+}
+
+func (r *registry) MessageBus() *message.Bus { return r.messages }
+
+func (r *registry) SetMessageBus(bus *message.Bus) {
+	if bus == nil {
+		return
+	}
+	r.messages = bus
+	for name, current := range r.tools {
+		switch name {
+		case "AgentMessageSend":
+			r.tools[name] = agentMessageSendTool{bus}
+		case "AgentMessageList":
+			r.tools[name] = agentMessageListTool{bus}
+		case "AgentSummary":
+			r.tools[name] = agentSummaryTool{bus}
+		default:
+			_ = current
+		}
+	}
 }
 
 func (r *registry) ExportTasks() []TaskState { return r.tasks.export() }
