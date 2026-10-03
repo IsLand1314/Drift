@@ -21,8 +21,15 @@ func runGitCommand(args []string, out, stderr io.Writer) int {
 }
 
 func runGitCommandContext(ctx context.Context, args []string, out, stderr io.Writer) int {
-	if len(args) == 0 || args[0] != "revert" {
-		fmt.Fprintln(stderr, "用法：drift git revert [-w <workspace>] <commit> --yes")
+	if len(args) == 0 {
+		fmt.Fprintln(stderr, gitUsage())
+		return 2
+	}
+	if args[0] == "worktree" {
+		return runGitWorktreeCommand(ctx, args[1:], out, stderr)
+	}
+	if args[0] != "revert" {
+		fmt.Fprintln(stderr, gitUsage())
 		return 2
 	}
 	root, err := os.Getwd()
@@ -38,21 +45,21 @@ func runGitCommandContext(ctx context.Context, args []string, out, stderr io.Wri
 			confirmed = true
 		case "-w", "--workspace":
 			if i+1 >= len(args) || strings.TrimSpace(args[i+1]) == "" {
-				fmt.Fprintln(stderr, "用法：drift git revert [-w <workspace>] <commit> --yes")
+				fmt.Fprintln(stderr, gitUsage())
 				return 2
 			}
 			root = args[i+1]
 			i++
 		default:
 			if target != "" {
-				fmt.Fprintln(stderr, "用法：drift git revert [-w <workspace>] <commit> --yes")
+				fmt.Fprintln(stderr, gitUsage())
 				return 2
 			}
 			target = args[i]
 		}
 	}
 	if target == "" || !confirmed {
-		fmt.Fprintln(stderr, "用法：drift git revert [-w <workspace>] <commit> --yes")
+		fmt.Fprintln(stderr, gitUsage())
 		return 2
 	}
 	root, err = filepath.Abs(root)
@@ -107,6 +114,97 @@ func runGitCommandContext(ctx context.Context, args []string, out, stderr io.Wri
 	}
 	fmt.Fprintln(out, "已创建 Git 反向提交：", result.AfterHEAD)
 	return 0
+}
+
+func gitUsage() string {
+	return "用法：drift git revert [-w <workspace>] <commit> --yes | drift git worktree {create <name> [base] --yes|list|remove <name> --yes} [-w <workspace>]"
+}
+
+func runGitWorktreeCommand(ctx context.Context, args []string, out, stderr io.Writer) int {
+	if len(args) == 0 {
+		fmt.Fprintln(stderr, gitUsage())
+		return 2
+	}
+	action := args[0]
+	root, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintln(stderr, "错误：无法获取当前目录：", err)
+		return 1
+	}
+	var name, base string
+	confirmed := false
+	for i := 1; i < len(args); i++ {
+		switch args[i] {
+		case "--yes":
+			confirmed = true
+		case "-w", "--workspace":
+			if i+1 >= len(args) || strings.TrimSpace(args[i+1]) == "" {
+				fmt.Fprintln(stderr, gitUsage())
+				return 2
+			}
+			root = args[i+1]
+			i++
+		default:
+			if name == "" {
+				name = args[i]
+			} else if base == "" && action == "create" {
+				base = args[i]
+			} else {
+				fmt.Fprintln(stderr, gitUsage())
+				return 2
+			}
+		}
+	}
+	root, err = filepath.Abs(root)
+	if err != nil {
+		fmt.Fprintln(stderr, "错误：workspace 路径无效：", err)
+		return 2
+	}
+	switch action {
+	case "list":
+		if name != "" || confirmed {
+			fmt.Fprintln(stderr, gitUsage())
+			return 2
+		}
+		items, err := gitops.ListWorktrees(ctx, root)
+		if err != nil {
+			fmt.Fprintln(stderr, "列出 worktree 失败：", err)
+			return 1
+		}
+		for _, item := range items {
+			fmt.Fprintf(out, "%s\t%s\t%s\n", item.Path, item.HEAD, item.Branch)
+		}
+		return 0
+	case "create":
+		if name == "" || !confirmed {
+			fmt.Fprintln(stderr, gitUsage())
+			return 2
+		}
+		if base == "" {
+			base = "HEAD"
+		}
+		item, err := gitops.CreateWorktree(ctx, root, name, base)
+		if err != nil {
+			fmt.Fprintln(stderr, "创建 worktree 失败：", err)
+			return 1
+		}
+		fmt.Fprintln(out, "已创建 worktree：", item.Path)
+		return 0
+	case "remove":
+		if name == "" || !confirmed {
+			fmt.Fprintln(stderr, gitUsage())
+			return 2
+		}
+		if err := gitops.RemoveWorktree(ctx, root, name); err != nil {
+			fmt.Fprintln(stderr, "删除 worktree 失败：", err)
+			return 1
+		}
+		fmt.Fprintln(out, "已删除 worktree：", name)
+		return 0
+	default:
+		fmt.Fprintln(stderr, gitUsage())
+		return 2
+	}
 }
 
 func gitFailureReason(err error) string {

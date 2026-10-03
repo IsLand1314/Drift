@@ -58,6 +58,27 @@ func TestGitRevertCreatesCommitAndAudit(t *testing.T) {
 	}
 }
 
+func TestGitWorktreeLifecycleRequiresConfirmation(t *testing.T) {
+	root := newGitCommandFixture(t)
+	writeGitCommandFile(t, root, "one.txt", "one\n")
+	gitCommandRun(t, root, "add", "one.txt")
+	gitCommandRun(t, root, "commit", "-m", "initial")
+
+	var out, stderr strings.Builder
+	if code := runGitCommand([]string{"worktree", "create", "agent", "-w", root}, &out, &stderr); code != 2 {
+		t.Fatalf("create without confirmation code = %d, want 2", code)
+	}
+	if code := runGitCommand([]string{"worktree", "create", "agent", "-w", root, "--yes"}, &out, &stderr); code != 0 {
+		t.Fatalf("create code = %d, stdout=%q stderr=%q", code, out.String(), stderr.String())
+	}
+	if code := runGitCommand([]string{"worktree", "list", "-w", root}, &out, &stderr); code != 0 || !strings.Contains(out.String(), filepath.Join(root, ".worktrees", "agent")) {
+		t.Fatalf("list code = %d, stdout=%q stderr=%q", code, out.String(), stderr.String())
+	}
+	if code := runGitCommand([]string{"worktree", "remove", "agent", "-w", root, "--yes"}, &out, &stderr); code != 0 {
+		t.Fatalf("remove code = %d, stdout=%q stderr=%q", code, out.String(), stderr.String())
+	}
+}
+
 func newGitCommandFixture(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()

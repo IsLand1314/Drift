@@ -1,6 +1,10 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M3.26。M3.17 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M3.27。M3.17 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+
+## M3.27：Git Worktree 隔离最小闭环
+
+完整目标与验收标准见 [`m3.27-git-worktree.md`](m3.27-git-worktree.md)。本阶段补齐与现有 GitRevert 不同的 Agent 隔离能力：在 workspace 的 `.worktrees/<name>` 下创建、列出和删除受控 linked worktree。创建和删除必须显式 `--yes`；名称、Git revision 和 `.worktrees` 路径均经过校验；删除交给 Git 执行，脏 worktree 不会被强制删除。
 
 ## M3.26：MCP Client 生命周期收口
 
