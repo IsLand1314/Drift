@@ -190,13 +190,20 @@ func grantWindowsWorkspaceAccess(root, cwd string, sid *windows.SID) (func(), er
 		restores = append(restores, aclRestore{path: path, dacl: dacl})
 		return nil
 	}
-	if err := apply(root, windows.GENERIC_ALL, windows.GRANT_ACCESS, windows.NO_INHERITANCE); err != nil {
+	if err := apply(root, windows.GENERIC_READ|windows.GENERIC_EXECUTE, windows.GRANT_ACCESS, windows.OBJECT_INHERIT_ACE|windows.CONTAINER_INHERIT_ACE); err != nil {
 		for j := len(restores) - 1; j >= 0; j-- {
 			_ = windows.SetNamedSecurityInfo(restores[j].path, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION, nil, nil, restores[j].dacl, nil)
 		}
 		return nil, err
 	}
-	if cwd != "." && cwd != "" {
+	if cwd == "." || cwd == "" {
+		if err := apply(root, windows.GENERIC_ALL, windows.GRANT_ACCESS, windows.NO_INHERITANCE); err != nil {
+			for j := len(restores) - 1; j >= 0; j-- {
+				_ = windows.SetNamedSecurityInfo(restores[j].path, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION, nil, nil, restores[j].dacl, nil)
+			}
+			return nil, err
+		}
+	} else {
 		current := root
 		parts := strings.Split(filepath.ToSlash(cwd), "/")
 		for i, part := range parts {
