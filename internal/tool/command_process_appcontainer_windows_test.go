@@ -129,3 +129,23 @@ func TestExecuteCommandAppContainerSupportsNestedWorkspaceCWD(t *testing.T) {
 		t.Fatalf("nested file=%q err=%v", data, err)
 	}
 }
+
+func TestExecuteCommandAppContainerCanReadExistingWorkspaceFile(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "existing.txt"), []byte("existing-content\r\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	preview := Preview{
+		Operation:   "run_command",
+		Command:     `type existing.txt`,
+		CWD:         ".",
+		Timeout:     10 * time.Second,
+		OutputLimit: 4096,
+		SandboxMode: SandboxRequired,
+		Sandbox:     SandboxDecision{Mode: SandboxRequired, Backend: "appcontainer", Available: true, Probe: "passed"},
+	}
+	output, err := ExecuteCommand(context.Background(), root, preview)
+	if err != nil || !strings.Contains(output, "status=success") || !strings.Contains(output, "existing-content") {
+		t.Fatalf("existing file output=%q err=%v", output, err)
+	}
+}
