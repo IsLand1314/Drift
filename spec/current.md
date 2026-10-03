@@ -1,6 +1,10 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M3.23。M3.17 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M3.24。M3.17 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+
+## M3.24：会话内任务管理最小闭环
+
+完整目标与验收标准见 [`m3.24-task-tools.md`](m3.24-task-tools.md)。
 
 ## M3.23：MCP 集成验收与失败路径收口
 

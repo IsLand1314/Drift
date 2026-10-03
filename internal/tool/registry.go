@@ -65,7 +65,8 @@ func NewChatRegistry() Registry {
 // control-plane sandbox policy fixed into Bash.
 func NewChatRegistryWithSandbox(sandboxMode SandboxMode) Registry {
 	result := &registry{tools: make(map[string]Tool), enabled: make(map[string]bool), summaries: make(map[string]toolSummary)}
-	for _, current := range []Tool{listFilesTool{}, searchTextTool{}, readFileTool{}, writeFileTool{}, editFileTool{}, deleteFileTool{}, runCommandTool{sandboxMode: sandboxMode}, askUserQuestionTool{}} {
+	tasks := newTaskStore()
+	for _, current := range []Tool{listFilesTool{}, searchTextTool{}, readFileTool{}, writeFileTool{}, editFileTool{}, deleteFileTool{}, runCommandTool{sandboxMode: sandboxMode}, askUserQuestionTool{}, taskCreateTool{tasks}, taskListTool{tasks}, taskGetTool{tasks}, taskUpdateTool{tasks}} {
 		result.add(current, false)
 	}
 	result.add(toolSearchTool{registry: result}, true)
