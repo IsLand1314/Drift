@@ -80,6 +80,12 @@ func (p *appContainerMCPProcess) Start() error {
 		return err
 	}
 	p.profile = profile
+	started := false
+	defer func() {
+		if !started {
+			_ = p.Close()
+		}
+	}()
 	restore, err := grantWindowsWorkspaceAccess(p.root, ".", sid)
 	if err != nil {
 		deleteWindowsAppContainerProfile(profile)
@@ -174,6 +180,7 @@ func (p *appContainerMCPProcess) Start() error {
 	if _, err := windows.ResumeThread(p.thread); err != nil {
 		return err
 	}
+	started = true
 	go func() { _, _ = io.Copy(io.Discard, p.stderrR) }()
 	return nil
 }
