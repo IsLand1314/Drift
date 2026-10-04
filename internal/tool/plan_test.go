@@ -2,8 +2,11 @@ package tool
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestPlanModeToolsAreAvailableAndSideEffectFree(t *testing.T) {
@@ -54,5 +57,36 @@ func TestPlanUpdateStoresStructuredPlan(t *testing.T) {
 	plan := plans.ExportPlan()
 	if plan.ID != "plan-1" || plan.Goal != "demo" || len(plan.Tasks) != 1 || !strings.Contains(result, "plan-1") {
 		t.Fatalf("plan=%+v result=%q", plan, result)
+	}
+}
+
+func TestPlanExecuteRunsPlanTasksThroughTaskRunner(t *testing.T) {
+	registry := NewChatRegistry()
+	search, _ := registry.Lookup("ToolSearch")
+	if _, err := search.Execute(context.Background(), t.TempDir(), `{"query":"plan","load":["PlanUpdate","PlanExecute"]}`); err != nil {
+		t.Fatal(err)
+	}
+	plans := registry.(PlanRegistry)
+	plans.SetPlanID("plan-1")
+	handle := newTestTaskHandle()
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".worktrees", "agent-1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	registry.(TaskRegistry).SetTaskRunner(func(context.Context, TaskState, string, time.Duration) (TaskHandle, error) {
+		go func() {
+			time.Sleep(5 * time.Millisecond)
+			handle.complete(TaskExecutionResult{State: "completed", Output: "ok"})
+		}()
+		return handle, nil
+	})
+	update, _ := registry.Lookup("PlanUpdate")
+	if _, err := update.Execute(context.Background(), root, `{"goal":"demo","tasks":[{"id":"task-1","title":"run","status":"pending","worktree":".worktrees/agent-1"}]}`); err != nil {
+		t.Fatal(err)
+	}
+	execute, _ := registry.Lookup("PlanExecute")
+	result, err := execute.Execute(context.Background(), root, `{}`)
+	if err != nil || !strings.Contains(result, "completed 1 tasks") {
+		t.Fatalf("result=%q err=%v", result, err)
 	}
 }

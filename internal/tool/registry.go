@@ -37,7 +37,7 @@ func NewRegistry(tools ...Tool) (Registry, error) {
 		summaries: make(map[string]toolSummary, len(tools)),
 		tasks:     newTaskStore(),
 		messages:  message.NewBus(),
-		plan:      &planStore{},
+		plan:      &planStore{tasks: newTaskStore()},
 	}
 	for _, current := range tools {
 		if current == nil {
@@ -76,6 +76,7 @@ func NewChatRegistry() Registry {
 // control-plane sandbox policy fixed into Bash.
 func NewChatRegistryWithSandbox(sandboxMode SandboxMode) Registry {
 	result := &registry{tools: make(map[string]Tool), enabled: make(map[string]bool), summaries: make(map[string]toolSummary), tasks: newTaskStore(), messages: message.NewBus(), plan: &planStore{}}
+	result.plan.tasks = result.tasks
 	tasks := result.tasks
 	cache := newFileStateCache()
 	for _, current := range []Tool{listFilesTool{}, searchTextTool{}, readFileTool{cache: cache}, writeFileTool{cache: cache}, editFileTool{cache: cache}, deleteFileTool{cache: cache}, runCommandTool{sandboxMode: sandboxMode}, askUserQuestionTool{}, taskCreateTool{tasks}, taskListTool{tasks}, taskGetTool{tasks}, taskUpdateTool{tasks}, taskSwitchTool{tasks}, taskRunTool{tasks}, taskStatusTool{tasks}, taskCancelTool{tasks}, taskMergeTool{tasks}, agentMessageSendTool{result.messages}, agentMessageListTool{result.messages}, agentSummaryTool{result.messages}} {
@@ -86,6 +87,7 @@ func NewChatRegistryWithSandbox(sandboxMode SandboxMode) Registry {
 	result.add(planModeTool{name: "EnterPlanMode"}, false)
 	result.add(planModeTool{name: "ExitPlanMode"}, false)
 	result.add(planUpdateTool{store: result.plan}, false)
+	result.add(planExecuteTool{plan: result.plan, tasks: result.tasks}, false)
 	return result
 }
 

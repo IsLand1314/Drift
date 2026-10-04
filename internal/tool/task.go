@@ -467,6 +467,58 @@ func (s *taskStore) get(id string) (string, error) {
 	return formatTask(item), nil
 }
 
+func (s *taskStore) syncPlanTasks(tasks []PlanTask) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	known := make(map[string]struct{}, len(s.tasks)+len(tasks))
+	for id := range s.tasks {
+		known[id] = struct{}{}
+	}
+	for _, planTask := range tasks {
+		known[planTask.ID] = struct{}{}
+	}
+	for _, planTask := range tasks {
+		if !strings.HasPrefix(planTask.ID, "task-") || !validPlanStatus(planTask.Status) {
+			return fmt.Errorf("plan task %q is invalid", planTask.ID)
+		}
+		for _, dependency := range planTask.Dependencies {
+			if _, ok := known[dependency]; !ok {
+				return fmt.Errorf("plan task %q depends on unknown task %q", planTask.ID, dependency)
+			}
+		}
+	}
+	candidate := make(map[string]TaskState, len(s.tasks))
+	for id, item := range s.tasks {
+		candidate[id] = item
+	}
+	for _, planTask := range tasks {
+		candidate[planTask.ID] = TaskState{ID: planTask.ID, Subject: planTask.Title, Description: planTask.Title, Status: planTask.Status, Worktree: planTask.Worktree, DependsOn: append([]string(nil), planTask.Dependencies...)}
+	}
+	for _, planTask := range tasks {
+		if hasDependencyCycleLocked(candidate, planTask.ID) {
+			return fmt.Errorf("plan task %q has dependency cycle", planTask.ID)
+		}
+		if existing, ok := s.tasks[planTask.ID]; ok {
+			existing.Subject, existing.Description, existing.Worktree = planTask.Title, planTask.Title, planTask.Worktree
+			existing.DependsOn, existing.Status = append([]string(nil), planTask.Dependencies...), planTask.Status
+			s.tasks[planTask.ID] = existing
+			continue
+		}
+		s.tasks[planTask.ID] = TaskState{ID: planTask.ID, Subject: planTask.Title, Description: planTask.Title, Status: planTask.Status, Worktree: planTask.Worktree, DependsOn: append([]string(nil), planTask.Dependencies...)}
+		if number, err := strconv.Atoi(strings.TrimPrefix(planTask.ID, "task-")); err == nil && number > s.next {
+			s.next = number
+		}
+	}
+	return nil
+}
+
+func (s *taskStore) state(id string) (TaskState, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, ok := s.tasks[id]
+	return item, ok
+}
+
 func (s *taskStore) activeWorktree(root string) (string, error) {
 	s.mu.Lock()
 	active := s.active

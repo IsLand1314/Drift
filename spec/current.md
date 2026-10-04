@@ -1,6 +1,6 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M5.8。M3.17 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M5.9。M3.17 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
 
 ## M5.5：API-Key Provider 诊断（当前阶段）
 
@@ -24,6 +24,10 @@
 ## M5.8：结构化 Plan 与会话恢复
 
 完整边界见 [`m5.8-structured-plan.md`](m5.8-structured-plan.md)。`PlanUpdate` 复用现有 Plan Mode、Task 状态和会话持久化，不自动执行计划。
+
+## M5.9：计划任务执行与子 Agent 编排
+
+完整边界见 [`m5.9-plan-execution.md`](m5.9-plan-execution.md)。`PlanExecute` 复用已有 TaskRunner，按依赖顺序执行受管 Worktree 中的子 Agent。
 
 ## M5.1：Provider 配置与认证分离
 

@@ -527,6 +527,8 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) (
 				} else {
 					if call.Name == "PlanUpdate" && r.planPhase != PlanPhasePlanning {
 						toolErr = errors.New("PlanUpdate requires plan mode")
+					} else if call.Name == "PlanExecute" && r.planPhase != PlanPhaseExecuting {
+						toolErr = errors.New("PlanExecute requires exited plan mode")
 					} else {
 						result, toolErr = registeredTool.Execute(ctx, r.root, call.Arguments)
 					}

@@ -81,6 +81,12 @@ func switchChatSession(runner *agent.Runner, persistence *chatPersistence, targe
 func startNewChatSession(runner *agent.Runner, persistence *chatPersistence) error {
 	if persistence == nil || !persistence.persistent {
 		runner.ResetContext()
+		if persistence != nil {
+			if plans, ok := persistence.registry.(tool.PlanRegistry); ok {
+				plans.ResetPlan()
+			}
+		}
+		runner.RestorePlanState("", "")
 		return nil
 	}
 	target, err := persistence.store.Create(persistence.snapshot.Focus)

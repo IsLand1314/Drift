@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/IsLand1314/Drift/internal/llm"
 )
@@ -15,6 +16,7 @@ type PlanTask struct {
 	ID           string   `json:"id"`
 	Title        string   `json:"title"`
 	Status       string   `json:"status"`
+	Worktree     string   `json:"worktree,omitempty"`
 	Dependencies []string `json:"dependencies,omitempty"`
 }
 
@@ -65,7 +67,10 @@ func (t planModeTool) ExecutePreview(context.Context, string, Preview) (string, 
 }
 
 type planUpdateTool struct{ store *planStore }
-type planStore struct{ plan Plan }
+type planStore struct {
+	plan  Plan
+	tasks *taskStore
+}
 
 func (planUpdateTool) Name() string { return "PlanUpdate" }
 func (planUpdateTool) Definition() llm.ToolDefinition {
@@ -85,13 +90,88 @@ func (t planUpdateTool) Execute(_ context.Context, _ string, raw string) (string
 	}
 	for i := range plan.Tasks {
 		plan.Tasks[i].ID, plan.Tasks[i].Title, plan.Tasks[i].Status = strings.TrimSpace(plan.Tasks[i].ID), strings.TrimSpace(plan.Tasks[i].Title), strings.TrimSpace(plan.Tasks[i].Status)
-		if plan.Tasks[i].ID == "" || plan.Tasks[i].Title == "" || !validPlanStatus(plan.Tasks[i].Status) {
+		plan.Tasks[i].Worktree = normalizeTaskWorktree(plan.Tasks[i].Worktree)
+		if plan.Tasks[i].ID == "" || plan.Tasks[i].Title == "" || !validPlanStatus(plan.Tasks[i].Status) || (plan.Tasks[i].Worktree != "" && !validTaskWorktree(plan.Tasks[i].Worktree)) {
 			return "", fmt.Errorf("PlanUpdate task is invalid")
 		}
+	}
+	if err := t.store.tasks.syncPlanTasks(plan.Tasks); err != nil {
+		return "", err
 	}
 	t.store.plan.Goal, t.store.plan.Tasks = plan.Goal, append([]PlanTask(nil), plan.Tasks...)
 	t.store.plan.Risks, t.store.plan.Acceptance = append([]string(nil), plan.Risks...), append([]string(nil), plan.Acceptance...)
 	return fmt.Sprintf("PlanUpdate: %s (%d tasks)", t.store.plan.ID, len(plan.Tasks)), nil
+}
+
+type planExecuteTool struct {
+	plan  *planStore
+	tasks *taskStore
+}
+
+func (planExecuteTool) Name() string { return "PlanExecute" }
+func (planExecuteTool) Definition() llm.ToolDefinition {
+	return controlDefinition("PlanExecute", "Execute the current plan's tasks sequentially through the existing child Agent runner.", map[string]any{
+		"timeout_ms": map[string]any{"type": "integer", "minimum": 1, "maximum": 600000},
+	}, nil)
+}
+func (t planExecuteTool) Execute(ctx context.Context, root, raw string) (string, error) {
+	var args struct {
+		TimeoutMS int `json:"timeout_ms"`
+	}
+	if err := decodeTaskArgs(raw, &args); err != nil {
+		return "", fmt.Errorf("decode PlanExecute arguments: %w", err)
+	}
+	if args.TimeoutMS < 0 || args.TimeoutMS > 600000 {
+		return "", fmt.Errorf("PlanExecute arguments are invalid")
+	}
+	if len(t.plan.plan.Tasks) == 0 {
+		return "", fmt.Errorf("PlanExecute has no tasks")
+	}
+	t.tasks.mu.Lock()
+	runnerAvailable := t.tasks.runner != nil
+	t.tasks.mu.Unlock()
+	if !runnerAvailable {
+		return "", fmt.Errorf("PlanExecute is unavailable in this host")
+	}
+	for _, planTask := range t.plan.plan.Tasks {
+		item, ok := t.tasks.state(planTask.ID)
+		if !ok {
+			return "", fmt.Errorf("PlanExecute task %q not found", planTask.ID)
+		}
+		if !dependenciesCompleted(t.tasks, item) {
+			return "", fmt.Errorf("PlanExecute task %q is blocked by dependencies", item.ID)
+		}
+		if item.Status == "completed" {
+			continue
+		}
+		rawRun, _ := json.Marshal(map[string]any{"task_id": item.ID, "prompt": item.Description, "timeout_ms": args.TimeoutMS})
+		if _, err := (taskRunTool{store: t.tasks}).Execute(ctx, root, string(rawRun)); err != nil {
+			return "", err
+		}
+		for {
+			if err := ctx.Err(); err != nil {
+				return "", err
+			}
+			current, _ := t.tasks.state(item.ID)
+			switch current.Status {
+			case "completed":
+				break
+			case "failed", "cancelled", "timeout", "blocked":
+				return "", fmt.Errorf("PlanExecute task %q ended with %s", current.ID, current.Status)
+			default:
+				time.Sleep(20 * time.Millisecond)
+				continue
+			}
+			break
+		}
+	}
+	return fmt.Sprintf("PlanExecute: completed %d tasks", len(t.plan.plan.Tasks)), nil
+}
+
+func dependenciesCompleted(store *taskStore, item TaskState) bool {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	return dependenciesCompletedLocked(store.tasks, item)
 }
 func validPlanStatus(status string) bool {
 	switch status {
