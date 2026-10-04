@@ -18,6 +18,12 @@ type Repository struct {
 	mu   sync.Mutex
 }
 
+type SearchOptions struct {
+	Kind   Kind
+	Status string
+	Limit  int
+}
+
 func NewRepository(workspace string) (*Repository, error) {
 	if workspace == "" || filepath.IsAbs(workspace) && filepath.Clean(workspace) == string(filepath.Separator) {
 		return nil, ErrInvalidItem
@@ -51,7 +57,9 @@ func (r *Repository) Add(item Item) error {
 			return r.writeIndexLocked()
 		}
 	}
-	item.UpdatedAt = time.Now().UTC()
+	if item.UpdatedAt.IsZero() {
+		item.UpdatedAt = time.Now().UTC()
+	}
 	path := filepath.Join(r.root, kindFile(item.Kind))
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
@@ -65,32 +73,72 @@ func (r *Repository) Add(item Item) error {
 }
 
 func (r *Repository) Search(query string, limit int) ([]Item, error) {
+	return r.SearchWithOptions(query, SearchOptions{Limit: limit})
+}
+
+func (r *Repository) SearchWithOptions(query string, options SearchOptions) ([]Item, error) {
 	query = strings.ToLower(strings.TrimSpace(query))
 	if query == "" {
 		return nil, ErrInvalidItem
 	}
-	if limit <= 0 || limit > 100 {
-		limit = 20
+	if options.Limit <= 0 || options.Limit > 100 {
+		options.Limit = 20
+	}
+	if options.Kind != "" && !validKind(options.Kind) {
+		return nil, ErrInvalidItem
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	var matches []Item
 	for _, kind := range []Kind{KindFact, KindDecision, KindExperience} {
+		if options.Kind != "" && options.Kind != kind {
+			continue
+		}
 		items, err := r.readKindLocked(kind)
 		if err != nil {
 			return nil, err
 		}
 		for _, item := range items {
+			if options.Status != "" && item.Status != options.Status {
+				continue
+			}
+			if kind == KindExperience && item.Status != "verified" && options.Status == "" {
+				continue
+			}
 			if strings.Contains(strings.ToLower(item.Text+" "+item.Source+" "+item.Status), query) {
 				matches = append(matches, item)
 			}
 		}
 	}
 	sort.SliceStable(matches, func(i, j int) bool { return matches[i].UpdatedAt.After(matches[j].UpdatedAt) })
-	if len(matches) > limit {
-		matches = matches[:limit]
+	if len(matches) > options.Limit {
+		matches = matches[:options.Limit]
 	}
 	return matches, nil
+}
+
+func (r *Repository) PruneBefore(cutoff time.Time) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	removed := 0
+	for _, kind := range []Kind{KindFact, KindDecision, KindExperience} {
+		items, err := r.readKindLocked(kind)
+		if err != nil {
+			return removed, err
+		}
+		kept := items[:0]
+		for _, item := range items {
+			if !item.UpdatedAt.IsZero() && item.UpdatedAt.Before(cutoff) {
+				removed++
+				continue
+			}
+			kept = append(kept, item)
+		}
+		if err := r.replaceKindLocked(kind, kept); err != nil {
+			return removed, err
+		}
+	}
+	return removed, r.writeIndexLocked()
 }
 
 func (r *Repository) Delete(kind Kind, text string) error {

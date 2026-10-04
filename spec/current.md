@@ -1,6 +1,10 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M5.12-A。M3.17 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M5.13。M3.17 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+
+## M5.13：Memory 质量与治理
+
+完整目标与验收记录见 [`m5.13-memory-governance.md`](m5.13-memory-governance.md)。已完成长期记忆状态/类型过滤、未验证经验默认隔离和过期清理；向量检索暂不实现。
 
 ## M5.12-A：上下文管理（当前阶段）
 

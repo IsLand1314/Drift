@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestRepositorySearchesByKeywordAndDeletesWithinWorkspace(t *testing.T) {
@@ -64,5 +65,28 @@ func TestRepositoryRejectsSensitiveItems(t *testing.T) {
 	}
 	if err := repo.Add(Item{Kind: KindFact, Text: "api_key=secret"}); err != ErrInvalidItem {
 		t.Fatalf("Add() error=%v, want ErrInvalidItem", err)
+	}
+}
+
+func TestRepositorySearchFiltersUnverifiedExperienceAndPrunes(t *testing.T) {
+	repo, err := NewRepository(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Add(Item{Kind: KindExperience, Text: "candidate viewport", Status: "candidate"}); err != nil {
+		t.Fatal(err)
+	}
+	if hits, err := repo.Search("viewport", 20); err != nil || len(hits) != 0 {
+		t.Fatalf("unverified hits=%v err=%v", hits, err)
+	}
+	if hits, err := repo.SearchWithOptions("viewport", SearchOptions{Status: "candidate"}); err != nil || len(hits) != 1 {
+		t.Fatalf("filtered hits=%v err=%v", hits, err)
+	}
+	if err := repo.Add(Item{Kind: KindFact, Text: "old fact", UpdatedAt: time.Now().Add(-48 * time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	removed, err := repo.PruneBefore(time.Now().Add(-24 * time.Hour))
+	if err != nil || removed != 1 {
+		t.Fatalf("removed=%d err=%v", removed, err)
 	}
 }
