@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/IsLand1314/Drift/internal/llm"
 	"github.com/IsLand1314/Drift/internal/mcp"
 )
 
@@ -24,8 +25,15 @@ func TestEagerLoadingExposesAllRegisteredSchemas(t *testing.T) {
 }
 
 func TestNativeStrategyFallsBackUntilProviderSupportsNativeReferences(t *testing.T) {
-	actual, native := ResolveToolLoadingStrategy(LoadingNative, "openai")
+	actual, native := ResolveToolLoadingStrategy(LoadingNative, llm.Capabilities{NativeToolCalls: true})
 	if actual != LoadingDispatch || native {
+		t.Fatalf("actual=%q native=%v", actual, native)
+	}
+}
+
+func TestNativeStrategyUsesProviderNativeReferences(t *testing.T) {
+	actual, native := ResolveToolLoadingStrategy(LoadingNative, llm.Capabilities{NativeToolReferences: true})
+	if actual != LoadingNative || !native {
 		t.Fatalf("actual=%q native=%v", actual, native)
 	}
 }

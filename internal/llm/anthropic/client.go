@@ -28,6 +28,8 @@ type Client struct {
 	http     *http.Client
 }
 
+func (c *Client) Capabilities() llm.Capabilities { return llm.Capabilities{NativeToolCalls: true} }
+
 // New validates an Anthropic API root and appends the Messages endpoint.
 func New(baseURL, key string) (*Client, error) {
 	u, err := url.Parse(baseURL)

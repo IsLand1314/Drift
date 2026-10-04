@@ -1,6 +1,10 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M5.18。M3.17 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M5.19。M3.17 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+
+## M5.19：Provider 能力声明与 Native 策略
+
+已完成 Provider 能力声明：OpenAI Compatible 与 Anthropic 声明支持原生 Tool Call；当前没有 Provider 声明支持原生 deferred tool reference，因此 `native` 继续安全降级为 `dispatch`。Codex 登录态工具接管不属于本阶段。
 
 ## M5.18：真实 LLM 工具链验收
 

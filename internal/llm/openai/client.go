@@ -26,6 +26,8 @@ type Client struct {
 	http     *http.Client
 }
 
+func (c *Client) Capabilities() llm.Capabilities { return llm.Capabilities{NativeToolCalls: true} }
+
 // New 将 API 根地址规范化为 /chat/completions，并保存请求所需的密钥。
 // 密钥只保存在内存中，不会出现在错误文本或日志中。
 func New(baseURL, key string) (*Client, error) {

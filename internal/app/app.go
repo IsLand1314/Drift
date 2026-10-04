@@ -276,10 +276,6 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 		fmt.Fprintln(stderr, "错误：", err)
 		return 2
 	}
-	loadingStrategy, nativeLoading := tool.ResolveToolLoadingStrategy(requestedLoading, protocol)
-	if requestedLoading == tool.LoadingNative && !nativeLoading {
-		fmt.Fprintln(stderr, "提示：当前 Provider 未提供原生 tool reference，native 已降级为 dispatch")
-	}
 	if chat && persistenceOptions.resume && selection.Focus != "" {
 		fmt.Fprintln(stderr, "错误：--resume 不能与文件型 -w 同时使用")
 		return 2
@@ -308,6 +304,14 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
+	}
+	capabilities := llm.Capabilities{}
+	if provider, ok := client.(llm.CapabilityProvider); ok {
+		capabilities = provider.Capabilities()
+	}
+	loadingStrategy, nativeLoading := tool.ResolveToolLoadingStrategy(requestedLoading, capabilities)
+	if requestedLoading == tool.LoadingNative && !nativeLoading {
+		fmt.Fprintln(stderr, "提示：当前 Provider 未提供原生 tool reference，native 已降级为 dispatch")
 	}
 	storageLayout := layout.ForWorkspace(selection.Root)
 	if err := storageLayout.Prepare(); err != nil {

@@ -25,6 +25,8 @@ type Client struct {
 	nextID    atomic.Int64
 }
 
+func (c *Client) Capabilities() llm.Capabilities { return llm.Capabilities{} }
+
 func New(codexHome string) (*Client, error) {
 	command := "codex"
 	if runtime.GOOS == "windows" {

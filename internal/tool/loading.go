@@ -1,6 +1,10 @@
 package tool
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/IsLand1314/Drift/internal/llm"
+)
 
 // LoadingStrategy controls how registered tool schemas reach the model.
 type LoadingStrategy string
@@ -24,7 +28,10 @@ func ParseToolLoadingStrategy(value string) (LoadingStrategy, error) {
 // ResolveToolLoadingStrategy reports the executable strategy. Native references
 // are not part of Drift's provider-neutral request yet, so they safely fall
 // back to the existing dispatch protocol until a provider adapter implements it.
-func ResolveToolLoadingStrategy(requested LoadingStrategy, provider string) (LoadingStrategy, bool) {
+func ResolveToolLoadingStrategy(requested LoadingStrategy, capabilities llm.Capabilities) (LoadingStrategy, bool) {
+	if requested == LoadingNative && capabilities.NativeToolReferences {
+		return LoadingNative, true
+	}
 	if requested == LoadingNative {
 		return LoadingDispatch, false
 	}

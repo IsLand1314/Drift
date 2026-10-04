@@ -103,3 +103,12 @@ func ErrorStageOf(err error) string {
 type Client interface {
 	Stream(context.Context, Request, func(StreamEvent) error) (Completion, error)
 }
+
+type Capabilities struct {
+	NativeToolCalls      bool
+	NativeToolReferences bool
+}
+
+type CapabilityProvider interface {
+	Capabilities() Capabilities
+}
