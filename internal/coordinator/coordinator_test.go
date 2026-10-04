@@ -206,3 +206,20 @@ func TestRestoreConvertsInterruptedTasksToPending(t *testing.T) {
 		t.Fatalf("tasks=%+v", got)
 	}
 }
+
+func TestRunEmitsDurableStateSnapshots(t *testing.T) {
+	runner := func(context.Context, tool.TaskState, string, time.Duration) (tool.TaskHandle, error) {
+		handle := newFakeHandle(tool.TaskExecutionResult{State: "completed"})
+		close(handle.done)
+		return handle, nil
+	}
+	var snapshots [][]tool.TaskState
+	c := New([]tool.TaskState{{ID: "task-1", Status: "pending"}}, runner, nil, Options{})
+	c.setStateSink(func(states []tool.TaskState) { snapshots = append(snapshots, states) })
+	if _, err := c.Run(context.Background(), t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshots) < 2 || snapshots[len(snapshots)-1][0].Status != "completed" {
+		t.Fatalf("snapshots=%+v", snapshots)
+	}
+}

@@ -79,7 +79,7 @@ func NewChatRegistryWithSandbox(sandboxMode SandboxMode) Registry {
 	result.plan.tasks = result.tasks
 	tasks := result.tasks
 	cache := newFileStateCache()
-	for _, current := range []Tool{listFilesTool{}, searchTextTool{}, readFileTool{cache: cache}, writeFileTool{cache: cache}, editFileTool{cache: cache}, deleteFileTool{cache: cache}, runCommandTool{sandboxMode: sandboxMode}, askUserQuestionTool{}, taskCreateTool{tasks}, taskListTool{tasks}, taskGetTool{tasks}, taskUpdateTool{tasks}, taskSwitchTool{tasks}, taskRunTool{tasks}, taskStatusTool{tasks}, taskCancelTool{tasks}, taskMergeTool{tasks}, agentMessageSendTool{result.messages}, agentMessageListTool{result.messages}, agentSummaryTool{result.messages}} {
+	for _, current := range []Tool{listFilesTool{}, searchTextTool{}, readFileTool{cache: cache}, writeFileTool{cache: cache}, editFileTool{cache: cache}, deleteFileTool{cache: cache}, runCommandTool{sandboxMode: sandboxMode}, askUserQuestionTool{}, taskCreateTool{tasks}, taskListTool{tasks}, taskGetTool{tasks}, taskUpdateTool{tasks}, taskSwitchTool{tasks}, taskRunTool{tasks}, taskStatusTool{tasks}, taskCancelTool{tasks}, taskMergeTool{tasks}, coordinatorStatusTool{tasks}, agentMessageSendTool{result.messages}, agentMessageListTool{result.messages}, agentSummaryTool{result.messages}} {
 		result.add(current, false)
 	}
 	result.add(toolSearchTool{registry: result}, true)

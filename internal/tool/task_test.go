@@ -101,6 +101,30 @@ func TestTaskRunStatusAndCancelControlOneChild(t *testing.T) {
 	}
 }
 
+func TestCoordinatorStatusSummarizesPersistedTasks(t *testing.T) {
+	registry := NewChatRegistry()
+	search, _ := registry.Lookup("ToolSearch")
+	root := t.TempDir()
+	if _, err := search.Execute(context.Background(), root, `{"query":"task coordinator","load":["TaskCreate","CoordinatorStatus"]}`); err != nil {
+		t.Fatal(err)
+	}
+	create, ok := registry.Lookup("TaskCreate")
+	if !ok {
+		t.Fatal("TaskCreate unavailable")
+	}
+	if _, err := create.Execute(context.Background(), root, `{"subject":"inspect","description":"read only"}`); err != nil {
+		t.Fatal(err)
+	}
+	status, ok := registry.Lookup("CoordinatorStatus")
+	if !ok {
+		t.Fatal("CoordinatorStatus unavailable")
+	}
+	got, err := status.Execute(context.Background(), root, `{}`)
+	if err != nil || !strings.Contains(got, "CoordinatorStatus: total=1") || !strings.Contains(got, "task-1 · pending") {
+		t.Fatalf("status=%q err=%v", got, err)
+	}
+}
+
 func TestTaskRunDetachesChildFromToolCallContext(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, ".worktrees", "agent-1"), 0o700); err != nil {

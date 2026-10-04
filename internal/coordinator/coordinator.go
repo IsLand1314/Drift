@@ -31,6 +31,7 @@ type Coordinator struct {
 	cancel      context.CancelFunc
 	active      map[string]tool.TaskHandle
 	retries     map[string]int
+	stateSink   func([]tool.TaskState)
 }
 
 type completedTask struct {
@@ -62,17 +63,19 @@ func New(tasks []tool.TaskState, runner tool.TaskRunner, merger tool.TaskMerger,
 // retry; completed and failed terminal states remain unchanged.
 func (c *Coordinator) Restore(tasks []tool.TaskState) error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if len(c.active) != 0 {
+		c.mu.Unlock()
 		return fmt.Errorf("cannot restore while coordinator is running")
 	}
 	next := make(map[string]tool.TaskState, len(tasks))
 	order := make([]string, 0, len(tasks))
 	for _, task := range tasks {
 		if task.ID == "" {
+			c.mu.Unlock()
 			return fmt.Errorf("task id is required")
 		}
 		if _, exists := next[task.ID]; exists {
+			c.mu.Unlock()
 			return fmt.Errorf("duplicate task %q", task.ID)
 		}
 		if task.Status == "running" || task.Status == "in_progress" {
@@ -82,7 +85,29 @@ func (c *Coordinator) Restore(tasks []tool.TaskState) error {
 		order = append(order, task.ID)
 	}
 	c.tasks, c.order, c.retries = next, order, make(map[string]int)
+	sink := c.stateSink
+	snapshot := c.snapshotLocked()
+	c.mu.Unlock()
+	if sink != nil {
+		sink(snapshot)
+	}
 	return nil
+}
+
+func (c *Coordinator) setStateSink(sink func([]tool.TaskState)) {
+	c.mu.Lock()
+	c.stateSink = sink
+	c.mu.Unlock()
+}
+
+func (c *Coordinator) emit() {
+	c.mu.Lock()
+	sink := c.stateSink
+	snapshot := c.snapshotLocked()
+	c.mu.Unlock()
+	if sink != nil {
+		sink(snapshot)
+	}
 }
 
 func (c *Coordinator) Status() []tool.TaskState {
@@ -112,6 +137,7 @@ func (c *Coordinator) Cancel() {
 	for _, handle := range handles {
 		handle.Cancel()
 	}
+	c.emit()
 }
 
 func (c *Coordinator) Run(parent context.Context, root string) ([]tool.TaskState, error) {
@@ -130,6 +156,7 @@ func (c *Coordinator) run(parent context.Context, root string, timeout time.Dura
 	c.root = root
 	c.taskTimeout = timeout
 	c.mu.Unlock()
+	c.emit()
 	defer func() {
 		cancel()
 		c.mu.Lock()
@@ -149,6 +176,7 @@ func (c *Coordinator) run(parent context.Context, root string, timeout time.Dura
 			}
 			snapshot := c.snapshotLocked()
 			c.mu.Unlock()
+			c.emit()
 			return snapshot, fmt.Errorf("coordinator runner unavailable")
 		}
 		retryScheduled := false
@@ -183,6 +211,7 @@ func (c *Coordinator) run(parent context.Context, root string, timeout time.Dura
 		if len(c.active) == 0 {
 			if retryScheduled {
 				c.mu.Unlock()
+				c.emit()
 				continue
 			}
 			failed := false
@@ -200,12 +229,14 @@ func (c *Coordinator) run(parent context.Context, root string, timeout time.Dura
 			}
 			snapshot := c.snapshotLocked()
 			c.mu.Unlock()
+			c.emit()
 			if failed || pending {
 				return snapshot, fmt.Errorf("coordinator stopped before all tasks completed")
 			}
 			return snapshot, nil
 		}
 		c.mu.Unlock()
+		c.emit()
 		select {
 		case result := <-completed:
 			c.finish(result)
@@ -227,6 +258,7 @@ func (c *Coordinator) finish(result completedTask) {
 	if task.Status == "cancelled" {
 		c.tasks[result.id] = task
 		c.mu.Unlock()
+		c.emit()
 		return
 	}
 	if result.err != nil {
@@ -234,6 +266,7 @@ func (c *Coordinator) finish(result completedTask) {
 			task.Status, task.Error = "pending", result.err.Error()
 			c.tasks[result.id] = task
 			c.mu.Unlock()
+			c.emit()
 			return
 		}
 		task.Status, task.Error = "failed", result.err.Error()
@@ -242,6 +275,7 @@ func (c *Coordinator) finish(result completedTask) {
 			task.Status, task.Error = "pending", result.result.Err.Error()
 			c.tasks[result.id] = task
 			c.mu.Unlock()
+			c.emit()
 			return
 		}
 		task.Status, task.Result = result.result.State, result.result.Output
@@ -257,7 +291,6 @@ func (c *Coordinator) finish(result completedTask) {
 	if task.Status == "completed" && merger != nil && task.Worktree != "" {
 		merge, err := merger(context.Background(), c.root, task)
 		c.mu.Lock()
-		defer c.mu.Unlock()
 		task = c.tasks[result.id]
 		if err != nil {
 			task.MergeStatus, task.Error = "failed", err.Error()
@@ -273,7 +306,11 @@ func (c *Coordinator) finish(result completedTask) {
 			task.MergeCommit, task.MergeConflicts = merge.AfterHEAD, append([]string(nil), merge.Conflicts...)
 		}
 		c.tasks[result.id] = task
+		c.mu.Unlock()
+		c.emit()
+		return
 	}
+	c.emit()
 }
 
 func (c *Coordinator) shouldRetryLocked(id, state string, err error) bool {
@@ -301,15 +338,22 @@ func retryable(state string, err error) bool {
 // Runner adapts a coordinator instance to the tool registry. A fresh scheduler
 // is created per PlanExecute call, while Cancel/Status address the active run.
 type Runner struct {
-	mu      sync.Mutex
-	current *Coordinator
-	runner  tool.TaskRunner
-	merger  tool.TaskMerger
-	options Options
+	mu        sync.Mutex
+	current   *Coordinator
+	runner    tool.TaskRunner
+	merger    tool.TaskMerger
+	options   Options
+	stateSink func([]tool.TaskState)
 }
 
 func NewRunner(runner tool.TaskRunner, merger tool.TaskMerger, options Options) *Runner {
 	return &Runner{runner: runner, merger: merger, options: options}
+}
+
+func (r *Runner) SetStateSink(sink func([]tool.TaskState)) {
+	r.mu.Lock()
+	r.stateSink = sink
+	r.mu.Unlock()
 }
 
 func (r *Runner) Run(ctx context.Context, root string, tasks []tool.TaskState) ([]tool.TaskState, error) {
@@ -324,7 +368,9 @@ func (r *Runner) run(ctx context.Context, root string, tasks []tool.TaskState, t
 	c := New(tasks, r.runner, r.merger, r.options)
 	r.mu.Lock()
 	r.current = c
+	sink := r.stateSink
 	r.mu.Unlock()
+	c.setStateSink(sink)
 	defer func() {
 		r.mu.Lock()
 		if r.current == c {
@@ -356,7 +402,7 @@ func (r *Runner) Status() []tool.TaskState {
 
 func (c *Coordinator) blockFailedDependents() {
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	changedAny := false
 	changed := true
 	for changed {
 		changed = false
@@ -370,10 +416,15 @@ func (c *Coordinator) blockFailedDependents() {
 					task.Status, task.Error = "blocked", "dependency "+dependency+" failed"
 					c.tasks[id] = task
 					changed = true
+					changedAny = true
 					break
 				}
 			}
 		}
+	}
+	c.mu.Unlock()
+	if changedAny {
+		c.emit()
 	}
 }
 

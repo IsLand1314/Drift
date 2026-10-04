@@ -102,16 +102,18 @@ type taskRunTool struct{ store *taskStore }
 type taskStatusTool struct{ store *taskStore }
 type taskCancelTool struct{ store *taskStore }
 type taskMergeTool struct{ store *taskStore }
+type coordinatorStatusTool struct{ store *taskStore }
 
-func (taskCreateTool) Name() string { return "TaskCreate" }
-func (taskListTool) Name() string   { return "TaskList" }
-func (taskGetTool) Name() string    { return "TaskGet" }
-func (taskUpdateTool) Name() string { return "TaskUpdate" }
-func (taskSwitchTool) Name() string { return "TaskSwitch" }
-func (taskRunTool) Name() string    { return "TaskRun" }
-func (taskStatusTool) Name() string { return "TaskStatus" }
-func (taskCancelTool) Name() string { return "TaskCancel" }
-func (taskMergeTool) Name() string  { return "TaskMerge" }
+func (taskCreateTool) Name() string        { return "TaskCreate" }
+func (taskListTool) Name() string          { return "TaskList" }
+func (taskGetTool) Name() string           { return "TaskGet" }
+func (taskUpdateTool) Name() string        { return "TaskUpdate" }
+func (taskSwitchTool) Name() string        { return "TaskSwitch" }
+func (taskRunTool) Name() string           { return "TaskRun" }
+func (taskStatusTool) Name() string        { return "TaskStatus" }
+func (taskCancelTool) Name() string        { return "TaskCancel" }
+func (taskMergeTool) Name() string         { return "TaskMerge" }
+func (coordinatorStatusTool) Name() string { return "CoordinatorStatus" }
 
 func (t taskCreateTool) Definition() llm.ToolDefinition {
 	return controlDefinition(t.Name(), "Create a session task.", map[string]any{
@@ -168,6 +170,28 @@ func (t taskMergeTool) Definition() llm.ToolDefinition {
 	return controlDefinition(t.Name(), "Retry a queued task worktree merge after conflicts have been resolved.", map[string]any{
 		"task_id": map[string]any{"type": "string"},
 	}, []string{"task_id"})
+}
+
+func (coordinatorStatusTool) Definition() llm.ToolDefinition {
+	return controlDefinition("CoordinatorStatus", "Summarize the active or last plan Coordinator run and every task state.", map[string]any{}, nil)
+}
+
+func (t coordinatorStatusTool) Execute(_ context.Context, _ string, raw string) (string, error) {
+	if strings.TrimSpace(raw) != "" && strings.TrimSpace(raw) != "{}" {
+		return "", fmt.Errorf("CoordinatorStatus accepts no arguments")
+	}
+	items := t.store.coordinatorSnapshot()
+	counts := make(map[string]int)
+	for _, item := range items {
+		counts[item.Status]++
+	}
+	var out strings.Builder
+	fmt.Fprintf(&out, "CoordinatorStatus: total=%d pending=%d running=%d completed=%d failed=%d blocked=%d cancelled=%d timeout=%d", len(items), counts["pending"], counts["running"]+counts["in_progress"], counts["completed"], counts["failed"], counts["blocked"], counts["cancelled"], counts["timeout"])
+	for _, item := range items {
+		out.WriteByte('\n')
+		out.WriteString(formatTask(item))
+	}
+	return out.String(), nil
 }
 
 func (t taskCreateTool) Execute(_ context.Context, _ string, raw string) (string, error) {
@@ -572,6 +596,9 @@ func (r *registry) SetCoordinator(coordinator CoordinatorRunner) {
 	r.tasks.mu.Lock()
 	r.tasks.coordinator = coordinator
 	r.tasks.mu.Unlock()
+	if sink, ok := coordinator.(interface{ SetStateSink(func([]TaskState)) }); ok {
+		sink.SetStateSink(r.tasks.applyCoordinatorStates)
+	}
 }
 
 func (s *taskStore) applyCoordinatorStates(states []TaskState) {
@@ -582,6 +609,18 @@ func (s *taskStore) applyCoordinatorStates(states []TaskState) {
 			s.tasks[state.ID] = state
 		}
 	}
+}
+
+func (s *taskStore) coordinatorSnapshot() []TaskState {
+	s.mu.Lock()
+	coordinator := s.coordinator
+	s.mu.Unlock()
+	if coordinator != nil {
+		if active := coordinator.Status(); len(active) > 0 {
+			return active
+		}
+	}
+	return s.export()
 }
 
 func (s *taskStore) finishTask(ctx context.Context, root, id string, handle TaskHandle) {
