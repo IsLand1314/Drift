@@ -123,6 +123,29 @@ func sandboxCommand(ctx context.Context, command, root, cwd string, decision San
 	return exec.CommandContext(ctx, "/bin/sh", "-c", command)
 }
 
+// NewMCPProcess creates an MCP stdio process with the same OS sandbox policy
+// used by Bash. Auto mode falls back to the host when no backend is available;
+// required mode is rejected by SelectSandbox before this function is called.
+func NewMCPProcess(ctx context.Context, root, command string, args []string, decision SandboxDecision, networkEnabled bool) *exec.Cmd {
+	if decision.Available && decision.Backend == "bwrap" {
+		workspace, _ := filepath.Abs(root)
+		wrapped := []string{"--die-with-parent", "--new-session"}
+		if !networkEnabled {
+			wrapped = append(wrapped, "--unshare-net")
+		}
+		wrapped = append(wrapped, "--ro-bind", "/", "/", "--tmpfs", "/home", "--tmpfs", "/root", "--tmpfs", "/tmp", "--proc", "/proc", "--dev", "/dev", "--bind", workspace, "/mnt")
+		for _, protected := range []string{".drift", ".git"} {
+			if _, err := os.Stat(filepath.Join(workspace, protected)); err == nil {
+				wrapped = append(wrapped, "--tmpfs", filepath.Join("/mnt", protected))
+			}
+		}
+		wrapped = append(wrapped, "--chdir", "/mnt", command)
+		wrapped = append(wrapped, args...)
+		return exec.CommandContext(ctx, "bwrap", wrapped...)
+	}
+	return exec.CommandContext(ctx, command, args...)
+}
+
 func SelectSandbox(mode SandboxMode, capabilities SandboxCapabilities) (SandboxDecision, error) {
 	if mode != SandboxOff && mode != SandboxAuto && mode != SandboxRequired {
 		return SandboxDecision{Mode: mode}, fmt.Errorf("unknown sandbox mode %q", mode)

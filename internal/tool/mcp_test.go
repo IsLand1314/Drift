@@ -103,7 +103,7 @@ func TestAttachMCPRegistersResourceAndPromptToolsLazily(t *testing.T) {
 		t.Fatal("resource tool not loaded")
 	}
 	got, err := resource.Execute(context.Background(), t.TempDir(), `{"uri":"memory://doc"}`)
-	if err != nil || got != "resource text" {
+	if err != nil || !strings.Contains(got, "resource text") || !strings.Contains(got, "untrusted") {
 		t.Fatalf("resource=%q err=%v", got, err)
 	}
 	prompt, ok := registry.Lookup("mcp__demo__prompt_get")
@@ -111,7 +111,23 @@ func TestAttachMCPRegistersResourceAndPromptToolsLazily(t *testing.T) {
 		t.Fatal("prompt tool not loaded")
 	}
 	got, err = prompt.Execute(context.Background(), t.TempDir(), `{"name":"summarize"}`)
-	if err != nil || got != "prompt text" {
+	if err != nil || !strings.Contains(got, "prompt text") || !strings.Contains(got, "untrusted") {
 		t.Fatalf("prompt=%q err=%v", got, err)
+	}
+}
+
+func TestMCPResourceRejectsFileOutsideWorkspace(t *testing.T) {
+	registry := NewChatRegistry()
+	client := fakeMCPContentClient{fakeMCPClient{tools: nil}}
+	if err := AttachMCP(context.Background(), registry, "demo", client); err != nil {
+		t.Fatal(err)
+	}
+	search, _ := registry.Lookup("ToolSearch")
+	if _, err := search.Execute(context.Background(), t.TempDir(), `{"query":"resource","load":["mcp__demo__resource_read"]}`); err != nil {
+		t.Fatal(err)
+	}
+	resource, _ := registry.Lookup("mcp__demo__resource_read")
+	if _, err := resource.Execute(context.Background(), t.TempDir(), `{"uri":"file:///outside/secret.txt"}`); err == nil {
+		t.Fatal("outside resource accepted")
 	}
 }

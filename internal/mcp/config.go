@@ -17,13 +17,14 @@ var environmentName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
 // Server describes an external MCP server that Drift connects to as a client.
 // Drift does not expose an MCP server endpoint or accept inbound MCP sessions.
 type Server struct {
-	Name      string            `json:"name"`
-	Transport string            `json:"transport"`
-	Command   string            `json:"command"`
-	Args      []string          `json:"args,omitempty"`
-	EnvRefs   []string          `json:"env_refs,omitempty"`
-	URL       string            `json:"url,omitempty"`
-	Headers   map[string]string `json:"headers,omitempty"`
+	Name           string            `json:"name"`
+	Transport      string            `json:"transport"`
+	Command        string            `json:"command"`
+	Args           []string          `json:"args,omitempty"`
+	EnvRefs        []string          `json:"env_refs,omitempty"`
+	URL            string            `json:"url,omitempty"`
+	Headers        map[string]string `json:"headers,omitempty"`
+	NetworkEnabled bool              `json:"network_enabled,omitempty"`
 }
 
 type Config struct {

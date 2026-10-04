@@ -113,6 +113,10 @@ func TestMCPManagerConnectsExplicitlyAndAuditsWithoutEnablingTool(t *testing.T) 
 	if _, ok := registry.Lookup("mcp__demo__echo"); !ok {
 		t.Fatal("MCP tool not loaded after ToolSearch")
 	}
+	message, handled := handleMCPCommand(context.Background(), "/mcp disconnect demo", manager)
+	if !handled || !strings.Contains(message, "已断开") || manager.Connected("demo") {
+		t.Fatalf("disconnect message=%q handled=%v", message, handled)
+	}
 	raw, err := os.ReadFile(auditPath)
 	if err != nil || !strings.Contains(string(raw), `"mcp_server":"demo"`) || !strings.Contains(string(raw), `"execution_status":"connected"`) {
 		t.Fatalf("audit=%s err=%v", raw, err)

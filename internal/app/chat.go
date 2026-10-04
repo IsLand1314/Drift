@@ -319,7 +319,7 @@ func runTuiMainScreenLoop(ctx context.Context, runner *agent.Runner, audit sessi
 	}
 	var mcpManager *mcpManager
 	if status.Registry != nil && status.Workspace != "" {
-		manager, managerErr := newMCPManager(status.Workspace, status.Registry)
+		manager, managerErr := newMCPManager(status.Workspace, status.Registry, status.SandboxMode)
 		if managerErr != nil {
 			fmt.Fprintln(out, "⚠ MCP 配置加载失败：", managerErr)
 		} else {

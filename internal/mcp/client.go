@@ -76,15 +76,16 @@ func FormatContent(blocks []ContentBlock) (string, error) {
 }
 
 type Client struct {
-	mu         sync.Mutex
-	cmd        *exec.Cmd
-	stdin      io.WriteCloser
-	stdout     *bufio.Reader
-	nextID     int
-	closed     bool
-	httpClient *http.Client
-	endpoint   string
-	headers    map[string]string
+	mu           sync.Mutex
+	cmd          *exec.Cmd
+	stdin        io.WriteCloser
+	stdout       *bufio.Reader
+	nextID       int
+	closed       bool
+	httpClient   *http.Client
+	endpoint     string
+	headers      map[string]string
+	capabilities json.RawMessage
 }
 
 func Start(ctx context.Context, server Server, env []string) (*Client, error) {
@@ -94,7 +95,22 @@ func Start(ctx context.Context, server Server, env []string) (*Client, error) {
 	if server.Transport != "stdio" || server.Command == "" {
 		return nil, errors.New("mcp: invalid stdio server")
 	}
-	cmd := exec.CommandContext(ctx, server.Command, server.Args...)
+	return startStdio(ctx, server, env, func(ctx context.Context, server Server, env []string) *exec.Cmd {
+		return exec.CommandContext(ctx, server.Command, server.Args...)
+	})
+}
+
+type ProcessLauncher func(context.Context, Server, []string) *exec.Cmd
+
+func StartWithLauncher(ctx context.Context, server Server, env []string, launcher ProcessLauncher) (*Client, error) {
+	if server.Transport != "stdio" || server.Command == "" || launcher == nil {
+		return nil, errors.New("mcp: invalid stdio server")
+	}
+	return startStdio(ctx, server, env, launcher)
+}
+
+func startStdio(ctx context.Context, server Server, env []string, launcher ProcessLauncher) (*Client, error) {
+	cmd := launcher(ctx, server, env)
 	cmd.Env = mergeEnv(os.Environ(), env)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -109,7 +125,8 @@ func Start(ctx context.Context, server Server, env []string) (*Client, error) {
 	}
 	client := &Client{cmd: cmd, stdin: stdin, stdout: bufio.NewReaderSize(stdout, 4096)}
 	var initialized struct {
-		ProtocolVersion string `json:"protocolVersion"`
+		ProtocolVersion string          `json:"protocolVersion"`
+		Capabilities    json.RawMessage `json:"capabilities"`
 	}
 	if err := client.request(ctx, "initialize", map[string]any{"protocolVersion": "2024-11-05", "capabilities": map[string]any{}, "clientInfo": map[string]string{"name": "Drift", "version": "m3.22"}}, &initialized); err != nil {
 		_ = client.Close()
@@ -119,6 +136,7 @@ func Start(ctx context.Context, server Server, env []string) (*Client, error) {
 		_ = client.Close()
 		return nil, errors.New("mcp: server did not negotiate protocol version")
 	}
+	client.capabilities = append(json.RawMessage(nil), initialized.Capabilities...)
 	if err := client.notify("notifications/initialized", map[string]any{}); err != nil {
 		_ = client.Close()
 		return nil, err
@@ -129,7 +147,8 @@ func Start(ctx context.Context, server Server, env []string) (*Client, error) {
 func startHTTP(ctx context.Context, server Server) (*Client, error) {
 	client := &Client{httpClient: &http.Client{}, endpoint: server.URL, headers: server.Headers}
 	var initialized struct {
-		ProtocolVersion string `json:"protocolVersion"`
+		ProtocolVersion string          `json:"protocolVersion"`
+		Capabilities    json.RawMessage `json:"capabilities"`
 	}
 	if err := client.request(ctx, "initialize", map[string]any{"protocolVersion": "2024-11-05", "capabilities": map[string]any{}, "clientInfo": map[string]string{"name": "Drift", "version": "m5.14"}}, &initialized); err != nil {
 		return nil, err
@@ -137,10 +156,15 @@ func startHTTP(ctx context.Context, server Server) (*Client, error) {
 	if initialized.ProtocolVersion == "" {
 		return nil, errors.New("mcp: server did not negotiate protocol version")
 	}
+	client.capabilities = append(json.RawMessage(nil), initialized.Capabilities...)
 	if err := client.notify("notifications/initialized", map[string]any{}); err != nil {
 		return nil, err
 	}
 	return client, nil
+}
+
+func (c *Client) Capabilities() json.RawMessage {
+	return append(json.RawMessage(nil), c.capabilities...)
 }
 
 func mergeEnv(base, overrides []string) []string {

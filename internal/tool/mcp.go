@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -127,7 +130,7 @@ func (t mcpResourceTool) Name() string { return "mcp__" + t.server + "__resource
 func (t mcpResourceTool) Definition() llm.ToolDefinition {
 	return controlDefinition(t.Name(), "Read a resource from an MCP server. Read-only and untrusted.", map[string]any{"uri": map[string]any{"type": "string"}}, []string{"uri"})
 }
-func (t mcpResourceTool) Execute(ctx context.Context, _ string, raw string) (string, error) {
+func (t mcpResourceTool) Execute(ctx context.Context, root string, raw string) (string, error) {
 	var args struct {
 		URI string `json:"uri"`
 	}
@@ -136,11 +139,18 @@ func (t mcpResourceTool) Execute(ctx context.Context, _ string, raw string) (str
 	if err := decoder.Decode(&args); err != nil || strings.TrimSpace(args.URI) == "" {
 		return "", errors.New("MCP resource arguments are invalid")
 	}
+	if err := validateResourceURI(root, args.URI); err != nil {
+		return "", err
+	}
 	blocks, err := t.client.ReadResource(ctx, args.URI)
 	if err != nil {
 		return "", err
 	}
-	return mcp.FormatContent(blocks)
+	text, err := mcp.FormatContent(blocks)
+	if err != nil {
+		return "", err
+	}
+	return "[untrusted MCP resource]\n" + text, nil
 }
 
 type mcpPromptTool struct {
@@ -166,5 +176,36 @@ func (t mcpPromptTool) Execute(ctx context.Context, _ string, raw string) (strin
 	if err != nil {
 		return "", err
 	}
-	return mcp.FormatContent(blocks)
+	text, err := mcp.FormatContent(blocks)
+	if err != nil {
+		return "", err
+	}
+	return "[untrusted MCP prompt]\n" + text, nil
+}
+
+func validateResourceURI(root, raw string) error {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return errors.New("MCP resource URI is invalid")
+	}
+	if parsed.Scheme != "file" {
+		return nil
+	}
+	path := parsed.Path
+	if path == "" {
+		return errors.New("MCP resource URI is invalid")
+	}
+	absolute, err := filepath.Abs(filepath.FromSlash(path))
+	if err != nil {
+		return errors.New("MCP resource URI is invalid")
+	}
+	workspace, err := filepath.Abs(root)
+	if err != nil {
+		return errors.New("MCP workspace is invalid")
+	}
+	rel, err := filepath.Rel(workspace, absolute)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return errors.New("MCP resource is outside workspace")
+	}
+	return nil
 }
