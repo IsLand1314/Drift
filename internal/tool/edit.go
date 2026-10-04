@@ -11,18 +11,30 @@ import (
 	"github.com/IsLand1314/Drift/internal/llm"
 )
 
-type editFileTool struct{}
+type editFileTool struct{ cache *fileStateCache }
 
 func (editFileTool) Name() string                   { return "EditFile" }
 func (editFileTool) Definition() llm.ToolDefinition { return EditDefinition() }
 func (editFileTool) Execute(context.Context, string, string) (string, error) {
 	return "", fmt.Errorf("EditFile requires permission confirmation")
 }
-func (editFileTool) Preview(ctx context.Context, root, raw string) (Preview, error) {
+
+func (t editFileTool) Preview(ctx context.Context, root, raw string) (Preview, error) {
+	if t.cache != nil {
+		if path := readPath(raw); path != "" {
+			if err := t.cache.Check(root, path); err != nil {
+				return Preview{}, fmt.Errorf("EditFile %s: %w", path, err)
+			}
+		}
+	}
 	return Edit(root, raw)
 }
-func (editFileTool) ExecutePreview(ctx context.Context, root string, preview Preview) (string, error) {
-	return CommitEdit(ctx, root, preview)
+func (t editFileTool) ExecutePreview(ctx context.Context, root string, preview Preview) (string, error) {
+	result, err := CommitEdit(ctx, root, preview)
+	if err == nil && t.cache != nil {
+		t.cache.Invalidate(root, preview.Path)
+	}
+	return result, err
 }
 
 func EditDefinition() llm.ToolDefinition {

@@ -19,7 +19,7 @@ import (
 // MaxReadBytes 限制单个文件进入模型上下文的最大大小。
 const MaxReadBytes = 128 << 10
 
-type readFileTool struct{}
+type readFileTool struct{ cache *fileStateCache }
 
 func (readFileTool) Name() string {
 	return "ReadFile"
@@ -29,11 +29,17 @@ func (readFileTool) Definition() llm.ToolDefinition {
 	return ReadDefinition()
 }
 
-func (readFileTool) Execute(ctx context.Context, root string, rawArguments string) (string, error) {
+func (t readFileTool) Execute(ctx context.Context, root string, rawArguments string) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	return Read(root, rawArguments)
+	result, err := Read(root, rawArguments)
+	if err == nil && t.cache != nil {
+		if path := readPath(rawArguments); path != "" {
+			_ = t.cache.Record(root, path)
+		}
+	}
+	return result, err
 }
 
 type readArguments struct {

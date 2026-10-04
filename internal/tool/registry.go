@@ -56,7 +56,8 @@ func NewRegistry(tools ...Tool) (Registry, error) {
 
 // NewDefaultRegistry 返回当前阶段按稳定顺序排列的只读工具。
 func NewDefaultRegistry() Registry {
-	result, err := NewRegistry(listFilesTool{}, searchTextTool{}, readFileTool{})
+	cache := newFileStateCache()
+	result, err := NewRegistry(listFilesTool{}, searchTextTool{}, readFileTool{cache: cache})
 	if err != nil {
 		panic(err)
 	}
@@ -73,7 +74,8 @@ func NewChatRegistry() Registry {
 func NewChatRegistryWithSandbox(sandboxMode SandboxMode) Registry {
 	result := &registry{tools: make(map[string]Tool), enabled: make(map[string]bool), summaries: make(map[string]toolSummary), tasks: newTaskStore(), messages: message.NewBus()}
 	tasks := result.tasks
-	for _, current := range []Tool{listFilesTool{}, searchTextTool{}, readFileTool{}, writeFileTool{}, editFileTool{}, deleteFileTool{}, runCommandTool{sandboxMode: sandboxMode}, askUserQuestionTool{}, taskCreateTool{tasks}, taskListTool{tasks}, taskGetTool{tasks}, taskUpdateTool{tasks}, taskSwitchTool{tasks}, taskRunTool{tasks}, taskStatusTool{tasks}, taskCancelTool{tasks}, taskMergeTool{tasks}, agentMessageSendTool{result.messages}, agentMessageListTool{result.messages}, agentSummaryTool{result.messages}} {
+	cache := newFileStateCache()
+	for _, current := range []Tool{listFilesTool{}, searchTextTool{}, readFileTool{cache: cache}, writeFileTool{cache: cache}, editFileTool{cache: cache}, deleteFileTool{cache: cache}, runCommandTool{sandboxMode: sandboxMode}, askUserQuestionTool{}, taskCreateTool{tasks}, taskListTool{tasks}, taskGetTool{tasks}, taskUpdateTool{tasks}, taskSwitchTool{tasks}, taskRunTool{tasks}, taskStatusTool{tasks}, taskCancelTool{tasks}, taskMergeTool{tasks}, agentMessageSendTool{result.messages}, agentMessageListTool{result.messages}, agentSummaryTool{result.messages}} {
 		result.add(current, false)
 	}
 	result.add(toolSearchTool{registry: result}, true)

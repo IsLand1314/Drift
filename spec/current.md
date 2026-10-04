@@ -10,6 +10,10 @@
 
 完整目标、边界与验收标准见 [`m5.2-codex-provider.md`](m5.2-codex-provider.md)。本阶段通过官方 `codex app-server` 使用现有 Codex 登录态，先支持文本请求，不读取私有 token 文件，也不委托 Drift 工具执行。
 
+## M5.3：读取快照与编辑一致性（当前阶段）
+
+完整目标与验收标准见 [`m5.3-file-state-cache.md`](m5.3-file-state-cache.md)。ReadFile 快照只保留在当前进程内，EditFile 会拒绝读取后发生外部修改的目标；写入成功后缓存失效，不持久化文件内容或摘要。
+
 ## M4：多 Agent 交付主线
 
 M4 的阶段目标、自动化验收和独立 LLM 验收门禁见 [`m4-multi-agent.md`](m4-multi-agent.md)。M3.30 及更早阶段作为基础能力保留，不再扩展为 M3.31。

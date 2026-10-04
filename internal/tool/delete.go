@@ -13,7 +13,7 @@ import (
 	"github.com/IsLand1314/Drift/internal/llm"
 )
 
-type deleteFileTool struct{}
+type deleteFileTool struct{ cache *fileStateCache }
 
 func (deleteFileTool) Name() string                   { return "DeleteFile" }
 func (deleteFileTool) Definition() llm.ToolDefinition { return DeleteDefinition() }
@@ -23,8 +23,12 @@ func (deleteFileTool) Execute(context.Context, string, string) (string, error) {
 func (deleteFileTool) Preview(ctx context.Context, root, raw string) (Preview, error) {
 	return Delete(root, raw)
 }
-func (deleteFileTool) ExecutePreview(ctx context.Context, root string, preview Preview) (string, error) {
-	return CommitDelete(ctx, root, preview)
+func (t deleteFileTool) ExecutePreview(ctx context.Context, root string, preview Preview) (string, error) {
+	result, err := CommitDelete(ctx, root, preview)
+	if err == nil && t.cache != nil {
+		t.cache.Invalidate(root, preview.Path)
+	}
+	return result, err
 }
 
 func DeleteDefinition() llm.ToolDefinition {

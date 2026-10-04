@@ -16,7 +16,7 @@ import (
 
 const MaxWriteBytes = 128 << 10
 
-type writeFileTool struct{}
+type writeFileTool struct{ cache *fileStateCache }
 
 func (writeFileTool) Name() string { return "WriteFile" }
 
@@ -33,8 +33,12 @@ func (writeFileTool) Preview(ctx context.Context, root, rawArguments string) (Pr
 	return Write(root, rawArguments)
 }
 
-func (writeFileTool) ExecutePreview(ctx context.Context, root string, preview Preview) (string, error) {
-	return CommitWrite(ctx, root, preview)
+func (t writeFileTool) ExecutePreview(ctx context.Context, root string, preview Preview) (string, error) {
+	result, err := CommitWrite(ctx, root, preview)
+	if err == nil && t.cache != nil {
+		t.cache.Invalidate(root, preview.Path)
+	}
+	return result, err
 }
 
 func WriteDefinition() llm.ToolDefinition {
