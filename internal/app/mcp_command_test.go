@@ -33,7 +33,7 @@ func TestMCPAppHelperProcess(t *testing.T) {
 		var result any = map[string]any{}
 		switch request.Method {
 		case "initialize":
-			result = map[string]any{"protocolVersion": "2024-11-05"}
+			result = map[string]any{"protocolVersion": "2024-11-05", "capabilities": map[string]any{"tools": map[string]any{}}}
 		case "tools/list":
 			result = map[string]any{"tools": []any{map[string]any{"name": "echo", "description": "Echo", "inputSchema": map[string]any{"type": "object"}}}}
 		}
@@ -103,6 +103,9 @@ func TestMCPManagerConnectsExplicitlyAndAuditsWithoutEnablingTool(t *testing.T) 
 	if !manager.Connected("demo") {
 		t.Fatal("manager did not retain explicit connection")
 	}
+	if len(manager.capabilities["demo"]) == 0 {
+		t.Fatal("MCP capabilities were not cached")
+	}
 	if _, ok := registry.Lookup("mcp__demo__echo"); ok {
 		t.Fatal("MCP tool enabled before ToolSearch load")
 	}
@@ -116,6 +119,12 @@ func TestMCPManagerConnectsExplicitlyAndAuditsWithoutEnablingTool(t *testing.T) 
 	message, handled := handleMCPCommand(context.Background(), "/mcp disconnect demo", manager)
 	if !handled || !strings.Contains(message, "已断开") || manager.Connected("demo") {
 		t.Fatalf("disconnect message=%q handled=%v", message, handled)
+	}
+	if err := manager.Reconnect(context.Background(), "demo"); err != nil {
+		t.Fatalf("reconnect: %v", err)
+	}
+	if manager.State("demo") != "connected" {
+		t.Fatalf("state=%q after reconnect", manager.State("demo"))
 	}
 	raw, err := os.ReadFile(auditPath)
 	if err != nil || !strings.Contains(string(raw), `"mcp_server":"demo"`) || !strings.Contains(string(raw), `"execution_status":"connected"`) {

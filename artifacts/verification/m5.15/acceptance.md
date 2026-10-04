@@ -11,7 +11,7 @@
 | `go build ./cmd/drift` | PASS |
 | `git diff --check` | PASS |
 
-覆盖内容：stdio/HTTP/Streamable HTTP 握手、工具/Resource/Prompt 发现与调用、恶意 `file://` 越界 URI、结果大小限制、未信任内容标记、断开/重连、能力缓存、sandbox required 不可用时拒绝，以及取消后的进程清理。
+覆盖内容：stdio/HTTP/Streamable HTTP 握手、工具/Resource/Prompt 发现与调用、恶意 `file://` 越界 URI、结果大小限制、未信任内容标记、断开/重连（含动态工具清理）、能力缓存、sandbox required 不可用时拒绝，以及取消后的进程清理。
 
 ## 运行时边界
 

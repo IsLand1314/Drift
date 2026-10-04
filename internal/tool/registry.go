@@ -16,6 +16,22 @@ import (
 type Registry interface {
 	Definitions() []llm.ToolDefinition
 	Lookup(name string) (Tool, bool)
+	RemoveMCP(server string)
+}
+
+func (r *registry) RemoveMCP(server string) {
+	prefix := "mcp__" + strings.TrimSpace(server) + "__"
+	kept := r.order[:0]
+	for _, current := range r.order {
+		if strings.HasPrefix(current.Name(), prefix) {
+			delete(r.tools, current.Name())
+			delete(r.enabled, current.Name())
+			delete(r.summaries, current.Name())
+			continue
+		}
+		kept = append(kept, current)
+	}
+	r.order = kept
 }
 
 type MemoryRegistry interface {

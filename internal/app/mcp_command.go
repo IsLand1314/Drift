@@ -122,9 +122,12 @@ func (m *mcpManager) Connect(ctx context.Context, name string) error {
 func (m *mcpManager) Close() error {
 	var first error
 	for name, client := range m.clients {
-		if err := client.Close(); err != nil && first == nil {
+		err := client.Close()
+		m.record(name, "closed", err)
+		if err != nil && first == nil {
 			first = fmt.Errorf("MCP server %q: %w", name, err)
 		}
+		m.registry.RemoveMCP(name)
 		delete(m.clients, name)
 		m.states[name] = "closed"
 	}
@@ -137,6 +140,7 @@ func (m *mcpManager) Disconnect(name string) error {
 		return fmt.Errorf("MCP server %q is not connected", name)
 	}
 	err := client.Close()
+	m.registry.RemoveMCP(name)
 	delete(m.clients, name)
 	delete(m.capabilities, name)
 	m.states[name] = "disconnected"
