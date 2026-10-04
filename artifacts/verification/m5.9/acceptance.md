@@ -51,9 +51,24 @@ Tasks: 1 — task-1 (读取 README 并汇报, status=pending, worktree=.worktree
 
 这不是把失败标为成功：确定性 TaskRunner/PlanExecute 测试已通过，因此当前剩余风险属于 Provider 输出兼容性或真实子 Agent 运行环境问题，需要后续单独定位。
 
+## 复验结果（2026-10-04）
+
+修复计划任务缺少执行说明后，使用隔离 Git 工作区和 `.worktrees/agent-1` 重新进行真实 DeepSeek 验收，完整链路通过：
+
+```text
+ToolSearch       PASS
+EnterPlanMode    PASS
+PlanUpdate       PASS
+ExitPlanMode     PASS（人工选择 Yes）
+PlanExecute      PASS（completed 1 tasks）
+TaskStatus       PASS（task-1 completed, merge: merged）
+```
+
+子 Agent 实际读取并汇报了临时工作区的 `README.md`，工作树也成功合并回临时主分支。未记录 API 密钥，临时工作区和审计日志已清理。
+
 ## 结论
 
-M5.9 代码实现和确定性测试通过；真实 DeepSeek 验收为 **PARTIAL**：规划链路已真实打通，完整执行链路受 Provider 伪工具响应和一次子任务执行失败阻断。未记录 API 密钥，未修改用户工作区文件。
+M5.9 的结构化计划、子 Agent 执行、工作树合并和失败状态收口均已通过确定性测试与真实 DeepSeek 链路验收。DeepSeek 偶发伪工具格式仍被安全拒绝，但本次完整原生工具调用链路成功。
 
 ## 后续收口
 
