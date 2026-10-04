@@ -210,6 +210,7 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 	protocol := strings.ToLower(providerName)
 	var key string
 	var codexHome string
+	apiKeyEnv := ""
 	if userConfig.ConfigPresent {
 		profile, ok := userConfig.Provider(providerName)
 		if !ok {
@@ -218,6 +219,7 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 		}
 		protocol = profile.Protocol
 		codexHome = profile.CodexHome
+		apiKeyEnv = profile.APIKeyEnv
 		if *model == "" {
 			*model = profile.Model
 		}
@@ -288,14 +290,8 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 			return 2
 		}
 	}
-	if (protocol != "codex" && key == "") || strings.TrimSpace(*model) == "" {
-		if !userConfig.ConfigPresent && providerName == "anthropic" {
-			fmt.Fprintln(stderr, "请设置 ANTHROPIC_API_KEY，并通过 ANTHROPIC_MODEL 或 -model 指定模型")
-		} else if !userConfig.ConfigPresent {
-			fmt.Fprintln(stderr, "请设置 OPENAI_API_KEY，并通过 OPENAI_MODEL 或 -model 指定模型")
-		} else {
-			fmt.Fprintln(stderr, "请配置所选 Provider 的 API Key 和模型")
-		}
+	if diagnostic := providerRuntimeDiagnostic(providerName, protocol, key, *model, apiKeyEnv, userConfig.ConfigPresent); diagnostic != "" {
+		fmt.Fprintln(stderr, diagnostic)
 		return 2
 	}
 	// Provider 只负责模型传输；workspace 读取和工具循环由 Agent 层负责。
@@ -474,6 +470,31 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 		}
 	}
 	return 0
+}
+
+func providerRuntimeDiagnostic(providerName, protocol, key, model, apiKeyEnv string, configured bool) string {
+	if protocol != "codex" && strings.TrimSpace(key) == "" {
+		if configured {
+			if apiKeyEnv != "" {
+				return fmt.Sprintf("错误：Provider %q 缺少 API Key；请在 .drift/auth.json 配置 providers.%s.key，或设置 %s", providerName, providerName, apiKeyEnv)
+			}
+			return fmt.Sprintf("错误：Provider %q 缺少 API Key；请在 .drift/auth.json 配置 providers.%s.key", providerName, providerName)
+		}
+		if protocol == "anthropic" {
+			return "请设置 ANTHROPIC_API_KEY，并通过 ANTHROPIC_MODEL 或 -model 指定模型"
+		}
+		return "请设置 OPENAI_API_KEY，并通过 OPENAI_MODEL 或 -model 指定模型"
+	}
+	if strings.TrimSpace(model) == "" {
+		if configured {
+			return fmt.Sprintf("错误：Provider %q 缺少模型；请在 config.toml 配置 model，或使用 -model", providerName)
+		}
+		if protocol == "anthropic" {
+			return "请设置 ANTHROPIC_MODEL 或 -model 指定模型"
+		}
+		return "请设置 OPENAI_MODEL 或 -model 指定模型"
+	}
+	return ""
 }
 
 func flagWasSet(flags *flag.FlagSet, name string) bool {

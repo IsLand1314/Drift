@@ -119,6 +119,20 @@ func TestRunRejectsMissingAnthropicKeyBeforeRequest(t *testing.T) {
 	}
 }
 
+func TestProviderRuntimeDiagnosticIdentifiesConfiguredAPIKeySource(t *testing.T) {
+	got := providerRuntimeDiagnostic("deepseek", "openai-compat", "", "deepseek-chat", "DEEPSEEK_API_KEY", true)
+	if !strings.Contains(got, `Provider "deepseek" 缺少 API Key`) || !strings.Contains(got, "auth.json") || !strings.Contains(got, "DEEPSEEK_API_KEY") {
+		t.Fatalf("diagnostic=%q", got)
+	}
+}
+
+func TestProviderRuntimeDiagnosticIdentifiesConfiguredModel(t *testing.T) {
+	got := providerRuntimeDiagnostic("openai", "openai", "key", "", "OPENAI_API_KEY", true)
+	if !strings.Contains(got, `Provider "openai" 缺少模型`) || !strings.Contains(got, "config.toml") {
+		t.Fatalf("diagnostic=%q", got)
+	}
+}
+
 func TestSkillCommandsRunWithoutProvider(t *testing.T) {
 	workspace := t.TempDir()
 	path := filepath.Join(workspace, ".drift", "skills", "project-overview", "SKILL.md")

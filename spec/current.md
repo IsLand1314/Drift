@@ -1,8 +1,19 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M5.2。M3.17 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M5.5。M3.17 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
 
-## M5.1：Provider 配置与认证分离（当前阶段）
+## M5.5：API-Key Provider 诊断（当前阶段）
+
+在 M5.1 多 Provider 配置基础上，启动前区分缺少 API Key、模型和 Provider 配置错误；错误只给出修复位置，不回显密钥。Codex 登录态仍保持 text-only，不属于本阶段主线。
+
+验收要求：
+
+- 配置型 Provider 缺少密钥时，提示 `.drift/auth.json` 和可选 `api_key_env`；
+- 缺少模型时，提示 `config.toml` 或 `-model`；
+- 错误发生在发起模型请求前；
+- 不把 API Key 写入 stderr、审计、session 或工具结果。
+
+## M5.1：Provider 配置与认证分离
 
 完整目标、边界与验收标准见 [`m5.1-provider-configuration.md`](m5.1-provider-configuration.md)。本阶段以 workspace `.drift/` 中的 `settings.toml`、`config.toml` 和 `auth.json` 取代新增的项目 `.env` 依赖；实现多 Provider 选择、无密钥配置和认证分离。原生 Tool Call 恢复策略属于后续独立阶段。
 
