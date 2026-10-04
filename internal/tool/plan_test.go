@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -197,9 +198,12 @@ func TestPlanExecuteBlocksDependentsAfterTaskFailure(t *testing.T) {
 	}
 	registry.(PlanRegistry).SetPlanID("plan-1")
 	handles := map[string]*testTaskHandle{}
+	var handlesMu sync.Mutex
 	registry.(TaskRegistry).SetTaskRunner(func(_ context.Context, task TaskState, _ string, _ time.Duration) (TaskHandle, error) {
 		handle := newTestTaskHandle()
+		handlesMu.Lock()
 		handles[task.ID] = handle
+		handlesMu.Unlock()
 		return handle, nil
 	})
 	update, _ := registry.Lookup("PlanUpdate")
@@ -210,13 +214,16 @@ func TestPlanExecuteBlocksDependentsAfterTaskFailure(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { _, err := execute.Execute(context.Background(), root, `{}`); done <- err }()
 	deadline := time.Now().Add(time.Second)
-	for handles["task-1"] == nil && time.Now().Before(deadline) {
+	for func() bool { handlesMu.Lock(); defer handlesMu.Unlock(); return handles["task-1"] == nil }() && time.Now().Before(deadline) {
 		time.Sleep(time.Millisecond)
 	}
-	if handles["task-1"] == nil {
+	handlesMu.Lock()
+	first := handles["task-1"]
+	handlesMu.Unlock()
+	if first == nil {
 		t.Fatal("first task did not start")
 	}
-	handles["task-1"].complete(TaskExecutionResult{State: "failed", Err: errors.New("first failed")})
+	first.complete(TaskExecutionResult{State: "failed", Err: errors.New("first failed")})
 	if err := <-done; err == nil {
 		t.Fatal("PlanExecute unexpectedly succeeded")
 	}
