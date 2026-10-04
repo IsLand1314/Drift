@@ -72,6 +72,7 @@ func switchChatSession(runner *agent.Runner, persistence *chatPersistence, targe
 		}
 	}
 	runner.RestoreMessages(target.Messages)
+	runner.RestoreShortTermMemory(target.ShortTermMemory)
 	runner.RestorePlanState(target.PlanID, target.PlanPhase)
 	persistence.snapshot = target
 	persistence.usage = usage
@@ -81,6 +82,7 @@ func switchChatSession(runner *agent.Runner, persistence *chatPersistence, targe
 func startNewChatSession(runner *agent.Runner, persistence *chatPersistence) error {
 	if persistence == nil || !persistence.persistent {
 		runner.ResetContext()
+		runner.RestoreShortTermMemory(nil)
 		if persistence != nil {
 			if plans, ok := persistence.registry.(tool.PlanRegistry); ok {
 				plans.ResetPlan()
@@ -94,6 +96,7 @@ func startNewChatSession(runner *agent.Runner, persistence *chatPersistence) err
 		return err
 	}
 	runner.ResetContext()
+	runner.RestoreShortTermMemory(nil)
 	persistence.snapshot = target
 	persistence.usage = usageTotals{}
 	if tasks, ok := persistence.registry.(tool.TaskRegistry); ok {
@@ -139,6 +142,7 @@ func (p *chatPersistence) saveRunner(runner *agent.Runner) error {
 	}
 	p.snapshot.Messages = runner.Messages()
 	p.snapshot.ContextBytes = runner.ContextBytes()
+	p.snapshot.ShortTermMemory = runner.ShortTermMemory().Items()
 	p.snapshot.InputTokens = p.usage.InputTokens
 	p.snapshot.OutputTokens = p.usage.OutputTokens
 	p.snapshot.ReportedRequests = p.usage.ReportedRequests
@@ -157,6 +161,7 @@ func (p *chatPersistence) saveRunner(runner *agent.Runner) error {
 func (p *chatPersistence) clearRunner(runner *agent.Runner) error {
 	if p == nil || !p.persistent {
 		runner.ResetContext()
+		runner.RestoreShortTermMemory(nil)
 		return nil
 	}
 	cleared := p.snapshot
@@ -165,6 +170,7 @@ func (p *chatPersistence) clearRunner(runner *agent.Runner) error {
 	cleared.InputTokens, cleared.OutputTokens = 0, 0
 	cleared.ReportedRequests, cleared.UnreportedRequests = 0, 0
 	cleared.Tasks = nil
+	cleared.ShortTermMemory = nil
 	cleared.PlanID, cleared.PlanPhase, cleared.Plan = "", "", tool.Plan{}
 	cleared.UpdatedAt = time.Now().UTC()
 	if err := p.store.Save(cleared); err != nil {
@@ -178,6 +184,7 @@ func (p *chatPersistence) clearRunner(runner *agent.Runner) error {
 		plans.ResetPlan()
 	}
 	runner.ResetContext()
+	runner.RestoreShortTermMemory(nil)
 	return nil
 }
 

@@ -18,6 +18,7 @@ import (
 
 	"github.com/IsLand1314/Drift/internal/layout"
 	"github.com/IsLand1314/Drift/internal/llm"
+	"github.com/IsLand1314/Drift/internal/memory"
 	"github.com/IsLand1314/Drift/internal/tool"
 )
 
@@ -46,6 +47,7 @@ type Snapshot struct {
 	PlanID             string
 	PlanPhase          string
 	Plan               tool.Plan
+	ShortTermMemory    []memory.Item
 }
 
 type Metadata struct {
@@ -100,6 +102,7 @@ type persistedSnapshot struct {
 	PlanID             string             `json:"plan_id,omitempty"`
 	PlanPhase          string             `json:"plan_phase,omitempty"`
 	Plan               tool.Plan          `json:"plan,omitempty"`
+	ShortTermMemory    []memory.Item      `json:"short_term_memory,omitempty"`
 }
 
 type persistedMessage struct {
@@ -501,6 +504,12 @@ func validateSnapshot(snapshot Snapshot) error {
 			}
 		}
 	}
+	validatedMemory := memory.New(nil)
+	for _, item := range snapshot.ShortTermMemory {
+		if err := validatedMemory.Remember(item.Kind, item.Text, item.Source); err != nil {
+			return ErrInvalidSnapshot
+		}
+	}
 	return nil
 }
 
@@ -517,7 +526,7 @@ func validateTitle(title string) error {
 }
 
 func toPersisted(snapshot Snapshot) persistedSnapshot {
-	result := persistedSnapshot{Version: snapshot.Version, ID: snapshot.ID, Title: snapshot.Title, CreatedAt: snapshot.CreatedAt, UpdatedAt: snapshot.UpdatedAt, Focus: snapshot.Focus, ContextBytes: snapshot.ContextBytes, Messages: make([]persistedMessage, len(snapshot.Messages)), InputTokens: snapshot.InputTokens, OutputTokens: snapshot.OutputTokens, ReportedRequests: snapshot.ReportedRequests, UnreportedRequests: snapshot.UnreportedRequests, Tasks: append([]tool.TaskState(nil), snapshot.Tasks...), PlanID: snapshot.PlanID, PlanPhase: snapshot.PlanPhase, Plan: snapshot.Plan}
+	result := persistedSnapshot{Version: snapshot.Version, ID: snapshot.ID, Title: snapshot.Title, CreatedAt: snapshot.CreatedAt, UpdatedAt: snapshot.UpdatedAt, Focus: snapshot.Focus, ContextBytes: snapshot.ContextBytes, Messages: make([]persistedMessage, len(snapshot.Messages)), InputTokens: snapshot.InputTokens, OutputTokens: snapshot.OutputTokens, ReportedRequests: snapshot.ReportedRequests, UnreportedRequests: snapshot.UnreportedRequests, Tasks: append([]tool.TaskState(nil), snapshot.Tasks...), PlanID: snapshot.PlanID, PlanPhase: snapshot.PlanPhase, Plan: snapshot.Plan, ShortTermMemory: append([]memory.Item(nil), snapshot.ShortTermMemory...)}
 	for i, message := range snapshot.Messages {
 		result.Messages[i] = persistedMessage{Role: message.Role, Content: message.Content, ToolCallID: message.ToolCallID, ToolCalls: make([]persistedToolCall, len(message.ToolCalls))}
 		for j, call := range message.ToolCalls {
@@ -528,7 +537,7 @@ func toPersisted(snapshot Snapshot) persistedSnapshot {
 }
 
 func fromPersisted(snapshot persistedSnapshot) Snapshot {
-	result := Snapshot{Version: snapshot.Version, ID: snapshot.ID, Title: snapshot.Title, CreatedAt: snapshot.CreatedAt, UpdatedAt: snapshot.UpdatedAt, Focus: snapshot.Focus, ContextBytes: snapshot.ContextBytes, Messages: make([]llm.Message, len(snapshot.Messages)), InputTokens: snapshot.InputTokens, OutputTokens: snapshot.OutputTokens, ReportedRequests: snapshot.ReportedRequests, UnreportedRequests: snapshot.UnreportedRequests, Tasks: append([]tool.TaskState(nil), snapshot.Tasks...), PlanID: snapshot.PlanID, PlanPhase: snapshot.PlanPhase, Plan: snapshot.Plan}
+	result := Snapshot{Version: snapshot.Version, ID: snapshot.ID, Title: snapshot.Title, CreatedAt: snapshot.CreatedAt, UpdatedAt: snapshot.UpdatedAt, Focus: snapshot.Focus, ContextBytes: snapshot.ContextBytes, Messages: make([]llm.Message, len(snapshot.Messages)), InputTokens: snapshot.InputTokens, OutputTokens: snapshot.OutputTokens, ReportedRequests: snapshot.ReportedRequests, UnreportedRequests: snapshot.UnreportedRequests, Tasks: append([]tool.TaskState(nil), snapshot.Tasks...), PlanID: snapshot.PlanID, PlanPhase: snapshot.PlanPhase, Plan: snapshot.Plan, ShortTermMemory: append([]memory.Item(nil), snapshot.ShortTermMemory...)}
 	for i, message := range snapshot.Messages {
 		result.Messages[i] = llm.Message{Role: message.Role, Content: message.Content, ToolCallID: message.ToolCallID, ToolCalls: make([]llm.ToolCall, len(message.ToolCalls))}
 		for j, call := range message.ToolCalls {

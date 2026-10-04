@@ -397,6 +397,7 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 				}
 			}
 			runner = agent.NewRunnerWithMessagesAndSystemContext(modelClient{Client: client, model: *model}, selection.Root, snapshot.Focus, selectedSkill.Name, selectedSkill.Content, registry, snapshot.Messages)
+			runner.RestoreShortTermMemory(snapshot.ShortTermMemory)
 			runner.RestorePlanState(snapshot.PlanID, snapshot.PlanPhase)
 			if plans, ok := registry.(tool.PlanRegistry); ok {
 				if planErr := plans.RestorePlan(snapshot.Plan); planErr != nil {

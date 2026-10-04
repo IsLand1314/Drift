@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/IsLand1314/Drift/internal/llm"
+	"github.com/IsLand1314/Drift/internal/memory"
 	"github.com/IsLand1314/Drift/internal/tool"
 )
 
@@ -149,6 +150,23 @@ func TestRunnerInjectsSkillAsSystemContext(t *testing.T) {
 	}
 	if runner.ContextBytes() <= len(wantNativeToolSystemInstruction) {
 		t.Fatal("ContextBytes() did not include Skill context")
+	}
+}
+
+func TestRunnerInjectsShortTermMemoryIntoSystemContext(t *testing.T) {
+	client := &scriptedClient{steps: []scriptedStep{{
+		events:     []llm.StreamEvent{{Text: "ok"}},
+		completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "ok"}, FinishReason: "stop"},
+	}}}
+	runner := NewRunner(client, t.TempDir(), "", tool.NewDefaultRegistry())
+	if err := runner.ShortTermMemory().Remember(memory.KindConstraint, "不要修改 .drift", "session/turn-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.RunEvents(context.Background(), "继续", nil); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(client.requests[0].Messages[0].Content, "不要修改 .drift") {
+		t.Fatalf("system context=%q", client.requests[0].Messages[0].Content)
 	}
 }
 

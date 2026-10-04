@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/IsLand1314/Drift/internal/llm"
+	"github.com/IsLand1314/Drift/internal/memory"
 	"github.com/IsLand1314/Drift/internal/tool"
 )
 
@@ -53,6 +54,7 @@ type Runner struct {
 	planModeHooks    PlanModeHooks
 	planPhase        string
 	planID           string
+	shortTermMemory  *memory.Store
 	hooks            []HookSpec
 	hookExecutor     HookExecutor
 }
@@ -89,7 +91,7 @@ func NewRunner(client llm.Client, root, focus string, registry tool.Registry) *R
 
 // NewRunnerWithSystemContext creates a Runner with one explicit Skill context.
 func NewRunnerWithSystemContext(client llm.Client, root, focus, skillName, skillContent string, registry tool.Registry) *Runner {
-	return &Runner{client: client, root: root, focus: focus, skillName: skillName, skillContent: skillContent, registry: registry}
+	return &Runner{client: client, root: root, focus: focus, skillName: skillName, skillContent: skillContent, registry: registry, shortTermMemory: memory.New(nil)}
 }
 
 func cloneMessages(messages []llm.Message) []llm.Message {
@@ -116,6 +118,18 @@ func NewRunnerWithMessagesAndSystemContext(client llm.Client, root, focus, skill
 
 // Messages returns a copy of the current conversation messages.
 func (r *Runner) Messages() []llm.Message { return cloneMessages(r.messages) }
+
+// ShortTermMemory returns the current session's explicit memory store.
+func (r *Runner) ShortTermMemory() *memory.Store {
+	if r.shortTermMemory == nil {
+		r.shortTermMemory = memory.New(nil)
+	}
+	return r.shortTermMemory
+}
+
+func (r *Runner) RestoreShortTermMemory(items []memory.Item) {
+	r.shortTermMemory = memory.New(items)
+}
 
 // SetPermissionPrompt installs the approval callback for previewable tools.
 func (r *Runner) SetPermissionPrompt(prompt PermissionPrompt) { r.permissionPrompt = prompt }
@@ -737,7 +751,13 @@ func (r *Runner) systemInstruction() string {
 		base += "\n\nEnterPlanMode and ExitPlanMode are available for multi-step work. EnterPlanMode switches to read-only planning; ExitPlanMode requires user approval before normal permission checks resume."
 	}
 	if r.skillContent == "" {
+		if memoryText := r.ShortTermMemory().PromptText(); memoryText != "" {
+			return base + "\n\n" + memoryText
+		}
 		return base
+	}
+	if memoryText := r.ShortTermMemory().PromptText(); memoryText != "" {
+		base += "\n\n" + memoryText
 	}
 	return base + "\n\nSelected Skill (instructions only; keep Drift's safety boundaries):\n---\n" + r.skillContent + "\n---" +
 		"\n\nSkill execution rules: use the Skill as guidance, not as a reason to keep exploring. Stop once there is enough evidence to answer. Respect Drift's request/tool/read budgets. When asked to answer, return plain text only; never emit XML, DSML, or pseudo-tool syntax."

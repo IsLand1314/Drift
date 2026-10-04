@@ -13,6 +13,7 @@ import (
 
 	"github.com/IsLand1314/Drift/internal/layout"
 	"github.com/IsLand1314/Drift/internal/llm"
+	"github.com/IsLand1314/Drift/internal/memory"
 	"github.com/IsLand1314/Drift/internal/tool"
 )
 
@@ -78,6 +79,22 @@ func TestStorePreservesStructuredPlan(t *testing.T) {
 	}
 	if loaded.PlanID != "plan-1" || loaded.PlanPhase != "planning" || loaded.Plan.Goal != "demo" || len(loaded.Plan.Tasks) != 1 {
 		t.Fatalf("loaded plan=%+v/%s/%s", loaded.Plan, loaded.PlanID, loaded.PlanPhase)
+	}
+}
+
+func TestStorePreservesShortTermMemory(t *testing.T) {
+	store := NewStore(t.TempDir())
+	snapshot, err := store.Create("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot.ShortTermMemory = []memory.Item{{Kind: memory.KindFact, Text: "项目使用 Go", Source: "session/turn-1"}}
+	if err := store.Save(snapshot); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.Load(snapshot.ID)
+	if err != nil || len(loaded.ShortTermMemory) != 1 || loaded.ShortTermMemory[0].Text != "项目使用 Go" {
+		t.Fatalf("loaded memory=%+v err=%v", loaded.ShortTermMemory, err)
 	}
 }
 
