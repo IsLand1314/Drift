@@ -33,6 +33,12 @@ func TestMCPAppHelperProcess(t *testing.T) {
 		var result any = map[string]any{}
 		switch request.Method {
 		case "initialize":
+			if marker := os.Getenv("DRIFT_MCP_FAIL_ONCE_MARKER"); marker != "" {
+				if _, err := os.Stat(marker); os.IsNotExist(err) {
+					_ = os.WriteFile(marker, []byte("failed once"), 0o600)
+					os.Exit(3)
+				}
+			}
 			result = map[string]any{"protocolVersion": "2024-11-05", "capabilities": map[string]any{"tools": map[string]any{}}}
 		case "tools/list":
 			result = map[string]any{"tools": []any{map[string]any{"name": "echo", "description": "Echo", "inputSchema": map[string]any{"type": "object"}}}}
@@ -41,6 +47,37 @@ func TestMCPAppHelperProcess(t *testing.T) {
 		_, _ = os.Stdout.Write(append(response, '\n'))
 	}
 	os.Exit(0)
+}
+
+func TestMCPManagerRetriesAndReportsStatus(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".drift"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(root, "retry-marker")
+	config := `{"servers":[{"name":"demo","transport":"stdio","command":` + strconv.Quote(os.Args[0]) + `,"args":["-test.run=TestMCPAppHelperProcess"],"env_refs":["DRIFT_MCP_APP_HELPER","DRIFT_MCP_FAIL_ONCE_MARKER"],"retry_count":1,"timeout_ms":2000}]}`
+	if err := os.WriteFile(filepath.Join(root, ".drift", "mcp.json"), []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.Setenv("DRIFT_MCP_APP_HELPER", "1")
+	_ = os.Setenv("DRIFT_MCP_FAIL_ONCE_MARKER", marker)
+	defer os.Unsetenv("DRIFT_MCP_APP_HELPER")
+	defer os.Unsetenv("DRIFT_MCP_FAIL_ONCE_MARKER")
+	manager, err := newMCPManager(root, tool.NewChatRegistry())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	if err := manager.Connect(context.Background(), "demo"); err != nil {
+		t.Fatalf("Connect() error=%v", err)
+	}
+	if manager.State("demo") != "connected" {
+		t.Fatalf("state=%q", manager.State("demo"))
+	}
+	status, handled := handleMCPCommand(context.Background(), "/mcp status", manager)
+	if !handled || !strings.Contains(status, "demo") || !strings.Contains(status, "connected") || !strings.Contains(status, "stdio") {
+		t.Fatalf("status=%q handled=%v", status, handled)
+	}
 }
 
 func TestMCPConnectRequiresNamedConfiguredServer(t *testing.T) {

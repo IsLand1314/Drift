@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/IsLand1314/Drift/internal/agent"
 	"github.com/IsLand1314/Drift/internal/mcp"
@@ -88,29 +89,55 @@ func (m *mcpManager) Connect(ctx context.Context, name string) error {
 		m.record(name, "sandbox_denied", decisionErr)
 		return decisionErr
 	}
+	attempts := server.RetryCount + 1
+	timeout := time.Duration(server.TimeoutMS) * time.Millisecond
+	if timeout == 0 {
+		timeout = 10 * time.Second
+	}
 	var client *mcp.Client
-	var err error
-	if server.Transport == "stdio" {
-		client, err = mcp.StartWithLauncher(ctx, server, env, func(launchCtx context.Context, configured mcp.Server, launchEnv []string) mcp.Process {
-			if decision.Backend == "appcontainer" {
-				return tool.NewAppContainerMCPProcess(launchCtx, m.root, configured.Command, configured.Args, launchEnv, configured.NetworkEnabled)
+	var lastErr error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		attemptCtx, cancel := context.WithTimeout(ctx, timeout)
+		if server.Transport == "stdio" {
+			client, lastErr = mcp.StartWithLauncher(attemptCtx, server, env, func(launchCtx context.Context, configured mcp.Server, launchEnv []string) mcp.Process {
+				if decision.Backend == "appcontainer" {
+					return tool.NewAppContainerMCPProcess(launchCtx, m.root, configured.Command, configured.Args, launchEnv, configured.NetworkEnabled)
+				}
+				cmd := tool.NewMCPProcess(launchCtx, m.root, configured.Command, configured.Args, decision, configured.NetworkEnabled)
+				cmd.Env = append(os.Environ(), launchEnv...)
+				return cmd
+			})
+		} else {
+			client, lastErr = mcp.Start(attemptCtx, server, env)
+		}
+		cancel()
+		if lastErr == nil {
+			if attachErr := tool.AttachMCP(ctx, m.registry, name, client); attachErr != nil {
+				_ = client.Close()
+				m.record(name, "protocol_failed", attachErr)
+				return attachErr
 			}
-			cmd := tool.NewMCPProcess(launchCtx, m.root, configured.Command, configured.Args, decision, configured.NetworkEnabled)
-			cmd.Env = append(os.Environ(), launchEnv...)
-			return cmd
-		})
-	} else {
-		client, err = mcp.Start(ctx, server, env)
+			break
+		}
+		lastErr = &mcp.ConnectionError{Transport: server.Transport, Phase: "initialize", Attempt: attempt, Err: lastErr}
+		m.record(name, "connection_retry", lastErr)
+		if attempt == attempts {
+			break
+		}
+		delay := time.Duration(attempt) * 100 * time.Millisecond
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			lastErr = ctx.Err()
+			attempt = attempts
+		case <-timer.C:
+		}
 	}
-	if err != nil {
+	if lastErr != nil {
 		m.states[name] = "failed"
-		m.record(name, "connection_failed", err)
-		return err
-	}
-	if err := tool.AttachMCP(ctx, m.registry, name, client); err != nil {
-		_ = client.Close()
-		m.record(name, "protocol_failed", err)
-		return err
+		m.record(name, "connection_failed", lastErr)
+		return lastErr
 	}
 	m.clients[name] = client
 	m.states[name] = "connected"
@@ -171,12 +198,26 @@ func handleMCPCommand(ctx context.Context, text string, manager *mcpManager) (st
 	text = strings.TrimSpace(text)
 	if text == "/mcp list" {
 		if len(manager.config.Servers) == 0 {
-			return "MCP：没有配置本地 stdio server", true
+			return "MCP：没有配置 server", true
 		}
 		lines := make([]string, 0, len(manager.config.Servers))
 		for _, server := range manager.config.Servers {
 			state := manager.State(server.Name)
 			lines = append(lines, server.Name+" · "+state)
+		}
+		return strings.Join(lines, "\n"), true
+	}
+	if text == "/mcp status" {
+		if len(manager.config.Servers) == 0 {
+			return "MCP：没有配置 server", true
+		}
+		lines := make([]string, 0, len(manager.config.Servers))
+		for _, server := range manager.config.Servers {
+			cached := "no-capabilities"
+			if len(manager.capabilities[server.Name]) > 0 {
+				cached = "capabilities-cached"
+			}
+			lines = append(lines, fmt.Sprintf("%s · %s · %s · retry=%d · %s", server.Name, manager.State(server.Name), server.Transport, server.RetryCount, cached))
 		}
 		return strings.Join(lines, "\n"), true
 	}
@@ -203,7 +244,7 @@ func handleMCPCommand(ctx context.Context, text string, manager *mcpManager) (st
 		return "MCP 已重连：" + name, true
 	}
 	if text == "/mcp" {
-		return "用法：/mcp list、/mcp connect <name>、/mcp resources <name> 或 /mcp prompts <name>", true
+		return "用法：/mcp list、/mcp status、/mcp connect <name>、/mcp disconnect <name>、/mcp reconnect <name>、/mcp resources <name> 或 /mcp prompts <name>", true
 	}
 	for _, kind := range []string{"resources", "prompts"} {
 		prefix := "/mcp " + kind + " "
@@ -253,7 +294,7 @@ func handleMCPCommand(ctx context.Context, text string, manager *mcpManager) (st
 		return "MCP 已连接：" + name, true
 	}
 	if strings.HasPrefix(text, "/mcp ") {
-		return "用法：/mcp list、/mcp connect <name>、/mcp resources <name> 或 /mcp prompts <name>", true
+		return "用法：/mcp list、/mcp status、/mcp connect <name>、/mcp disconnect <name>、/mcp reconnect <name>、/mcp resources <name> 或 /mcp prompts <name>", true
 	}
 	return "", false
 }

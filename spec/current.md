@@ -1,6 +1,6 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M5.15。M3.17 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M5.16。M3.17 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
 
 ## M5.13：Memory 质量与治理
 
@@ -13,6 +13,10 @@
 ## M5.15：MCP 安全与生命周期
 
 完整目标与验收记录见 [`m5.15-mcp-security-lifecycle.md`](m5.15-mcp-security-lifecycle.md)。MCP stdio 沙箱、连接断开/重连、能力缓存、资源 URI 边界和不可信内容标记已实现。
+
+## M5.16：MCP 生产化收口
+
+完整目标与验收记录见 [`m5.16-mcp-production.md`](m5.16-mcp-production.md)。连接支持有限重试、超时配置、结构化失败诊断和 `/mcp status` 运行状态查询；不引入后台重连、远程沙箱或 MCP Server。
 
 ## M5.12-A：上下文管理（当前阶段）
 

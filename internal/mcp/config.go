@@ -25,6 +25,8 @@ type Server struct {
 	URL            string            `json:"url,omitempty"`
 	Headers        map[string]string `json:"headers,omitempty"`
 	NetworkEnabled bool              `json:"network_enabled,omitempty"`
+	RetryCount     int               `json:"retry_count,omitempty"`
+	TimeoutMS      int               `json:"timeout_ms,omitempty"`
 }
 
 type Config struct {
@@ -72,6 +74,12 @@ func Load(root string) (Config, error) {
 			return Config{}, fmt.Errorf("mcp: duplicate server %q", server.Name)
 		}
 		seen[server.Name] = struct{}{}
+		if server.RetryCount < 0 || server.RetryCount > 3 {
+			return Config{}, fmt.Errorf("mcp: server %q retry_count must be between 0 and 3", server.Name)
+		}
+		if server.TimeoutMS != 0 && (server.TimeoutMS < 100 || server.TimeoutMS > 120000) {
+			return Config{}, fmt.Errorf("mcp: server %q timeout_ms must be between 100 and 120000", server.Name)
+		}
 		for refIndex, ref := range server.EnvRefs {
 			if !environmentName.MatchString(ref) {
 				return Config{}, fmt.Errorf("mcp: server %q env_refs[%d] is invalid", server.Name, refIndex)
