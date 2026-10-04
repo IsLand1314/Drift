@@ -492,19 +492,30 @@ func (s *taskStore) syncPlanTasks(tasks []PlanTask) error {
 		candidate[id] = item
 	}
 	for _, planTask := range tasks {
-		candidate[planTask.ID] = TaskState{ID: planTask.ID, Subject: planTask.Title, Description: planTask.Title, Status: planTask.Status, Worktree: planTask.Worktree, DependsOn: append([]string(nil), planTask.Dependencies...)}
+		description := planTask.Description
+		if description == "" {
+			description = planTask.Title
+		}
+		candidate[planTask.ID] = TaskState{ID: planTask.ID, Subject: planTask.Title, Description: description, Status: planTask.Status, Worktree: planTask.Worktree, DependsOn: append([]string(nil), planTask.Dependencies...)}
 	}
 	for _, planTask := range tasks {
 		if hasDependencyCycleLocked(candidate, planTask.ID) {
 			return fmt.Errorf("plan task %q has dependency cycle", planTask.ID)
 		}
 		if existing, ok := s.tasks[planTask.ID]; ok {
-			existing.Subject, existing.Description, existing.Worktree = planTask.Title, planTask.Title, planTask.Worktree
+			existing.Subject, existing.Description, existing.Worktree = planTask.Title, planTask.Description, planTask.Worktree
+			if existing.Description == "" {
+				existing.Description = planTask.Title
+			}
 			existing.DependsOn, existing.Status = append([]string(nil), planTask.Dependencies...), planTask.Status
 			s.tasks[planTask.ID] = existing
 			continue
 		}
-		s.tasks[planTask.ID] = TaskState{ID: planTask.ID, Subject: planTask.Title, Description: planTask.Title, Status: planTask.Status, Worktree: planTask.Worktree, DependsOn: append([]string(nil), planTask.Dependencies...)}
+		description := planTask.Description
+		if description == "" {
+			description = planTask.Title
+		}
+		s.tasks[planTask.ID] = TaskState{ID: planTask.ID, Subject: planTask.Title, Description: description, Status: planTask.Status, Worktree: planTask.Worktree, DependsOn: append([]string(nil), planTask.Dependencies...)}
 		if number, err := strconv.Atoi(strings.TrimPrefix(planTask.ID, "task-")); err == nil && number > s.next {
 			s.next = number
 		}

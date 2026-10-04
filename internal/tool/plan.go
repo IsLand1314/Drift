@@ -15,6 +15,7 @@ type planModeTool struct{ name string }
 type PlanTask struct {
 	ID           string   `json:"id"`
 	Title        string   `json:"title"`
+	Description  string   `json:"description,omitempty"`
 	Status       string   `json:"status"`
 	Worktree     string   `json:"worktree,omitempty"`
 	Dependencies []string `json:"dependencies,omitempty"`
@@ -74,8 +75,17 @@ type planStore struct {
 
 func (planUpdateTool) Name() string { return "PlanUpdate" }
 func (planUpdateTool) Definition() llm.ToolDefinition {
+	taskSchema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"id": map[string]any{"type": "string"}, "title": map[string]any{"type": "string"},
+			"description": map[string]any{"type": "string"}, "status": map[string]any{"type": "string"},
+			"worktree": map[string]any{"type": "string"}, "dependencies": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+		},
+		"required": []string{"id", "title", "status"},
+	}
 	return controlDefinition("PlanUpdate", "Save the structured plan while in plan mode.", map[string]any{
-		"goal": map[string]any{"type": "string"}, "tasks": map[string]any{"type": "array", "items": map[string]any{"type": "object"}, "maxItems": 32},
+		"goal": map[string]any{"type": "string"}, "tasks": map[string]any{"type": "array", "items": taskSchema, "maxItems": 32},
 		"risks": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "maxItems": 32}, "acceptance": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "maxItems": 32},
 	}, []string{"goal"})
 }
@@ -90,8 +100,9 @@ func (t planUpdateTool) Execute(_ context.Context, _ string, raw string) (string
 	}
 	for i := range plan.Tasks {
 		plan.Tasks[i].ID, plan.Tasks[i].Title, plan.Tasks[i].Status = strings.TrimSpace(plan.Tasks[i].ID), strings.TrimSpace(plan.Tasks[i].Title), strings.TrimSpace(plan.Tasks[i].Status)
+		plan.Tasks[i].Description = strings.TrimSpace(plan.Tasks[i].Description)
 		plan.Tasks[i].Worktree = normalizeTaskWorktree(plan.Tasks[i].Worktree)
-		if plan.Tasks[i].ID == "" || plan.Tasks[i].Title == "" || !validPlanStatus(plan.Tasks[i].Status) || (plan.Tasks[i].Worktree != "" && !validTaskWorktree(plan.Tasks[i].Worktree)) {
+		if plan.Tasks[i].ID == "" || plan.Tasks[i].Title == "" || len([]rune(plan.Tasks[i].Description)) > 4000 || !validPlanStatus(plan.Tasks[i].Status) || (plan.Tasks[i].Worktree != "" && !validTaskWorktree(plan.Tasks[i].Worktree)) {
 			return "", fmt.Errorf("PlanUpdate task is invalid")
 		}
 	}

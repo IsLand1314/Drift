@@ -82,7 +82,9 @@ func TestPlanExecuteRunsPlanTasksThroughTaskRunner(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, ".worktrees", "agent-1"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	registry.(TaskRegistry).SetTaskRunner(func(context.Context, TaskState, string, time.Duration) (TaskHandle, error) {
+	var gotPrompt string
+	registry.(TaskRegistry).SetTaskRunner(func(_ context.Context, _ TaskState, prompt string, _ time.Duration) (TaskHandle, error) {
+		gotPrompt = prompt
 		go func() {
 			time.Sleep(5 * time.Millisecond)
 			handle.complete(TaskExecutionResult{State: "completed", Output: "ok"})
@@ -90,13 +92,16 @@ func TestPlanExecuteRunsPlanTasksThroughTaskRunner(t *testing.T) {
 		return handle, nil
 	})
 	update, _ := registry.Lookup("PlanUpdate")
-	if _, err := update.Execute(context.Background(), root, `{"goal":"demo","tasks":[{"id":"task-1","title":"run","status":"pending","worktree":".worktrees/agent-1"}]}`); err != nil {
+	if _, err := update.Execute(context.Background(), root, `{"goal":"demo","tasks":[{"id":"task-1","title":"run","description":"Call ReadFile for README.md and report its contents.","status":"pending","worktree":".worktrees/agent-1"}]}`); err != nil {
 		t.Fatal(err)
 	}
 	execute, _ := registry.Lookup("PlanExecute")
 	result, err := execute.Execute(context.Background(), root, `{}`)
 	if err != nil || !strings.Contains(result, "completed 1 tasks") {
 		t.Fatalf("result=%q err=%v", result, err)
+	}
+	if gotPrompt != "Call ReadFile for README.md and report its contents." {
+		t.Fatalf("prompt=%q", gotPrompt)
 	}
 }
 
