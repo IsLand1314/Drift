@@ -6,12 +6,12 @@
 
 ## 快速开始
 
-需要 Go 1.26+。M5.1 推荐使用用户级配置目录（Windows 通常为 `%APPDATA%\Drift`）：
+需要 Go 1.26+。M5.1 使用当前 workspace 的 `.drift` 配置目录：
 
 ```text
-settings.toml  # 行为默认值
-config.toml    # Provider 和模型
-auth.json      # API Key（仅本机保存）
+.drift/settings.toml  # 行为默认值
+.drift/config.toml    # Provider 和模型
+.drift/auth.json      # API Key（仅本机保存，不提交 Git）
 ```
 
 示例 `config.toml`：

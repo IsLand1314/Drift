@@ -60,14 +60,6 @@ type AuthProvider struct {
 	Key  string `json:"key"`
 }
 
-func DefaultUserConfigDir() (string, error) {
-	root, err := os.UserConfigDir()
-	if err != nil {
-		return "", fmt.Errorf("resolve user config directory: %w", err)
-	}
-	return filepath.Join(root, "Drift"), nil
-}
-
 func LoadUserConfig(dir string) (UserConfig, error) {
 	result := UserConfig{Dir: dir, Settings: Settings{Version: 1, PermissionMode: "default", SandboxMode: "auto", TUIMode: "main"}, Auth: AuthFile{Version: 1, Providers: map[string]AuthProvider{}}}
 	configPath := filepath.Join(dir, "config.toml")

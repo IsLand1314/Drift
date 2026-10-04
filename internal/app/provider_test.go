@@ -48,9 +48,8 @@ func TestRunUsesUserConfigTOMLAndAuthJSON(t *testing.T) {
 		_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"config answer\"}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
 	}))
 	defer server.Close()
-	configRoot := t.TempDir()
-	t.Setenv("APPDATA", configRoot)
-	driftDir := filepath.Join(configRoot, "Drift")
+	workspace := t.TempDir()
+	driftDir := filepath.Join(workspace, ".drift")
 	if err := os.MkdirAll(driftDir, 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -61,11 +60,41 @@ func TestRunUsesUserConfigTOMLAndAuthJSON(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(driftDir, "auth.json"), []byte(`{"version":1,"providers":{"deepseek":{"type":"api_key","key":"config-secret"}}}`), 0600); err != nil {
 		t.Fatal(err)
 	}
-	workspace := t.TempDir()
 	var out, stderr strings.Builder
 	code := RunWithInput(context.Background(), []string{"-provider", "deepseek", "-w", workspace, "-p", "hello"}, func(string) string { return "" }, strings.NewReader(""), &out, &stderr)
 	if code != 0 || out.String() != "config answer\n" {
 		t.Fatalf("code=%d out=%q stderr=%q", code, out.String(), stderr.String())
+	}
+}
+
+func TestRunSwitchesConfiguredProviderProfile(t *testing.T) {
+	var selectedModel string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Model string `json:"model"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		selectedModel = body.Model
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"selected\"}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	defer server.Close()
+	workspace := t.TempDir()
+	driftDir := filepath.Join(workspace, ".drift")
+	if err := os.MkdirAll(driftDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	configTOML := fmt.Sprintf("version = 1\n[[providers]]\nname = \"alpha\"\nprotocol = \"openai-compat\"\nbase_url = \"%s\"\nmodel = \"alpha-model\"\n[[providers]]\nname = \"beta\"\nprotocol = \"openai-compat\"\nbase_url = \"%s\"\nmodel = \"beta-model\"\n", server.URL, server.URL)
+	if err := os.WriteFile(filepath.Join(driftDir, "config.toml"), []byte(configTOML), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(driftDir, "auth.json"), []byte(`{"version":1,"providers":{"alpha":{"type":"api_key","key":"a"},"beta":{"type":"api_key","key":"b"}}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var out, stderr strings.Builder
+	code := RunWithInput(context.Background(), []string{"-provider", "beta", "-w", workspace, "-p", "hello"}, func(string) string { return "" }, strings.NewReader(""), &out, &stderr)
+	if code != 0 || selectedModel != "beta-model" || out.String() != "selected\n" {
+		t.Fatalf("code=%d model=%q out=%q stderr=%q", code, selectedModel, out.String(), stderr.String())
 	}
 }
 

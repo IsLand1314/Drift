@@ -4,7 +4,7 @@
 
 ## M5.1：Provider 配置与认证分离（当前阶段）
 
-完整目标、边界与验收标准见 [`m5.1-provider-configuration.md`](m5.1-provider-configuration.md)。本阶段以单一用户配置目录中的 `settings.toml`、`config.toml` 和 `auth.json` 取代新增的项目 `.env` 依赖；实现多 Provider 选择、无密钥配置和认证分离。原生 Tool Call 恢复策略属于后续独立阶段。
+完整目标、边界与验收标准见 [`m5.1-provider-configuration.md`](m5.1-provider-configuration.md)。本阶段以 workspace `.drift/` 中的 `settings.toml`、`config.toml` 和 `auth.json` 取代新增的项目 `.env` 依赖；实现多 Provider 选择、无密钥配置和认证分离。原生 Tool Call 恢复策略属于后续独立阶段。
 
 ## M4：多 Agent 交付主线
 

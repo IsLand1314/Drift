@@ -91,25 +91,10 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 	}
 	flags := flag.NewFlagSet("drift", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	userConfigDir, configDirErr := config.DefaultUserConfigDir()
-	if configDirErr != nil {
-		fmt.Fprintln(stderr, "错误：", configDirErr)
-		return 2
-	}
-	userConfig, userConfigErr := config.LoadUserConfig(userConfigDir)
-	if userConfigErr != nil {
-		fmt.Fprintln(stderr, "错误：", userConfigErr)
-		return 2
-	}
 	var dotenv map[string]string
 	var err error
-	if !userConfig.ConfigPresent {
-		dotenv, err = config.LoadDotEnv(".env")
-		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 2
-		}
-	}
+	dotenv = map[string]string{}
+	userConfig := config.UserConfig{}
 	lookup := func(key string) string { return config.MergeLookup(dotenv, getenv, key) }
 	prompt := flags.String("p", "", "发送一次提示词并流式输出回复")
 	workspaceTarget := flags.String("w", "", "要分析的目录或文件（默认当前目录）")
@@ -150,8 +135,48 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 		}
 		return 2
 	}
+	launchDir, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintln(stderr, "错误：无法获取启动目录")
+		return 1
+	}
+	selection, err := resolveWorkspace(launchDir, *workspaceTarget)
+	if err != nil {
+		fmt.Fprintln(stderr, "错误：workspace 目标无效")
+		return 2
+	}
+	userConfig, userConfigErr := config.LoadUserConfig(filepath.Join(selection.Root, ".drift"))
+	if userConfigErr != nil {
+		fmt.Fprintln(stderr, "错误：", userConfigErr)
+		return 2
+	}
+	if !userConfig.ConfigPresent {
+		dotenv, err = config.LoadDotEnv(".env")
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
+		if !flagWasSet(flags, "provider") {
+			if configured := lookup("DRIFT_PROVIDER"); configured != "" {
+				*provider = configured
+			}
+		}
+	}
+	if userConfig.ConfigPresent {
+		if !flagWasSet(flags, "provider") && userConfig.Settings.DefaultProvider != "" {
+			*provider = userConfig.Settings.DefaultProvider
+		} else if !flagWasSet(flags, "provider") && len(userConfig.Providers) == 1 {
+			*provider = userConfig.Providers[0].Name
+		}
+		if !flagWasSet(flags, "permission-mode") && userConfig.Settings.PermissionMode != "" {
+			*permissionModeFlag = userConfig.Settings.PermissionMode
+		}
+		if !flagWasSet(flags, "sandbox") && userConfig.Settings.SandboxMode != "" {
+			*sandboxFlag = userConfig.Settings.SandboxMode
+		}
+	}
 	if userConfig.ConfigPresent && len(userConfig.Providers) > 1 && chat && !flagWasSet(flags, "provider") {
-		selected, ok, pickerErr := runProviderPicker(runCtx, in, out, userConfig.Providers, providerDefault)
+		selected, ok, pickerErr := runProviderPicker(runCtx, in, out, userConfig.Providers, *provider)
 		if pickerErr != nil {
 			fmt.Fprintln(stderr, "错误：Provider 选择器失败：", pickerErr)
 			return 1
@@ -230,16 +255,6 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 			fmt.Fprintln(stderr, "错误：不支持的 Provider，请使用 openai 或 anthropic")
 			return 2
 		}
-	}
-	launchDir, err := os.Getwd()
-	if err != nil {
-		fmt.Fprintln(stderr, "错误：无法获取启动目录")
-		return 1
-	}
-	selection, err := resolveWorkspace(launchDir, *workspaceTarget)
-	if err != nil {
-		fmt.Fprintln(stderr, "错误：workspace 目标无效")
-		return 2
 	}
 	if chat && persistenceOptions.resume && selection.Focus != "" {
 		fmt.Fprintln(stderr, "错误：--resume 不能与文件型 -w 同时使用")
