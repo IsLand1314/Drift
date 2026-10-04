@@ -724,6 +724,11 @@ func toolFailure(name string) string {
 
 func safeToolError(root, message string) string {
 	message = sanitizeError(root, message)
+	for _, prefix := range []string{"PlanUpdate task ", "plan task ", "PlanExecute task "} {
+		if strings.HasPrefix(message, prefix) {
+			return message
+		}
+	}
 	for _, known := range []string{
 		"WriteFile parent directory does not exist",
 		"WriteFile create parent directory",

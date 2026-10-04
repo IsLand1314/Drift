@@ -1152,6 +1152,13 @@ func TestSafeToolErrorPreservesTaskDependencyBlock(t *testing.T) {
 	}
 }
 
+func TestSafeToolErrorPreservesPlanValidation(t *testing.T) {
+	got := safeToolError(t.TempDir(), `plan task "t1" is invalid`)
+	if got != `plan task "t1" is invalid` {
+		t.Fatalf("safeToolError() = %q, want plan validation detail", got)
+	}
+}
+
 func TestRunRecordsUnexpectedFinishReason(t *testing.T) {
 	client := &scriptedClient{steps: []scriptedStep{{
 		completion: llm.Completion{Assistant: llm.Message{Role: "assistant"}, FinishReason: "length"},

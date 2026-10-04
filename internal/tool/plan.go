@@ -78,8 +78,8 @@ func (planUpdateTool) Definition() llm.ToolDefinition {
 	taskSchema := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"id": map[string]any{"type": "string"}, "title": map[string]any{"type": "string"},
-			"description": map[string]any{"type": "string"}, "status": map[string]any{"type": "string"},
+			"id": map[string]any{"type": "string", "description": "Stable task ID in the form task-1, task-2, ..."}, "title": map[string]any{"type": "string"},
+			"description": map[string]any{"type": "string"}, "status": map[string]any{"type": "string", "enum": []string{"pending", "in_progress", "completed", "blocked", "failed"}},
 			"worktree": map[string]any{"type": "string"}, "dependencies": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 		},
 		"required": []string{"id", "title", "status"},

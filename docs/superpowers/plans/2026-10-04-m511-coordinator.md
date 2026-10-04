@@ -19,6 +19,11 @@
 - Do not auto-run `reset`, `stash`, `clean`, or delete user changes.
 - Every implementation step follows red-green TDD and ends with a focused test.
 
+## 当前执行状态（2026-10-04）
+
+- M5.11-A～D：已实现并通过确定性 TDD、全量测试和 race 验收。
+- M5.11-E：`PlanExecute` 已委托 Coordinator，`CoordinatorStatus` 已按需加载并汇总状态；使用 DeepSeek `deepseek-chat` 的真实 TTY 原生工具链已完成 `PlanUpdate → ExitPlanMode → PlanExecute → CoordinatorStatus → TaskGet`，门禁 PASS。
+
 ---
 
 ### Task 1: Define Coordinator state and ready queue
