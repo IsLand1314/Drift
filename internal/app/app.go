@@ -16,6 +16,7 @@ import (
 	"github.com/IsLand1314/Drift/internal/agent"
 	"github.com/IsLand1314/Drift/internal/config"
 	"github.com/IsLand1314/Drift/internal/conversation"
+	coordinatorpkg "github.com/IsLand1314/Drift/internal/coordinator"
 	gitops "github.com/IsLand1314/Drift/internal/git"
 	"github.com/IsLand1314/Drift/internal/layout"
 	"github.com/IsLand1314/Drift/internal/llm"
@@ -363,8 +364,11 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 				}
 				return nil
 			}
-			tasks.SetTaskRunner(childTaskRunner(childManager, modelClient{Client: client, model: *model}, selection.Root, childSink))
-			tasks.SetTaskMerger(childTaskMerger(mergeQueue))
+			taskRunner := childTaskRunner(childManager, modelClient{Client: client, model: *model}, selection.Root, childSink)
+			taskMerger := childTaskMerger(mergeQueue)
+			tasks.SetTaskRunner(taskRunner)
+			tasks.SetTaskMerger(taskMerger)
+			tasks.SetCoordinator(coordinatorpkg.NewRunner(taskRunner, taskMerger, coordinatorpkg.Options{MaxConcurrency: agent.DefaultChildConcurrency}))
 		}
 	}
 	if chat {

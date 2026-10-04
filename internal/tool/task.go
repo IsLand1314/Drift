@@ -41,6 +41,7 @@ type TaskRegistry interface {
 	ResetTasks()
 	SetTaskRunner(TaskRunner)
 	SetTaskMerger(TaskMerger)
+	SetCoordinator(CoordinatorRunner)
 }
 
 // TaskSwitcher resolves the active task's worktree for the Agent runner.
@@ -69,14 +70,23 @@ type TaskHandle interface {
 
 type TaskRunner func(context.Context, TaskState, string, time.Duration) (TaskHandle, error)
 
+// CoordinatorRunner executes a plan's task graph and owns scheduling policy.
+// The interface keeps the tool package independent from the coordinator package.
+type CoordinatorRunner interface {
+	Run(context.Context, string, []TaskState) ([]TaskState, error)
+	Cancel()
+	Status() []TaskState
+}
+
 type taskStore struct {
-	mu      sync.Mutex
-	next    int
-	tasks   map[string]TaskState
-	active  string
-	runner  TaskRunner
-	merger  TaskMerger
-	running map[string]TaskHandle
+	mu          sync.Mutex
+	next        int
+	tasks       map[string]TaskState
+	active      string
+	runner      TaskRunner
+	merger      TaskMerger
+	coordinator CoordinatorRunner
+	running     map[string]TaskHandle
 }
 
 func newTaskStore() *taskStore {
@@ -556,6 +566,22 @@ func (r *registry) SetTaskMerger(merger TaskMerger) {
 	r.tasks.mu.Lock()
 	r.tasks.merger = merger
 	r.tasks.mu.Unlock()
+}
+
+func (r *registry) SetCoordinator(coordinator CoordinatorRunner) {
+	r.tasks.mu.Lock()
+	r.tasks.coordinator = coordinator
+	r.tasks.mu.Unlock()
+}
+
+func (s *taskStore) applyCoordinatorStates(states []TaskState) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, state := range states {
+		if _, ok := s.tasks[state.ID]; ok {
+			s.tasks[state.ID] = state
+		}
+	}
 }
 
 func (s *taskStore) finishTask(ctx context.Context, root, id string, handle TaskHandle) {

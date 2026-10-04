@@ -106,6 +106,49 @@ func TestPlanExecuteRunsPlanTasksThroughTaskRunner(t *testing.T) {
 	}
 }
 
+type testCoordinator struct {
+	called bool
+	root   string
+}
+
+func (c *testCoordinator) Run(_ context.Context, root string, tasks []TaskState) ([]TaskState, error) {
+	c.called, c.root = true, root
+	for i := range tasks {
+		tasks[i].Status = "completed"
+		tasks[i].Result = "coordinated"
+	}
+	return tasks, nil
+}
+func (*testCoordinator) Cancel()             {}
+func (*testCoordinator) Status() []TaskState { return nil }
+
+func TestPlanExecuteDelegatesToCoordinator(t *testing.T) {
+	registry := NewChatRegistry()
+	search, _ := registry.Lookup("ToolSearch")
+	root := t.TempDir()
+	if _, err := search.Execute(context.Background(), root, `{"query":"plan","load":["PlanUpdate","PlanExecute"]}`); err != nil {
+		t.Fatal(err)
+	}
+	registry.(PlanRegistry).SetPlanID("plan-1")
+	update, _ := registry.Lookup("PlanUpdate")
+	if _, err := update.Execute(context.Background(), root, `{"goal":"demo","tasks":[{"id":"task-1","title":"run","status":"pending"}]}`); err != nil {
+		t.Fatal(err)
+	}
+	coordinator := &testCoordinator{}
+	registry.(TaskRegistry).SetCoordinator(coordinator)
+	execute, _ := registry.Lookup("PlanExecute")
+	if _, err := execute.Execute(context.Background(), root, `{}`); err != nil {
+		t.Fatal(err)
+	}
+	if !coordinator.called || coordinator.root != root {
+		t.Fatalf("coordinator called=%v root=%q", coordinator.called, coordinator.root)
+	}
+	states := registry.(TaskRegistry).ExportTasks()
+	if len(states) != 1 || states[0].Status != "completed" || states[0].Result != "coordinated" {
+		t.Fatalf("persisted task state=%+v", states)
+	}
+}
+
 func TestPlanExecuteMarksTasksFailedWhenRunnerUnavailable(t *testing.T) {
 	registry := NewChatRegistry()
 	search, _ := registry.Lookup("ToolSearch")

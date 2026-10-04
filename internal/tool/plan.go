@@ -121,7 +121,7 @@ type planExecuteTool struct {
 
 func (planExecuteTool) Name() string { return "PlanExecute" }
 func (planExecuteTool) Definition() llm.ToolDefinition {
-	return controlDefinition("PlanExecute", "Execute the current plan's tasks sequentially through the existing child Agent runner.", map[string]any{
+	return controlDefinition("PlanExecute", "Execute the current plan's task graph through the configured coordinator.", map[string]any{
 		"timeout_ms": map[string]any{"type": "integer", "minimum": 1, "maximum": 600000},
 	}, nil)
 }
@@ -139,8 +139,17 @@ func (t planExecuteTool) Execute(ctx context.Context, root, raw string) (string,
 		return "", fmt.Errorf("PlanExecute has no tasks")
 	}
 	t.tasks.mu.Lock()
+	coordinator := t.tasks.coordinator
 	runnerAvailable := t.tasks.runner != nil
 	t.tasks.mu.Unlock()
+	if coordinator != nil {
+		states, err := coordinator.Run(ctx, root, t.tasks.export())
+		t.tasks.applyCoordinatorStates(states)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("PlanExecute: completed %d tasks", len(t.plan.plan.Tasks)), nil
+	}
 	if !runnerAvailable {
 		for _, planTask := range t.plan.plan.Tasks {
 			if item, ok := t.tasks.state(planTask.ID); ok && item.Status != "completed" {
