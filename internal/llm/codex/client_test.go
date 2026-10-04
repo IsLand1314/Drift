@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/IsLand1314/Drift/internal/llm"
 )
@@ -51,15 +52,36 @@ func TestCodexReportsMissingAppServer(t *testing.T) {
 	}
 }
 
+func TestCodexKeepsSystemInstructionsOutOfUserInput(t *testing.T) {
+	t.Setenv("DRIFT_CODEX_TEST_HELPER", "1")
+	t.Setenv("DRIFT_CODEX_ASSERT_PROMPT", "1")
+	c, err := NewWithCommand(os.Args[0], []string{"-test.run=TestCodexHelperProcess"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got string
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, err = c.Stream(ctx, llm.Request{Model: "m", Messages: []llm.Message{{Role: "system", Content: "Drift system instruction"}, {Role: "user", Content: "hello"}}}, func(event llm.StreamEvent) error { got += event.Text; return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "developer-ok" {
+		t.Fatalf("got=%q, system prompt was not separated", got)
+	}
+}
+
 func TestCodexHelperProcess(t *testing.T) {
 	if os.Getenv("DRIFT_CODEX_TEST_HELPER") != "1" {
 		return
 	}
 	s := bufio.NewScanner(os.Stdin)
+	assertPrompt := os.Getenv("DRIFT_CODEX_ASSERT_PROMPT") == "1"
 	for s.Scan() {
 		var req struct {
-			ID     int    `json:"id"`
-			Method string `json:"method"`
+			ID     int            `json:"id"`
+			Method string         `json:"method"`
+			Params map[string]any `json:"params"`
 		}
 		if json.Unmarshal(s.Bytes(), &req) != nil {
 			os.Exit(2)
@@ -69,12 +91,21 @@ func TestCodexHelperProcess(t *testing.T) {
 		case "initialize":
 			out = map[string]any{"id": req.ID, "result": map[string]any{}}
 		case "thread/start":
+			if assertPrompt {
+				if !strings.Contains(req.Params["developerInstructions"].(string), "Drift system instruction") {
+					os.Exit(3)
+				}
+			}
 			out = map[string]any{"id": req.ID, "result": map[string]any{"thread": map[string]any{"id": "thread-1"}}}
 		case "turn/start":
 			out = map[string]any{"id": req.ID, "result": map[string]any{"turn": map[string]any{"id": "turn-1"}}}
 			b, _ := json.Marshal(out)
 			os.Stdout.Write(append(b, '\n'))
-			for _, n := range []any{map[string]any{"method": "item/agentMessage/delta", "params": map[string]any{"delta": "hello ", "itemId": "i", "threadId": "thread-1", "turnId": "turn-1"}}, map[string]any{"method": "item/agentMessage/delta", "params": map[string]any{"delta": "from codex", "itemId": "i", "threadId": "thread-1", "turnId": "turn-1"}}, map[string]any{"method": "turn/completed", "params": map[string]any{"threadId": "thread-1", "turnId": "turn-1", "status": "completed"}}} {
+			text := "hello from codex"
+			if assertPrompt {
+				text = "developer-ok"
+			}
+			for _, n := range []any{map[string]any{"method": "item/agentMessage/delta", "params": map[string]any{"delta": text, "itemId": "i", "threadId": "thread-1", "turnId": "turn-1"}}, map[string]any{"method": "turn/completed", "params": map[string]any{"threadId": "thread-1", "turnId": "turn-1", "status": "completed"}}} {
 				b, _ := json.Marshal(n)
 				os.Stdout.Write(append(b, '\n'))
 			}

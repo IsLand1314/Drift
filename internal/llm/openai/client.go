@@ -69,6 +69,9 @@ func (c *Client) Stream(ctx context.Context, input llm.Request, emit func(llm.St
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		// Provider bodies may contain credentials or prompts; never echo them.
+		if resp.StatusCode == http.StatusUnauthorized {
+			return llm.Completion{}, &llm.ProviderError{Stage: llm.ErrorStageHTTP, Message: "模型认证失败：HTTP 401，请检查当前 Provider 的 API Key 是否有效"}
+		}
 		return llm.Completion{}, &llm.ProviderError{Stage: llm.ErrorStageHTTP, Message: fmt.Sprintf("模型请求失败：HTTP %d (%s)", resp.StatusCode, http.StatusText(resp.StatusCode))}
 	}
 	media, _, _ := mime.ParseMediaType(resp.Header.Get("Content-Type"))

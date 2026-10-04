@@ -109,7 +109,15 @@ func (c *Client) Stream(ctx context.Context, request llm.Request, emit func(llm.
 	if _, err := io.WriteString(stdin, `{"method":"initialized","params":{}}`+"\n"); err != nil {
 		return llm.Completion{}, err
 	}
-	if err := send("thread/start", map[string]any{"model": request.Model, "ephemeral": true}); err != nil {
+	system, input := splitMessages(request.Messages)
+	if system != "" {
+		system += "\n\nYou are the model backend for Drift. Answer as Drift's assistant; do not claim that you are Codex."
+	}
+	threadParams := map[string]any{"model": request.Model, "ephemeral": true}
+	if system != "" {
+		threadParams["developerInstructions"] = system
+	}
+	if err := send("thread/start", threadParams); err != nil {
 		return llm.Completion{}, err
 	}
 	threadResp, err := waitResponse(ctx, lines, 2)
@@ -124,7 +132,7 @@ func (c *Client) Stream(ctx context.Context, request llm.Request, emit func(llm.
 	if err := json.Unmarshal(threadResp.Result, &thread); err != nil || thread.Thread.ID == "" {
 		return llm.Completion{}, errors.New("Codex app-server 未返回 thread id")
 	}
-	if err := send("turn/start", map[string]any{"threadId": thread.Thread.ID, "input": []map[string]string{{"type": "text", "text": flatten(request.Messages)}}}); err != nil {
+	if err := send("turn/start", map[string]any{"threadId": thread.Thread.ID, "input": []map[string]string{{"type": "text", "text": input}}}); err != nil {
 		return llm.Completion{}, err
 	}
 	turnResp, err := waitResponse(ctx, lines, 3)
@@ -181,12 +189,17 @@ func waitResponse(ctx context.Context, lines <-chan wireMessage, id int64) (wire
 	}
 }
 
-func flatten(messages []llm.Message) string {
-	var parts []string
+func splitMessages(messages []llm.Message) (string, string) {
+	var system, input []string
 	for _, m := range messages {
-		if strings.TrimSpace(m.Content) != "" {
-			parts = append(parts, m.Content)
+		if strings.TrimSpace(m.Content) == "" {
+			continue
+		}
+		if m.Role == "system" {
+			system = append(system, m.Content)
+		} else {
+			input = append(input, m.Content)
 		}
 	}
-	return strings.Join(parts, "\n\n")
+	return strings.Join(system, "\n\n"), strings.Join(input, "\n\n")
 }
