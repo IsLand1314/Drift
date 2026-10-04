@@ -170,6 +170,8 @@ func entryFromEvent(event agent.Event, clean sanitizer) Entry {
 		InputTokens:       event.InputTokens,
 		OutputTokens:      event.OutputTokens,
 		TotalTokens:       event.TotalTokens,
+		PlanID:            event.PlanID,
+		PlanPhase:         event.PlanPhase,
 	}
 }
 

@@ -49,6 +49,7 @@ const (
 	EventCompactionStarted  EventType = "compaction_started"
 	EventCompactionFinished EventType = "compaction_finished"
 	EventCompactionError    EventType = "compaction_error"
+	EventPlanState          EventType = "plan_state"
 )
 
 // Event 是脱离 Provider SSE 分片后的 Runtime 事件。
@@ -94,6 +95,8 @@ type Event struct {
 	OutputTokens      int
 	TotalTokens       int
 	UsageAvailable    bool
+	PlanID            string
+	PlanPhase         string
 }
 
 // PermissionRequest describes a side effect before it is executed.

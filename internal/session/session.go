@@ -51,6 +51,8 @@ type Entry struct {
 	InputTokens       int       `json:"input_tokens,omitempty"`
 	OutputTokens      int       `json:"output_tokens,omitempty"`
 	TotalTokens       int       `json:"total_tokens,omitempty"`
+	PlanID            string    `json:"plan_id,omitempty"`
+	PlanPhase         string    `json:"plan_phase,omitempty"`
 }
 
 // Writer 追加 Agent 事件，并在关闭后拒绝继续写入。

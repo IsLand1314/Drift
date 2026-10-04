@@ -299,11 +299,17 @@ func TestPlanModeToolInvokesTransitionHookAfterApproval(t *testing.T) {
 	runner.SetPermissionPrompt(func(context.Context, PermissionRequest) (PermissionDecision, error) {
 		return PermissionDecision{Allow: true, Policy: PolicyAllow}, nil
 	})
-	if err := runner.RunEvents(context.Background(), "make a plan", nil); err != nil {
+	var planEvents []Event
+	if err := runner.RunEvents(context.Background(), "make a plan", func(event Event) error {
+		if event.Type == EventPlanState {
+			planEvents = append(planEvents, event)
+		}
+		return nil
+	}); err != nil {
 		t.Fatal(err)
 	}
-	if !entered || !strings.Contains(runner.Messages()[2].Content, "Plan mode enabled") {
-		t.Fatalf("entered=%v messages=%+v", entered, runner.Messages())
+	if !entered || len(planEvents) != 1 || planEvents[0].PlanPhase != PlanPhasePlanning || planEvents[0].PlanID == "" || !strings.Contains(runner.Messages()[2].Content, "Plan mode enabled") {
+		t.Fatalf("entered=%v planEvents=%+v messages=%+v", entered, planEvents, runner.Messages())
 	}
 }
 

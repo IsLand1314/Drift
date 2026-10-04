@@ -2,6 +2,7 @@ package session
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -560,6 +561,31 @@ func TestJSONLWriterStoresNumericUsageOnly(t *testing.T) {
 	}
 	if entries[0].InputTokens != 17 || entries[0].OutputTokens != 9 || entries[0].TotalTokens != 26 {
 		t.Fatalf("usage=%+v", entries[0])
+	}
+}
+
+func TestJSONLWriterStoresPlanStateMetadata(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "plan.jsonl")
+	writer, err := NewJSONLWriter(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Append(agent.Event{Type: agent.EventPlanState, PlanID: "plan-1", PlanPhase: "planning"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var entry Entry
+	if err := json.Unmarshal(bytes.TrimSpace(data), &entry); err != nil {
+		t.Fatal(err)
+	}
+	if entry.PlanID != "plan-1" || entry.PlanPhase != "planning" {
+		t.Fatalf("entry=%+v", entry)
 	}
 }
 

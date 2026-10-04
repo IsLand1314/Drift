@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/IsLand1314/Drift/internal/llm"
 	"github.com/IsLand1314/Drift/internal/tool"
@@ -50,6 +51,8 @@ type Runner struct {
 	permissionPrompt PermissionPrompt
 	questionPrompt   QuestionPrompt
 	planModeHooks    PlanModeHooks
+	planPhase        string
+	planID           string
 }
 
 // PlanModeHooks lets the chat layer apply the permission-mode transition after
@@ -58,6 +61,12 @@ type PlanModeHooks struct {
 	Enter func() error
 	Exit  func() error
 }
+
+const (
+	PlanPhasePlanning  = "planning"
+	PlanPhaseExecuting = "executing"
+	PlanPhaseCompleted = "completed"
+)
 
 // NewRunner 创建一个新的内存 Agent Runner。
 func NewRunner(client llm.Client, root, focus string, registry tool.Registry) *Runner {
@@ -320,6 +329,12 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) (
 					return err
 				}
 			}
+			if r.planPhase == PlanPhaseExecuting {
+				r.planPhase = PlanPhaseCompleted
+				if err := emit(Event{Type: EventPlanState, PlanID: r.planID, PlanPhase: r.planPhase}); err != nil {
+					return err
+				}
+			}
 			return emit(Event{Type: EventRunFinished, FinishReason: completion.FinishReason})
 		}
 		// assistant 的 tool_calls 与随后每条 tool 结果必须一起回传，
@@ -422,12 +437,25 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) (
 										toolErr = errors.New("EnterPlanMode is unavailable")
 									} else {
 										toolErr = r.planModeHooks.Enter()
+										if toolErr == nil {
+											r.planPhase = PlanPhasePlanning
+											r.planID = "plan-" + strconv.FormatInt(time.Now().UTC().UnixNano(), 10)
+											if emitErr := emit(Event{Type: EventPlanState, PlanID: r.planID, PlanPhase: r.planPhase}); emitErr != nil {
+												toolErr = emitErr
+											}
+										}
 									}
 								case "ExitPlanMode":
 									if r.planModeHooks.Exit == nil {
 										toolErr = errors.New("ExitPlanMode is unavailable")
 									} else {
 										toolErr = r.planModeHooks.Exit()
+										if toolErr == nil {
+											r.planPhase = PlanPhaseExecuting
+											if emitErr := emit(Event{Type: EventPlanState, PlanID: r.planID, PlanPhase: r.planPhase}); emitErr != nil {
+												toolErr = emitErr
+											}
+										}
 									}
 								}
 							}
