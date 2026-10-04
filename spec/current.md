@@ -1,6 +1,10 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M5.9。M3.17 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M5.10。M3.17 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+
+## M5.10：多 Agent 可靠性（当前阶段）
+
+见 [`m5.10-multi-agent-reliability.md`](m5.10-multi-agent-reliability.md)。子 Agent 的失败、取消、超时、依赖阻塞和 worktree 合并状态均必须可观测、可恢复；Coordinator 调度策略不属于本阶段。
 
 ## M5.5：API-Key Provider 诊断（当前阶段）
 
