@@ -41,6 +41,7 @@ type Provider struct {
 	BaseURL         string `toml:"base_url"`
 	Model           string `toml:"model"`
 	APIKeyEnv       string `toml:"api_key_env"`
+	CodexHome       string `toml:"codex_home"`
 	ContextWindow   int    `toml:"context_window"`
 	MaxOutputTokens int    `toml:"max_output_tokens"`
 }
@@ -134,15 +135,24 @@ func validateConfigFile(cf configFile) error {
 			return fmt.Errorf("config.toml: invalid or duplicate provider")
 		}
 		seen[p.Name] = true
-		if p.Protocol != "openai" && p.Protocol != "openai-compat" && p.Protocol != "anthropic" {
+		if p.Protocol != "openai" && p.Protocol != "openai-compat" && p.Protocol != "anthropic" && p.Protocol != "codex" {
 			return fmt.Errorf("config.toml: unsupported provider protocol")
 		}
-		if p.Model == "" || p.BaseURL == "" {
-			return fmt.Errorf("config.toml: provider requires model and base_url")
+		if p.Model == "" {
+			return fmt.Errorf("config.toml: provider requires model")
 		}
-		u, err := url.Parse(p.BaseURL)
-		if err != nil || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Scheme != "https" && !(u.Scheme == "http" && (u.Hostname() == "127.0.0.1" || u.Hostname() == "localhost" || u.Hostname() == "::1"))) {
-			return fmt.Errorf("config.toml: provider has unsafe base_url")
+		if p.Protocol == "codex" {
+			if p.BaseURL != "" || p.APIKeyEnv != "" {
+				return fmt.Errorf("config.toml: codex provider must not configure base_url or api_key_env")
+			}
+		} else if p.BaseURL == "" {
+			return fmt.Errorf("config.toml: provider requires base_url")
+		}
+		if p.Protocol != "codex" {
+			u, err := url.Parse(p.BaseURL)
+			if err != nil || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Scheme != "https" && !(u.Scheme == "http" && (u.Hostname() == "127.0.0.1" || u.Hostname() == "localhost" || u.Hostname() == "::1"))) {
+				return fmt.Errorf("config.toml: provider has unsafe base_url")
+			}
 		}
 		if p.ContextWindow < 0 || p.MaxOutputTokens < 0 {
 			return fmt.Errorf("config.toml: provider limits must be non-negative")

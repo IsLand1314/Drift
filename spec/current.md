@@ -1,10 +1,14 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M5.1。M3.17 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M5.2。M3.17 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
 
 ## M5.1：Provider 配置与认证分离（当前阶段）
 
 完整目标、边界与验收标准见 [`m5.1-provider-configuration.md`](m5.1-provider-configuration.md)。本阶段以 workspace `.drift/` 中的 `settings.toml`、`config.toml` 和 `auth.json` 取代新增的项目 `.env` 依赖；实现多 Provider 选择、无密钥配置和认证分离。原生 Tool Call 恢复策略属于后续独立阶段。
+
+## M5.2：Codex 登录态 Provider（当前阶段）
+
+完整目标、边界与验收标准见 [`m5.2-codex-provider.md`](m5.2-codex-provider.md)。本阶段通过官方 `codex app-server` 使用现有 Codex 登录态，先支持文本请求，不读取私有 token 文件，也不委托 Drift 工具执行。
 
 ## M4：多 Agent 交付主线
 

@@ -20,6 +20,7 @@ import (
 	"github.com/IsLand1314/Drift/internal/layout"
 	"github.com/IsLand1314/Drift/internal/llm"
 	"github.com/IsLand1314/Drift/internal/llm/anthropic"
+	"github.com/IsLand1314/Drift/internal/llm/codex"
 	"github.com/IsLand1314/Drift/internal/llm/openai"
 	"github.com/IsLand1314/Drift/internal/session"
 	"github.com/IsLand1314/Drift/internal/skill"
@@ -200,6 +201,7 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 	providerName := strings.TrimSpace(*provider)
 	protocol := strings.ToLower(providerName)
 	var key string
+	var codexHome string
 	if userConfig.ConfigPresent {
 		profile, ok := userConfig.Provider(providerName)
 		if !ok {
@@ -207,6 +209,7 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 			return 2
 		}
 		protocol = profile.Protocol
+		codexHome = profile.CodexHome
 		if *model == "" {
 			*model = profile.Model
 		}
@@ -268,7 +271,7 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 			return 2
 		}
 	}
-	if key == "" || strings.TrimSpace(*model) == "" {
+	if (protocol != "codex" && key == "") || strings.TrimSpace(*model) == "" {
 		if !userConfig.ConfigPresent && providerName == "anthropic" {
 			fmt.Fprintln(stderr, "请设置 ANTHROPIC_API_KEY，并通过 ANTHROPIC_MODEL 或 -model 指定模型")
 		} else if !userConfig.ConfigPresent {
@@ -278,9 +281,11 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 		}
 		return 2
 	}
-	// Provider 只负责 HTTP/SSE；workspace 读取和工具循环由 Agent 层负责。
+	// Provider 只负责模型传输；workspace 读取和工具循环由 Agent 层负责。
 	var client llm.Client
-	if protocol == "anthropic" {
+	if protocol == "codex" {
+		client, err = codex.New(codexHome)
+	} else if protocol == "anthropic" {
 		client, err = anthropic.New(*baseURL, key)
 	} else {
 		client, err = openai.New(*baseURL, key)
@@ -314,8 +319,17 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 	var runner *agent.Runner
 	var childManager *agent.ChildManager
 	registry := tool.NewDefaultRegistry()
+	if protocol == "codex" {
+		registry, err = tool.NewRegistry()
+		if err != nil {
+			fmt.Fprintln(stderr, "错误：无法创建 Codex 文本模式工具注册表：", err)
+			return 1
+		}
+	}
 	if chat {
-		registry = tool.NewChatRegistryWithSandbox(sandboxMode)
+		if protocol != "codex" {
+			registry = tool.NewChatRegistryWithSandbox(sandboxMode)
+		}
 		childManager = agent.NewChildManager(agent.DefaultChildConcurrency)
 		if messages, ok := registry.(tool.MessageRegistry); ok {
 			childManager.SetMessageBus(messages.MessageBus())

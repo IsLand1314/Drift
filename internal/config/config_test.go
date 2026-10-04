@@ -71,6 +71,21 @@ func TestUserConfigAPIKeyPrefersAuthThenEnvironment(t *testing.T) {
 	}
 }
 
+func TestLoadUserConfigAcceptsCodexProviderWithoutAPIKey(t *testing.T) {
+	dir := t.TempDir()
+	data := []byte("version = 1\n[[providers]]\nname = \"codex\"\nprotocol = \"codex\"\ncodex_home = \"C:/Users/test/.codex\"\nmodel = \"gpt-5.6-luna\"\n")
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadUserConfig(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Providers[0].Protocol != "codex" || cfg.Providers[0].CodexHome == "" {
+		t.Fatalf("provider=%+v", cfg.Providers[0])
+	}
+}
+
 func TestLoadDotEnvParsesCommentsBlanksAndQuotedValues(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".env")
 	contents := "\n# comment\n KEY = value \nSINGLE='quoted value'\nDOUBLE=\"another value\"\n"
