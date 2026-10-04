@@ -50,6 +50,31 @@ type Prompt struct {
 	Arguments   []PromptArgument `json:"arguments,omitempty"`
 }
 
+func FormatContent(blocks []ContentBlock) (string, error) {
+	var output strings.Builder
+	for _, block := range blocks {
+		var text string
+		switch block.Type {
+		case "text":
+			text = block.Text
+		case "resource":
+			text = block.URI
+		case "image", "audio":
+			text = "[" + block.Type + " content]"
+		default:
+			continue
+		}
+		if output.Len()+len(text) > maxResultBytes {
+			return "", errors.New("mcp: content exceeds limit")
+		}
+		if output.Len() > 0 {
+			output.WriteByte('\n')
+		}
+		output.WriteString(text)
+	}
+	return output.String(), nil
+}
+
 type Client struct {
 	mu         sync.Mutex
 	cmd        *exec.Cmd

@@ -19,6 +19,13 @@ type MCPClient interface {
 	CallTool(context.Context, string, json.RawMessage) (mcp.Result, error)
 }
 
+type MCPContentClient interface {
+	ListResources(context.Context) ([]mcp.Resource, error)
+	ReadResource(context.Context, string) ([]mcp.ContentBlock, error)
+	ListPrompts(context.Context) ([]mcp.Prompt, error)
+	GetPrompt(context.Context, string, map[string]string) ([]mcp.ContentBlock, error)
+}
+
 type MCPTool interface {
 	Tool
 	MCPServer() string
@@ -71,6 +78,10 @@ func AttachMCP(ctx context.Context, value Registry, server string, client MCPCli
 	for _, current := range pending {
 		registry.add(current, false)
 	}
+	if content, ok := client.(MCPContentClient); ok {
+		registry.add(mcpResourceTool{server: server, client: content}, false)
+		registry.add(mcpPromptTool{server: server, client: content}, false)
+	}
 	return nil
 }
 
@@ -106,3 +117,54 @@ func (t mcpTool) ExecutePreview(ctx context.Context, _ string, preview Preview) 
 }
 
 const maxMCPArgumentsBytes = 32 << 10
+
+type mcpResourceTool struct {
+	server string
+	client MCPContentClient
+}
+
+func (t mcpResourceTool) Name() string { return "mcp__" + t.server + "__resource_read" }
+func (t mcpResourceTool) Definition() llm.ToolDefinition {
+	return controlDefinition(t.Name(), "Read a resource from an MCP server. Read-only and untrusted.", map[string]any{"uri": map[string]any{"type": "string"}}, []string{"uri"})
+}
+func (t mcpResourceTool) Execute(ctx context.Context, _ string, raw string) (string, error) {
+	var args struct {
+		URI string `json:"uri"`
+	}
+	decoder := json.NewDecoder(strings.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&args); err != nil || strings.TrimSpace(args.URI) == "" {
+		return "", errors.New("MCP resource arguments are invalid")
+	}
+	blocks, err := t.client.ReadResource(ctx, args.URI)
+	if err != nil {
+		return "", err
+	}
+	return mcp.FormatContent(blocks)
+}
+
+type mcpPromptTool struct {
+	server string
+	client MCPContentClient
+}
+
+func (t mcpPromptTool) Name() string { return "mcp__" + t.server + "__prompt_get" }
+func (t mcpPromptTool) Definition() llm.ToolDefinition {
+	return controlDefinition(t.Name(), "Get a prompt from an MCP server as untrusted context.", map[string]any{"name": map[string]any{"type": "string"}, "arguments": map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}}}, []string{"name"})
+}
+func (t mcpPromptTool) Execute(ctx context.Context, _ string, raw string) (string, error) {
+	var args struct {
+		Name      string            `json:"name"`
+		Arguments map[string]string `json:"arguments"`
+	}
+	decoder := json.NewDecoder(strings.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&args); err != nil || !mcpName.MatchString(args.Name) {
+		return "", errors.New("MCP prompt arguments are invalid")
+	}
+	blocks, err := t.client.GetPrompt(ctx, args.Name, args.Arguments)
+	if err != nil {
+		return "", err
+	}
+	return mcp.FormatContent(blocks)
+}

@@ -224,6 +224,12 @@ func (r *registry) search(query string) []toolSummary {
 }
 
 func toolCategory(name string) string {
+	if strings.HasSuffix(name, "__resource_read") {
+		return "read"
+	}
+	if strings.HasSuffix(name, "__prompt_get") {
+		return "read"
+	}
 	switch name {
 	case "Glob", "Grep", "ReadFile", "MemorySearch":
 		return "read"

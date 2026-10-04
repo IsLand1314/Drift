@@ -16,6 +16,21 @@ func (fakeMCPClient) CallTool(context.Context, string, json.RawMessage) (mcp.Res
 	return mcp.Result{Text: "ok"}, nil
 }
 
+type fakeMCPContentClient struct{ fakeMCPClient }
+
+func (fakeMCPContentClient) ListResources(context.Context) ([]mcp.Resource, error) {
+	return []mcp.Resource{{Name: "doc", URI: "memory://doc"}}, nil
+}
+func (fakeMCPContentClient) ReadResource(context.Context, string) ([]mcp.ContentBlock, error) {
+	return []mcp.ContentBlock{{Type: "text", Text: "resource text"}}, nil
+}
+func (fakeMCPContentClient) ListPrompts(context.Context) ([]mcp.Prompt, error) {
+	return []mcp.Prompt{{Name: "summarize"}}, nil
+}
+func (fakeMCPContentClient) GetPrompt(context.Context, string, map[string]string) ([]mcp.ContentBlock, error) {
+	return []mcp.ContentBlock{{Type: "text", Text: "prompt text"}}, nil
+}
+
 type contextMCPClient struct{ cancelled bool }
 
 func (c *contextMCPClient) ListTools(ctx context.Context) ([]mcp.Tool, error) {
@@ -70,5 +85,33 @@ func TestAttachMCPRejectsUnsafeOrDuplicateNames(t *testing.T) {
 	}
 	if err := AttachMCP(context.Background(), registry, "demo", valid); err == nil {
 		t.Fatal("duplicate tool accepted")
+	}
+}
+
+func TestAttachMCPRegistersResourceAndPromptToolsLazily(t *testing.T) {
+	registry := NewChatRegistry()
+	client := fakeMCPContentClient{fakeMCPClient{tools: []mcp.Tool{{Name: "echo", Description: "Echo", InputSchema: json.RawMessage(`{"type":"object"}`)}}}}
+	if err := AttachMCP(context.Background(), registry, "demo", client); err != nil {
+		t.Fatal(err)
+	}
+	search, _ := registry.Lookup("ToolSearch")
+	if _, err := search.Execute(context.Background(), t.TempDir(), `{"query":"resource prompt","load":["mcp__demo__resource_read","mcp__demo__prompt_get"]}`); err != nil {
+		t.Fatal(err)
+	}
+	resource, ok := registry.Lookup("mcp__demo__resource_read")
+	if !ok {
+		t.Fatal("resource tool not loaded")
+	}
+	got, err := resource.Execute(context.Background(), t.TempDir(), `{"uri":"memory://doc"}`)
+	if err != nil || got != "resource text" {
+		t.Fatalf("resource=%q err=%v", got, err)
+	}
+	prompt, ok := registry.Lookup("mcp__demo__prompt_get")
+	if !ok {
+		t.Fatal("prompt tool not loaded")
+	}
+	got, err = prompt.Execute(context.Background(), t.TempDir(), `{"name":"summarize"}`)
+	if err != nil || got != "prompt text" {
+		t.Fatalf("prompt=%q err=%v", got, err)
 	}
 }
