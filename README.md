@@ -14,6 +14,8 @@
 .drift/auth.json      # API Key（仅本机保存，不提交 Git）
 ```
 
+`settings.toml` 可用 `tool_loading = "dispatch"` 选择工具 schema 策略；也可以临时使用 `--tool-loading eager|dispatch|native`。`native` 在当前 Provider 接口尚未支持原生 deferred tool reference 时会安全降级为 `dispatch`。
+
 示例 `config.toml`：
 
 ```toml

@@ -14,6 +14,10 @@
 
 完整目标与验收标准见 [`m5.3-file-state-cache.md`](m5.3-file-state-cache.md)。ReadFile 快照只保留在当前进程内，EditFile 会拒绝读取后发生外部修改的目标；写入成功后缓存失效，不持久化文件内容或摘要。
 
+## M5.4：工具 Schema 加载策略（当前阶段）
+
+完整目标与边界见 [`m5.4-tool-loading.md`](m5.4-tool-loading.md)。Drift 支持 `eager`、`dispatch` 和安全降级的 `native` 策略；MCP 工具复用同一加载策略。
+
 ## M4：多 Agent 交付主线
 
 M4 的阶段目标、自动化验收和独立 LLM 验收门禁见 [`m4-multi-agent.md`](m4-multi-agent.md)。M3.30 及更早阶段作为基础能力保留，不再扩展为 M3.31。

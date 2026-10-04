@@ -27,6 +27,7 @@ type Settings struct {
 	DefaultProvider string       `toml:"default_provider"`
 	PermissionMode  string       `toml:"permission_mode"`
 	SandboxMode     string       `toml:"sandbox_mode"`
+	ToolLoading     string       `toml:"tool_loading"`
 	TUIMode         string       `toml:"tui_mode"`
 	Chat            ChatSettings `toml:"chat"`
 }
@@ -62,7 +63,7 @@ type AuthProvider struct {
 }
 
 func LoadUserConfig(dir string) (UserConfig, error) {
-	result := UserConfig{Dir: dir, Settings: Settings{Version: 1, PermissionMode: "default", SandboxMode: "auto", TUIMode: "main"}, Auth: AuthFile{Version: 1, Providers: map[string]AuthProvider{}}}
+	result := UserConfig{Dir: dir, Settings: Settings{Version: 1, PermissionMode: "default", SandboxMode: "auto", ToolLoading: "dispatch", TUIMode: "main"}, Auth: AuthFile{Version: 1, Providers: map[string]AuthProvider{}}}
 	configPath := filepath.Join(dir, "config.toml")
 	data, err := os.ReadFile(configPath)
 	if errors.Is(err, os.ErrNotExist) {
@@ -173,6 +174,9 @@ func validateSettings(s Settings, providers []Provider) error {
 	}
 	if s.SandboxMode != "off" && s.SandboxMode != "auto" && s.SandboxMode != "required" {
 		return fmt.Errorf("settings.toml: invalid sandbox_mode")
+	}
+	if s.ToolLoading != "" && s.ToolLoading != "eager" && s.ToolLoading != "dispatch" && s.ToolLoading != "native" {
+		return fmt.Errorf("settings.toml: invalid tool_loading")
 	}
 	if s.TUIMode != "main" {
 		return fmt.Errorf("settings.toml: invalid tui_mode")

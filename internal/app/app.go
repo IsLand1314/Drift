@@ -117,11 +117,16 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 	apiKeyFlag := flags.String("api-key", "", "本次运行使用的 API Key（不写入配置）")
 	permissionDefault := string(permissionModeDefault)
 	sandboxDefault := string(tool.SandboxOff)
+	toolLoadingDefault := string(tool.LoadingDispatch)
 	if userConfig.ConfigPresent {
 		permissionDefault, sandboxDefault = userConfig.Settings.PermissionMode, userConfig.Settings.SandboxMode
+		if userConfig.Settings.ToolLoading != "" {
+			toolLoadingDefault = userConfig.Settings.ToolLoading
+		}
 	}
 	permissionModeFlag := flags.String("permission-mode", permissionDefault, "chat 权限模式（default、acceptEdits、plan、bypassPermissions）")
 	sandboxFlag := flags.String("sandbox", sandboxDefault, "Bash 沙箱策略（off、auto、required）")
+	toolLoadingFlag := flags.String("tool-loading", toolLoadingDefault, "工具 schema 策略（eager、dispatch、native）")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
@@ -174,6 +179,9 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 		}
 		if !flagWasSet(flags, "sandbox") && userConfig.Settings.SandboxMode != "" {
 			*sandboxFlag = userConfig.Settings.SandboxMode
+		}
+		if !flagWasSet(flags, "tool-loading") && userConfig.Settings.ToolLoading != "" {
+			*toolLoadingFlag = userConfig.Settings.ToolLoading
 		}
 	}
 	if userConfig.ConfigPresent && len(userConfig.Providers) > 1 && chat && !flagWasSet(flags, "provider") {
@@ -259,6 +267,15 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 			return 2
 		}
 	}
+	requestedLoading, err := tool.ParseToolLoadingStrategy(*toolLoadingFlag)
+	if err != nil {
+		fmt.Fprintln(stderr, "错误：", err)
+		return 2
+	}
+	loadingStrategy, nativeLoading := tool.ResolveToolLoadingStrategy(requestedLoading, protocol)
+	if requestedLoading == tool.LoadingNative && !nativeLoading {
+		fmt.Fprintln(stderr, "提示：当前 Provider 未提供原生 tool reference，native 已降级为 dispatch")
+	}
 	if chat && persistenceOptions.resume && selection.Focus != "" {
 		fmt.Fprintln(stderr, "错误：--resume 不能与文件型 -w 同时使用")
 		return 2
@@ -331,6 +348,11 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 			registry = tool.NewChatRegistryWithSandbox(sandboxMode)
 		}
 		childManager = agent.NewChildManager(agent.DefaultChildConcurrency)
+		if loadingStrategy == tool.LoadingEager {
+			if eager, ok := registry.(interface{ LoadAll() }); ok {
+				eager.LoadAll()
+			}
+		}
 		if messages, ok := registry.(tool.MessageRegistry); ok {
 			childManager.SetMessageBus(messages.MessageBus())
 		}

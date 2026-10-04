@@ -86,6 +86,20 @@ func TestLoadUserConfigAcceptsCodexProviderWithoutAPIKey(t *testing.T) {
 	}
 }
 
+func TestLoadUserConfigAcceptsToolLoadingStrategy(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte("version = 1\n[[providers]]\nname = \"p\"\nprotocol = \"openai\"\nbase_url = \"https://api.openai.com/v1\"\nmodel = \"m\"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "settings.toml"), []byte("version = 1\ntool_loading = \"eager\"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadUserConfig(dir)
+	if err != nil || cfg.Settings.ToolLoading != "eager" {
+		t.Fatalf("settings=%+v err=%v", cfg.Settings, err)
+	}
+}
+
 func TestLoadDotEnvParsesCommentsBlanksAndQuotedValues(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".env")
 	contents := "\n# comment\n KEY = value \nSINGLE='quoted value'\nDOUBLE=\"another value\"\n"

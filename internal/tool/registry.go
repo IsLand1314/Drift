@@ -22,6 +22,7 @@ type registry struct {
 	order     []Tool
 	enabled   map[string]bool
 	summaries map[string]toolSummary
+	eager     bool
 	tasks     *taskStore
 	messages  *message.Bus
 }
@@ -125,6 +126,14 @@ func (r *registry) Definitions() []llm.ToolDefinition {
 	return definitions
 }
 
+// LoadAll exposes every registered schema for the eager loading strategy.
+func (r *registry) LoadAll() {
+	r.eager = true
+	for name := range r.enabled {
+		r.enabled[name] = true
+	}
+}
+
 func (r *registry) Lookup(name string) (Tool, bool) {
 	current, ok := r.tools[name]
 	return current, ok && r.enabled[name]
@@ -134,7 +143,7 @@ func (r *registry) add(current Tool, enabled bool) {
 	name := current.Name()
 	r.tools[name] = current
 	r.order = append(r.order, current)
-	r.enabled[name] = enabled
+	r.enabled[name] = enabled || r.eager
 	r.summaries[name] = toolSummary{Name: name, Category: toolCategory(name), Description: toolDescription(current.Definition())}
 }
 
