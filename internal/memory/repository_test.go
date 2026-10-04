@@ -45,6 +45,9 @@ func TestRepositoryReviewsExperienceWithoutAutoPromotingIt(t *testing.T) {
 	if err := repo.Add(item); err != nil {
 		t.Fatal(err)
 	}
+	if err := repo.Add(Item{Kind: KindExperience, Text: item.Text, Source: item.Source, Status: "verified"}); err != nil {
+		t.Fatal(err)
+	}
 	if err := repo.ReviewExperience(item.Text, "verified"); err != nil {
 		t.Fatal(err)
 	}

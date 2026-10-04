@@ -39,9 +39,16 @@ func (r *Repository) Add(item Item) error {
 	if err != nil {
 		return err
 	}
-	for _, existing := range items {
+	for index, existing := range items {
 		if strings.EqualFold(existing.Text, item.Text) {
-			return nil
+			if item.Status == "" || item.Status == existing.Status {
+				return nil
+			}
+			items[index] = item
+			if err := r.replaceKindLocked(item.Kind, items); err != nil {
+				return err
+			}
+			return r.writeIndexLocked()
 		}
 	}
 	item.UpdatedAt = time.Now().UTC()
