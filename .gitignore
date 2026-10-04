@@ -21,4 +21,7 @@
 .drift/
 /.env
 /.env.*
-!/.env.example
+
+# Local-only design notes and implementation plans
+/doc/
+/docs/superpowers/
