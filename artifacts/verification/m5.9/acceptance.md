@@ -54,3 +54,7 @@ Tasks: 1 — task-1 (读取 README 并汇报, status=pending, worktree=.worktree
 ## 结论
 
 M5.9 代码实现和确定性测试通过；真实 DeepSeek 验收为 **PARTIAL**：规划链路已真实打通，完整执行链路受 Provider 伪工具响应和一次子任务执行失败阻断。未记录 API 密钥，未修改用户工作区文件。
+
+## 后续收口
+
+为避免宿主缺少 `TaskRunner` 时任务静默停留在 `pending`，`PlanExecute` 现在会将未完成任务标记为 `failed` 并写入明确原因 `TaskRun is unavailable in this host`。回归测试覆盖该路径，修复提交：`7b145ba`。
