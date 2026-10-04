@@ -1,10 +1,34 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M5.19。M3.17 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M5.26。M3.17 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+
+## M5.26：Anthropic Provider 与外部 MCP 真实链路
+
+完整目标与验收记录见 [`m5.26-anthropic-mcp-acceptance.md`](m5.26-anthropic-mcp-acceptance.md)。Anthropic-compatible 文本请求和 native `ReadFile` 已通过；DeepSeek + 本地 stdio filesystem MCP 的连接、发现、ToolSearch、审批、调用和审计已通过。Windows `--sandbox auto` 下 npx MCP 子进程已通过 `.cmd` shim 修复后的真实验收；Playwright MCP 仅完成 CLI 探针，未加入默认配置。
+
+## M5.25：阶段验收与项目收口
+
+完整验收结果见 [`m5.25-stage-acceptance.md`](m5.25-stage-acceptance.md)。代码级回归、真实 Provider 工具链、Memory 冲突候选和多 Agent 确定性验收均有证据；全仓库 release-strict 审计因用户已有工作区改动、历史规格证据缺口和 EOF 空行暂时阻塞。MCP deferred tool reference 已接入 Anthropic 原生协议，OpenAI-compatible/DeepSeek 仍安全降级为 dispatch。
+
+## M5.24：Memory 到 Skill 的安全草稿链路
+
+完整目标与验收标准见 [`m5.24-memory-skill-link.md`](m5.24-memory-skill-link.md)。已验证经验只能生成 review-only 草稿，不会自动写入、安装、启用或执行 Skill。
+
+## M5.23：跨会话相关记忆自动检索
+
+完整目标与验收标准见 [`m5.23-memory-retrieval.md`](m5.23-memory-retrieval.md)。自动检索默认关闭，仅按当前输入检索少量已验证记忆，并以不可信上下文注入当前请求。
+
+## M5.22：记忆候选审核与显式替换
+
+完整目标与验收标准见 [`m5.22-memory-review.md`](m5.22-memory-review.md)。自动记忆候选只能通过精确的人审命令变为 `verified`、`rejected` 或 `deprecated`；冲突替换必须由用户明确提供旧文本和新文本。
+
+## M5.21：自动记忆候选提取（已完成基础闭环）
+
+完整目标与验收标准见 [`m5.21-auto-memory.md`](m5.21-auto-memory.md)。自动提取默认关闭，启用后只从用户明确偏好/纠正生成 `candidate` 经验；候选经过现有审核流程成为 `verified`，不直接改变 Agent 行为。
 
 ## M5.19：Provider 能力声明与 Native 策略
 
-已完成 Provider 能力声明：OpenAI Compatible 与 Anthropic 声明支持原生 Tool Call；当前没有 Provider 声明支持原生 deferred tool reference，因此 `native` 继续安全降级为 `dispatch`。Codex 登录态工具接管不属于本阶段。
+已完成 Provider 能力声明：OpenAI Compatible 与 Anthropic 支持原生 Tool Call；Anthropic 还支持原生 deferred tool reference（tool search + `defer_loading`），OpenAI-compatible/DeepSeek 的 `native` 仍安全降级为 `dispatch`。Codex 登录态工具接管不属于本阶段。
 
 ## M5.18：真实 LLM 工具链验收
 
@@ -64,7 +88,7 @@
 
 验收要求：
 
-- 配置型 Provider 缺少密钥时，提示 `.drift/auth.json` 和可选 `api_key_env`；
+- 配置型 Provider 缺少密钥时，提示 `.drift/auth.json` 和可选 `api_key` 环境变量名；
 - 缺少模型时，提示 `config.toml` 或 `-model`；
 - 错误发生在发起模型请求前；
 - 不把 API Key 写入 stderr、审计、session 或工具结果。

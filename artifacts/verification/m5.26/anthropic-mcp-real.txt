@@ -1,0 +1,40 @@
+M5.26 real-provider and external-MCP probe
+
+Security:
+- Credentials were read from the local .drift/auth.json copy only.
+- No credential value is included in this evidence.
+- The MCP server was pointed at .codex-temp/mcp-real/mcp-target.
+
+Anthropic-compatible Provider
+Command: go run ./cmd/drift -provider anthropic -w . -p "请只回复 anthropic-provider-check"
+Result: exit 0; output was anthropic-provider-check.
+
+Native tool call
+Command: go run ./cmd/drift -provider anthropic -tool-loading native -trace -w . -p "请读取 README.md，并只输出第一行"
+Result: exit 0.
+Trace: run_started -> tool_call ReadFile -> tool_result ReadFile bytes=12440 -> run_finished.
+Output: # Drift
+
+External MCP (DeepSeek + @modelcontextprotocol/server-filesystem)
+Configuration: stdio server named filesystem, launched by npx, restricted to the temporary mcp-target directory.
+Command: chat -provider deepseek -sandbox off -tool-loading dispatch; /mcp connect filesystem; list_allowed_directories.
+Result: exit 0; MCP connected, ToolSearch loaded the tool, approval was requested and allowed, and the tool returned exactly one allowed directory.
+Second call: list_directory on the same absolute temporary path.
+Result: exit 0; approval requested and allowed; empty directory result returned without error.
+Trace: ToolSearch -> mcp__filesystem__list_allowed_directories -> permission_request -> permission_decision allowed=true -> tool_result -> run_finished.
+
+Sandbox comparison and fix
+- Before fix: --sandbox auto connected the npx server but tool execution failed because Windows resolved the extensionless Unix `npx` shim.
+- Fix: AppContainer MCP launch now prefers `.exe`, `.cmd`, `.bat`; `.cmd`/`.bat` commands run through `cmd.exe /d /s /c call`.
+- Regression test: `go test ./internal/tool -run TestResolveWindowsMCPCommandPrefersCmdShim -count=1` passed.
+- After fix: `--sandbox auto` completed both `list_allowed_directories` and `list_directory`; approvals, audit and `sandboxed=true` execution path were recorded.
+
+Conclusion: Anthropic-compatible text and native ReadFile work; the external MCP client chain works with DeepSeek in dispatch mode; Windows auto-sandboxing now handles the npx command shim.
+
+Regression closure
+- `go test ./cmd/drift-logo-preview -count=1`: passed after restoring the preview renderer and brand details asserted by its test.
+- `go test ./... -count=1`: passed.
+- `go vet ./...`: passed.
+- `go build ./cmd/drift`: passed.
+- `go build ./cmd/drift-logo-preview`: passed.
+- scoped `git diff --check`: passed.

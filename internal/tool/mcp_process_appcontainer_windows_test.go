@@ -6,10 +6,25 @@ import (
 	"context"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestResolveWindowsMCPCommandPrefersCmdShim(t *testing.T) {
+	if _, err := exec.LookPath("npx.cmd"); err != nil {
+		t.Skip("npx.cmd is not installed")
+	}
+	command, args := resolveWindowsMCPCommand("npx", []string{"-y", "server"}, `C:\\Windows\\System32\\cmd.exe`)
+	if command != `C:\\Windows\\System32\\cmd.exe` {
+		t.Fatalf("command=%q, want cmd.exe", command)
+	}
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, `/d /s /c call`) || !strings.Contains(strings.ToLower(joined), `npx.cmd`) {
+		t.Fatalf("args=%q, want cmd shim invocation", joined)
+	}
+}
 
 func TestMCPProcessUsesAppContainerLifecycle(t *testing.T) {
 	root := t.TempDir()

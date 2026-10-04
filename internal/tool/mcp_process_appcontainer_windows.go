@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -139,11 +140,12 @@ func (p *appContainerMCPProcess) Start() error {
 	if _, err := windows.SetInformationJobObject(p.job, windows.JobObjectExtendedLimitInformation, uintptr(unsafe.Pointer(&limits)), uint32(unsafe.Sizeof(limits))); err != nil {
 		return err
 	}
-	appName, err := windows.UTF16PtrFromString(p.command)
+	command, commandArgs := resolveWindowsMCPCommand(p.command, p.args, os.Getenv("ComSpec"))
+	appName, err := windows.UTF16PtrFromString(command)
 	if err != nil {
 		return err
 	}
-	cmdLine, err := windows.UTF16FromString(quoteWindowsArgs(append([]string{p.command}, p.args...)))
+	cmdLine, err := windows.UTF16FromString(quoteWindowsArgs(append([]string{command}, commandArgs...)))
 	if err != nil {
 		return err
 	}
@@ -183,6 +185,23 @@ func (p *appContainerMCPProcess) Start() error {
 	started = true
 	go func() { _, _ = io.Copy(io.Discard, p.stderrR) }()
 	return nil
+}
+
+func resolveWindowsMCPCommand(command string, args []string, comspec string) (string, []string) {
+	resolved := command
+	if filepath.Ext(command) == "" {
+		for _, extension := range []string{".exe", ".cmd", ".bat"} {
+			if candidate, err := exec.LookPath(command + extension); err == nil {
+				resolved = candidate
+				break
+			}
+		}
+	}
+	extension := strings.ToLower(filepath.Ext(resolved))
+	if (extension == ".cmd" || extension == ".bat") && comspec != "" {
+		return comspec, append([]string{"/d", "/s", "/c", "call", resolved}, args...)
+	}
+	return resolved, args
 }
 
 func quoteWindowsArgs(args []string) string {

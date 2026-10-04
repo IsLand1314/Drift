@@ -1,0 +1,6 @@
+Browser MCP candidate probe
+
+Command: npx -y @playwright/mcp --help
+Result: exit 0; Playwright MCP CLI was available and exposed headless/browser, allowed-hosts, allowed-origins, and file-access controls.
+
+Not added to .drift/mcp.json and not run against a live site. A browser server introduces network, browser-profile, download, and origin-policy side effects; it should be a separately approved acceptance target after the stdio filesystem chain and Windows child-sandbox boundary are closed.
