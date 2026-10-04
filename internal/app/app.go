@@ -372,9 +372,11 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 			tasks.SetCoordinator(coordinatorpkg.NewRunner(taskRunner, taskMerger, coordinatorpkg.Options{MaxConcurrency: agent.DefaultChildConcurrency}))
 		}
 	}
-	if memoryRepo, memoryErr := memory.NewRepository(selection.Root); memoryErr == nil {
+	var memoryRepo *memory.Repository
+	if repo, memoryErr := memory.NewRepository(selection.Root); memoryErr == nil {
+		memoryRepo = repo
 		if memories, ok := registry.(tool.MemoryRegistry); ok {
-			memories.SetMemoryRepository(memoryRepo)
+			memories.SetMemoryRepository(repo)
 		}
 	}
 	if chat {
@@ -411,7 +413,7 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 					return 2
 				}
 			}
-			persistence = &chatPersistence{store: store, snapshot: snapshot, persistent: true, registry: registry}
+			persistence = &chatPersistence{store: store, snapshot: snapshot, persistent: true, registry: registry, memoryRepo: memoryRepo}
 			persistence.usage = usageTotals{InputTokens: snapshot.InputTokens, OutputTokens: snapshot.OutputTokens, ReportedRequests: snapshot.ReportedRequests, UnreportedRequests: snapshot.UnreportedRequests}
 			if _, _, isTTY := tuiMainScreenFiles(in, out); !isTTY {
 				fmt.Fprintf(stderr, "Session ID: %s\n注意：此会话会保存完整本地上下文，可能包含用户输入和读取结果；使用 --no-session 可关闭\n", snapshot.ID)
@@ -423,13 +425,13 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 				return 1
 			}
 			runner = agent.NewRunnerWithSystemContext(modelClient{Client: client, model: *model}, selection.Root, selection.Focus, selectedSkill.Name, selectedSkill.Content, registry)
-			persistence = &chatPersistence{store: store, snapshot: snapshot, persistent: true, registry: registry}
+			persistence = &chatPersistence{store: store, snapshot: snapshot, persistent: true, registry: registry, memoryRepo: memoryRepo}
 			if _, _, isTTY := tuiMainScreenFiles(in, out); !isTTY {
 				fmt.Fprintf(stderr, "Session ID: %s\n注意：此会话会保存完整本地上下文，可能包含用户输入和读取结果；使用 --no-session 可关闭\n", snapshot.ID)
 			}
 		} else {
 			runner = agent.NewRunnerWithSystemContext(modelClient{Client: client, model: *model}, selection.Root, selection.Focus, selectedSkill.Name, selectedSkill.Content, registry)
-			persistence = &chatPersistence{persistent: false, registry: registry}
+			persistence = &chatPersistence{persistent: false, registry: registry, memoryRepo: memoryRepo}
 			if _, _, isTTY := tuiMainScreenFiles(in, out); !isTTY {
 				fmt.Fprintln(stderr, "已禁用完整会话保存（--no-session）；仍保留脱敏审计")
 			}

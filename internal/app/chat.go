@@ -16,6 +16,7 @@ import (
 	"github.com/IsLand1314/Drift/internal/config"
 	"github.com/IsLand1314/Drift/internal/conversation"
 	"github.com/IsLand1314/Drift/internal/llm"
+	"github.com/IsLand1314/Drift/internal/memory"
 	"github.com/IsLand1314/Drift/internal/session"
 	"github.com/IsLand1314/Drift/internal/tool"
 )
@@ -40,6 +41,7 @@ type chatPersistence struct {
 	persistent bool
 	usage      usageTotals
 	registry   tool.Registry
+	memoryRepo *memory.Repository
 }
 
 type usageTotals struct {
@@ -562,6 +564,11 @@ func runTuiMainScreenLoop(ctx context.Context, runner *agent.Runner, audit sessi
 			}
 			continue
 		}
+		if prompt == "/memory" || strings.HasPrefix(prompt, "/memory ") {
+			if handled := handleMemoryCommand(prompt, runner, persistence, out); handled {
+				continue
+			}
+		}
 		if prompt == "/search" || strings.HasPrefix(prompt, "/search ") {
 			query := strings.TrimSpace(strings.TrimPrefix(prompt, "/search"))
 			if persistence == nil || !persistence.persistent {
@@ -755,6 +762,76 @@ func runTuiMainScreenLoop(ctx context.Context, runner *agent.Runner, audit sessi
 			}
 		}
 	}
+}
+
+func handleMemoryCommand(prompt string, runner *agent.Runner, persistence *chatPersistence, out io.Writer) bool {
+	parts := strings.Fields(strings.TrimSpace(strings.TrimPrefix(prompt, "/memory")))
+	if len(parts) == 0 {
+		items := runner.ShortTermMemory().Items()
+		if len(items) == 0 {
+			fmt.Fprintln(out, "短期记忆为空")
+		} else {
+			for _, item := range items {
+				fmt.Fprintf(out, "%s: %s\n", item.Kind, item.Text)
+			}
+		}
+		return true
+	}
+	switch parts[0] {
+	case "clear":
+		runner.RestoreShortTermMemory(nil)
+		if persistence != nil {
+			_ = persistence.saveRunner(runner)
+		}
+		fmt.Fprintln(out, "已清空短期记忆")
+	case "remember":
+		if len(parts) < 3 {
+			fmt.Fprintln(out, "用法：/memory remember <kind> <text>")
+			return true
+		}
+		if err := runner.ShortTermMemory().Remember(memory.Kind(parts[1]), strings.Join(parts[2:], " "), "user-command"); err != nil {
+			fmt.Fprintln(out, "记忆写入失败：", err)
+			return true
+		}
+		if persistence != nil {
+			_ = persistence.saveRunner(runner)
+		}
+		fmt.Fprintln(out, "已记录短期记忆")
+	case "delete":
+		if len(parts) < 3 {
+			fmt.Fprintln(out, "用法：/memory delete <kind> <text>")
+			return true
+		}
+		runner.ShortTermMemory().Delete(memory.Kind(parts[1]), strings.Join(parts[2:], " "))
+		if persistence != nil {
+			_ = persistence.saveRunner(runner)
+		}
+		fmt.Fprintln(out, "已删除短期记忆")
+	case "search":
+		if persistence == nil || persistence.memoryRepo == nil {
+			fmt.Fprintln(out, "长期记忆不可用")
+			return true
+		}
+		if len(parts) < 2 {
+			fmt.Fprintln(out, "用法：/memory search <query>")
+			return true
+		}
+		items, err := persistence.memoryRepo.Search(strings.Join(parts[1:], " "), 20)
+		if err != nil {
+			fmt.Fprintln(out, "长期记忆检索失败：", err)
+			return true
+		}
+		if len(items) == 0 {
+			fmt.Fprintln(out, "没有匹配的长期记忆")
+			return true
+		}
+		for _, item := range items {
+			fmt.Fprintf(out, "%s [%s]: %s\n", item.Kind, item.Status, item.Text)
+		}
+	default:
+		fmt.Fprintln(out, "用法：/memory | /memory clear | /memory remember <kind> <text> | /memory delete <kind> <text> | /memory search <query>")
+	}
+	return true
 }
 
 func compactChatContext(ctx context.Context, runner *agent.Runner, audit session.Writer, traceSink agent.EventSink, persistence *chatPersistence) (agent.CompactResult, error) {

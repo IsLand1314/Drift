@@ -312,7 +312,11 @@ func (t taskUpdateTool) Execute(_ context.Context, _ string, raw string) (string
 		item.Worktree = args.Worktree
 	}
 	t.store.tasks[item.ID] = item
-	return formatTask(item), nil
+	result := formatTask(item)
+	if item.Status == "completed" {
+		result += "\nTask completed and should be verified; if the result is reusable, call ExperiencePropose and wait for user confirmation before ExperienceSave."
+	}
+	return result, nil
 }
 
 func (t taskSwitchTool) Execute(_ context.Context, root string, raw string) (string, error) {

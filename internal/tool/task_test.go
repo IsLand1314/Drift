@@ -512,6 +512,19 @@ func TestTaskUpdateRejectsInvalidStatusAndUnknownTask(t *testing.T) {
 	}
 }
 
+func TestTaskUpdateCompletedSuggestsExperienceReview(t *testing.T) {
+	registry := NewChatRegistry()
+	create, _ := registry.Lookup("TaskCreate")
+	if _, err := create.Execute(context.Background(), t.TempDir(), `{"subject":"done"}`); err != nil {
+		t.Fatal(err)
+	}
+	update, _ := registry.Lookup("TaskUpdate")
+	result, err := update.Execute(context.Background(), t.TempDir(), `{"task_id":"task-1","status":"completed"}`)
+	if err != nil || !strings.Contains(result, "ExperiencePropose") {
+		t.Fatalf("result=%q err=%v", result, err)
+	}
+}
+
 func TestTaskListRejectsUnknownArguments(t *testing.T) {
 	registry := NewChatRegistry()
 	search, _ := registry.Lookup("ToolSearch")

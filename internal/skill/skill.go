@@ -2,12 +2,14 @@
 package skill
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strings"
 	"unicode/utf8"
 )
 
@@ -17,15 +19,24 @@ var skillNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
 
 // Info describes a discoverable Skill without loading its contents.
 type Info struct {
-	Name string
-	Path string
-	Size int64
+	Name        string
+	Path        string
+	Size        int64
+	Version     string
+	Description string
+	Enabled     bool
 }
 
 // Skill is one validated workspace Skill.
 type Skill struct {
 	Info
 	Content string
+}
+
+type Manifest struct {
+	Name        string `json:"name"`
+	Version     string `json:"version"`
+	Description string `json:"description,omitempty"`
 }
 
 // ValidateName reports whether name is a safe Skill directory name.
@@ -51,7 +62,12 @@ func List(root string) ([]Info, error) {
 		if statErr != nil || info.Size() > maxSkillBytes {
 			continue
 		}
-		items = append(items, Info{Name: entry.Name(), Path: path, Size: info.Size()})
+		manifest, manifestErr := readManifest(filepath.Join(dir, entry.Name()), entry.Name())
+		if manifestErr != nil {
+			continue
+		}
+		enabled, _ := IsEnabled(root, entry.Name())
+		items = append(items, Info{Name: entry.Name(), Path: path, Size: info.Size(), Version: manifest.Version, Description: manifest.Description, Enabled: enabled})
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
 	return items, nil
@@ -61,6 +77,9 @@ func List(root string) ([]Info, error) {
 func Load(root, name string) (Skill, error) {
 	if !ValidateName(name) {
 		return Skill{}, fmt.Errorf("skill: invalid name")
+	}
+	if enabled, err := IsEnabled(root, name); err != nil || !enabled {
+		return Skill{}, fmt.Errorf("skill: disabled")
 	}
 	path := filepath.Join(root, ".drift", "skills", name, "SKILL.md")
 	info, err := regularFile(path)
@@ -80,8 +99,32 @@ func Load(root, name string) (Skill, error) {
 	if !utf8.Valid(data) {
 		return Skill{}, fmt.Errorf("skill: entry is not UTF-8")
 	}
-	return Skill{Info: Info{Name: name, Path: path, Size: int64(len(data))}, Content: string(data)}, nil
+	manifest, err := readManifest(filepath.Dir(path), name)
+	if err != nil {
+		return Skill{}, err
+	}
+	return Skill{Info: Info{Name: name, Path: path, Size: int64(len(data)), Version: manifest.Version, Description: manifest.Description}, Content: string(data)}, nil
 }
+
+func readManifest(dir, name string) (Manifest, error) {
+	data, err := os.ReadFile(filepath.Join(dir, "skill.json"))
+	if errors.Is(err, os.ErrNotExist) {
+		return Manifest{Name: name, Version: "0.0.0"}, nil
+	}
+	if err != nil {
+		return Manifest{}, fmt.Errorf("skill: manifest unreadable")
+	}
+	var manifest Manifest
+	decoder := json.NewDecoder(strings.NewReader(string(data)))
+	if decoder.Decode(&manifest) != nil || manifest.Name != name || !validVersion(manifest.Version) || len([]byte(manifest.Description)) > 512 {
+		return Manifest{}, fmt.Errorf("skill: invalid manifest")
+	}
+	return manifest, nil
+}
+
+var versionPattern = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
+
+func validVersion(version string) bool { return versionPattern.MatchString(version) }
 
 func regularFile(path string) (os.FileInfo, error) {
 	info, err := os.Lstat(path)

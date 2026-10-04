@@ -17,6 +17,7 @@ import (
 	"github.com/IsLand1314/Drift/internal/agent"
 	"github.com/IsLand1314/Drift/internal/conversation"
 	"github.com/IsLand1314/Drift/internal/llm"
+	"github.com/IsLand1314/Drift/internal/memory"
 	"github.com/IsLand1314/Drift/internal/session"
 	"github.com/IsLand1314/Drift/internal/tool"
 )
@@ -52,6 +53,36 @@ func (answerClient) Stream(_ context.Context, _ llm.Request, emit func(llm.Strea
 type blockingReader struct {
 	started chan struct{}
 	release chan struct{}
+}
+
+func TestMemoryCommandsManageShortAndLongTermMemory(t *testing.T) {
+	root := t.TempDir()
+	repo, err := memory.NewRepository(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := agent.NewRunner(nil, root, "", tool.NewDefaultRegistry())
+	persistence := &chatPersistence{memoryRepo: repo}
+	var out bytes.Buffer
+	if !handleMemoryCommand("/memory remember fact viewport stays stable", runner, persistence, &out) {
+		t.Fatal("command not handled")
+	}
+	if len(runner.ShortTermMemory().Items()) != 1 {
+		t.Fatalf("short memory=%v", runner.ShortTermMemory().Items())
+	}
+	if err := repo.Add(memory.Item{Kind: memory.KindExperience, Text: "viewport stable", Status: "verified"}); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	handleMemoryCommand("/memory search viewport", runner, persistence, &out)
+	if !strings.Contains(out.String(), "viewport stable") {
+		t.Fatalf("search output=%q", out.String())
+	}
+	out.Reset()
+	handleMemoryCommand("/memory clear", runner, persistence, &out)
+	if len(runner.ShortTermMemory().Items()) != 0 {
+		t.Fatal("short memory not cleared")
+	}
 }
 
 func (r *blockingReader) Read([]byte) (int, error) {

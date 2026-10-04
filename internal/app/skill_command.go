@@ -11,8 +11,8 @@ import (
 )
 
 func runSkillCommand(args []string, out, stderr io.Writer) int {
-	if len(args) == 0 || (args[0] != "list" && args[0] != "show" && args[0] != "install" && args[0] != "remove") {
-		fmt.Fprintln(stderr, "用法：drift skill list|show|install|remove [-w 路径]")
+	if len(args) == 0 || (args[0] != "list" && args[0] != "show" && args[0] != "install" && args[0] != "remove" && args[0] != "enable" && args[0] != "disable") {
+		fmt.Fprintln(stderr, "用法：drift skill list|show|install|remove|enable|disable [-w 路径]")
 		return 2
 	}
 	if args[0] == "install" {
@@ -20,6 +20,9 @@ func runSkillCommand(args []string, out, stderr io.Writer) int {
 	}
 	if args[0] == "remove" {
 		return runSkillRemove(args[1:], out, stderr)
+	}
+	if args[0] == "enable" || args[0] == "disable" {
+		return runSkillToggle(args[1:], args[0] == "enable", out, stderr)
 	}
 	workspaceTarget, name, err := parseSkillArgs(args[1:], args[0] == "show")
 	if err != nil {
@@ -56,11 +59,38 @@ func runSkillCommand(args []string, out, stderr io.Writer) int {
 	return 0
 }
 
-func runSkillInstall(args []string, out, stderr io.Writer) int {
-	workspaceTarget, source, name, err := parseSkillInstallArgs(args)
+func runSkillToggle(args []string, enabled bool, out, stderr io.Writer) int {
+	workspaceTarget, name, err := parseSkillRemoveArgs(args)
 	if err != nil {
 		fmt.Fprintln(stderr, "错误：", err)
 		return 2
+	}
+	launchDir, err := os.Getwd()
+	if err != nil {
+		return 1
+	}
+	selection, err := resolveWorkspace(launchDir, workspaceTarget)
+	if err != nil {
+		fmt.Fprintln(stderr, "错误：workspace 目标无效")
+		return 2
+	}
+	if err := skill.SetEnabled(selection.Root, name, enabled); err != nil {
+		fmt.Fprintln(stderr, "错误：Skill 状态更新失败")
+		return 1
+	}
+	fmt.Fprintf(out, "已%s Skill：%s\n", map[bool]string{true: "启用", false: "禁用"}[enabled], name)
+	return 0
+}
+
+func runSkillInstall(args []string, out, stderr io.Writer) int {
+	workspaceTarget, source, name, preview, err := parseSkillInstallArgs(args)
+	if err != nil {
+		fmt.Fprintln(stderr, "错误：", err)
+		return 2
+	}
+	if preview {
+		fmt.Fprintf(out, "预览 Skill 安装：source=%s name=%s（只复制 SKILL.md 和 skill.json，不执行内容）\n", source, name)
+		return 0
 	}
 	launchDir, err := os.Getwd()
 	if err != nil {
@@ -104,30 +134,34 @@ func runSkillRemove(args []string, out, stderr io.Writer) int {
 	return 0
 }
 
-func parseSkillInstallArgs(args []string) (workspace, source, name string, err error) {
+func parseSkillInstallArgs(args []string) (workspace, source, name string, preview bool, err error) {
 	var positional []string
 	for i := 0; i < len(args); i++ {
 		if args[i] == "-w" {
 			if i+1 >= len(args) || strings.TrimSpace(args[i+1]) == "" {
-				return "", "", "", fmt.Errorf("-w 需要路径")
+				return "", "", "", false, fmt.Errorf("-w 需要路径")
 			}
 			workspace, i = args[i+1], i+1
 			continue
 		}
+		if args[i] == "--preview" {
+			preview = true
+			continue
+		}
 		if strings.HasPrefix(args[i], "-") {
-			return "", "", "", fmt.Errorf("不支持参数 %s", args[i])
+			return "", "", "", false, fmt.Errorf("不支持参数 %s", args[i])
 		}
 		positional = append(positional, args[i])
 	}
 	if len(positional) < 1 || len(positional) > 2 {
-		return "", "", "", fmt.Errorf("install 需要 source [name]")
+		return "", "", "", false, fmt.Errorf("install 需要 source [name]")
 	}
 	source = positional[0]
 	name = filepath.Base(filepath.Clean(source))
 	if len(positional) == 2 {
 		name = positional[1]
 	}
-	return workspace, source, name, nil
+	return workspace, source, name, preview, nil
 }
 
 func parseSkillRemoveArgs(args []string) (workspace, name string, err error) {
