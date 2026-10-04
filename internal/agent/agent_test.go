@@ -408,6 +408,28 @@ func TestRunnerCompactUsesNoToolsAndKeepsRecentMessages(t *testing.T) {
 	}
 }
 
+func TestRunnerCompactKeepsCompleteToolCallBoundary(t *testing.T) {
+	client := &scriptedClient{steps: []scriptedStep{{
+		events:     []llm.StreamEvent{{Text: "summary"}},
+		completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "summary"}, FinishReason: "stop"},
+	}}}
+	call := llm.ToolCall{ID: "call-1", Type: "function", Name: "ReadFile", Arguments: `{"path":"README.md"}`}
+	runner := NewRunnerWithMessages(client, t.TempDir(), "", tool.NewDefaultRegistry(), []llm.Message{
+		{Role: "user", Content: "old question"},
+		{Role: "assistant", ToolCalls: []llm.ToolCall{call}},
+		{Role: "tool", ToolCallID: call.ID, Content: "old result"},
+		{Role: "user", Content: "recent question"},
+		{Role: "assistant", Content: "recent answer"},
+	})
+	if _, err := runner.Compact(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	messages := runner.Messages()
+	if len(messages) != 6 || messages[1].Role != "user" || messages[2].Role != "assistant" || len(messages[2].ToolCalls) != 1 || messages[3].Role != "tool" {
+		t.Fatalf("messages=%#v, want summary followed by a complete tool-call boundary", messages)
+	}
+}
+
 func TestRunnerCompactFailurePreservesMessages(t *testing.T) {
 	original := []llm.Message{{Role: "user", Content: "one"}, {Role: "assistant", Content: "two"}}
 	client := &scriptedClient{steps: []scriptedStep{{err: errors.New("provider failed")}}}
@@ -415,6 +437,31 @@ func TestRunnerCompactFailurePreservesMessages(t *testing.T) {
 	_, err := runner.Compact(context.Background())
 	if err == nil || !reflect.DeepEqual(runner.Messages(), original) {
 		t.Fatalf("err=%v messages=%#v, want original messages", err, runner.Messages())
+	}
+}
+
+func TestRunnerCompactInvalidSummaryPreservesMessages(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		text string
+	}{
+		{name: "empty", text: ""},
+		{name: "pseudo tool", text: "<｜｜DSML｜｜tool_call>"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			original := []llm.Message{{Role: "user", Content: "one"}, {Role: "assistant", Content: "two"}}
+			client := &scriptedClient{steps: []scriptedStep{{
+				events:     []llm.StreamEvent{{Text: tc.text}},
+				completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: tc.text}, FinishReason: "stop"},
+			}}}
+			runner := NewRunnerWithMessages(client, t.TempDir(), "", tool.NewDefaultRegistry(), original)
+			if _, err := runner.Compact(context.Background()); err == nil {
+				t.Fatal("Compact() error = nil, want invalid summary error")
+			}
+			if !reflect.DeepEqual(runner.Messages(), original) {
+				t.Fatalf("messages=%#v, want original=%#v", runner.Messages(), original)
+			}
+		})
 	}
 }
 
@@ -426,6 +473,40 @@ func TestRunnerCompactSkipsInsufficientMessages(t *testing.T) {
 	}
 	if len(client.requests) != 0 {
 		t.Fatalf("provider requests=%d, want 0", len(client.requests))
+	}
+}
+
+func TestRunnerAutomaticallyCompactsBeforeRequestBudgetOverflow(t *testing.T) {
+	client := &scriptedClient{steps: []scriptedStep{
+		{events: []llm.StreamEvent{{Text: "verified summary"}}, completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "verified summary"}, FinishReason: "stop"}},
+		{events: []llm.StreamEvent{{Text: "continued"}}, completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "continued"}, FinishReason: "stop"}},
+	}}
+	runner := NewRunnerWithMessages(client, t.TempDir(), "", tool.NewDefaultRegistry(), []llm.Message{
+		{Role: "user", Content: "old question"},
+		{Role: "assistant", Content: "old answer"},
+	})
+	need := CompactionTriggerBytes - runner.ContextBytes() + 128
+	runner.messages[0].Content += strings.Repeat("x", need)
+	var events []Event
+	if err := runner.RunEvents(context.Background(), "continue", func(event Event) error {
+		events = append(events, event)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(client.requests) != 2 || !strings.Contains(client.requests[0].Messages[0].Content, "Summarize") {
+		t.Fatalf("requests=%#v, want compaction then normal request", client.requests)
+	}
+	var started, finished bool
+	for _, event := range events {
+		started = started || event.Type == EventCompactionStarted
+		finished = finished || event.Type == EventCompactionFinished
+	}
+	if !started || !finished {
+		t.Fatalf("events=%+v, want compaction lifecycle", events)
+	}
+	if got := runner.Messages()[0].Content; got != "verified summary" {
+		t.Fatalf("messages after compaction=%#v", runner.Messages())
 	}
 }
 

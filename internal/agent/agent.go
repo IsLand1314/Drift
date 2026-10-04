@@ -207,6 +207,27 @@ const compactKeepMessages = 4
 
 const compactionInstruction = "Summarize this read-only coding conversation for continuation. Keep verified facts, relevant relative file paths, conclusions, decisions, and unfinished tasks. Do not emit tool calls, XML, DSML, credentials, or claims about actions that did not happen. Return only the concise summary text."
 
+// compactionStart moves the retention boundary before a tool exchange. A
+// retained context must not begin with an orphan tool result or an assistant
+// tool call whose result is outside the retained slice.
+func compactionStart(messages []llm.Message, start int) int {
+	if start < 0 {
+		return 0
+	}
+	if start > len(messages) {
+		return len(messages)
+	}
+	for start > 0 {
+		message := messages[start]
+		if message.Role == "tool" || (message.Role == "assistant" && len(message.ToolCalls) > 0) {
+			start--
+			continue
+		}
+		break
+	}
+	return start
+}
+
 // Compact summarizes old messages and atomically replaces the Runner context on success.
 func (r *Runner) Compact(ctx context.Context) (CompactResult, error) {
 	if len(r.messages) < 2 {
@@ -239,9 +260,7 @@ func (r *Runner) Compact(ctx context.Context) (CompactResult, error) {
 	if start < 0 {
 		start = 0
 	}
-	for start > 0 && oldMessages[start].Role == "tool" {
-		start--
-	}
+	start = compactionStart(oldMessages, start)
 	kept := cloneMessages(oldMessages[start:])
 	summary := llm.Message{Role: "assistant", Content: text}
 	updated := append([]llm.Message{summary}, kept...)
@@ -308,11 +327,27 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) (
 
 	r.messages = append(r.messages, llm.Message{Role: "user", Content: prompt})
 	toolCalls, resultBytes := 0, 0
+	autoCompacted := false
 	// 达到预算后，最后一轮撤掉 tools，强制模型基于已有结果给出回答。
 	forceFinal := false
 	forceFinalInstruction := ""
 	pseudoToolRetryUsed := false
 	for requestIndex := 0; requestIndex < MaxModelRequests; requestIndex++ {
+		if !autoCompacted && !forceFinal && len(r.messages) >= 2 && r.ContextBytes() <= MaxConversationBytes && r.NeedsCompaction(0) {
+			beforeBytes := r.ContextBytes()
+			if err := emit(Event{Type: EventCompactionStarted, BeforeBytes: beforeBytes, MessageCount: len(r.messages)}); err != nil {
+				return err
+			}
+			result, compactErr := r.Compact(ctx)
+			if compactErr != nil {
+				_ = emit(Event{Type: EventCompactionError, Error: sanitizeError(r.root, compactErr.Error()), Stage: "agent_compaction", BeforeBytes: beforeBytes, MessageCount: len(r.messages)})
+				return fail(compactErr)
+			}
+			autoCompacted = true
+			if err := emit(Event{Type: EventCompactionFinished, BeforeBytes: result.BeforeBytes, AfterBytes: result.AfterBytes, MessageCount: len(r.messages), KeptMessages: len(result.KeptMessages)}); err != nil {
+				return err
+			}
+		}
 		definitions := r.registry.Definitions()
 		requestMessages := r.messages
 		if requestIndex == 0 || forceFinal {
