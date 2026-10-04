@@ -52,6 +52,21 @@ func (m *mcpManager) Connect(ctx context.Context, name string) error {
 		}
 		env = append(env, ref+"="+value)
 	}
+	if len(server.Headers) > 0 {
+		resolved := make(map[string]string, len(server.Headers))
+		for key, value := range server.Headers {
+			if strings.HasPrefix(value, "${") && strings.HasSuffix(value, "}") {
+				ref := strings.TrimSuffix(strings.TrimPrefix(value, "${"), "}")
+				resolvedValue, exists := os.LookupEnv(ref)
+				if !exists {
+					return fmt.Errorf("MCP header environment reference %q is not set", ref)
+				}
+				value = resolvedValue
+			}
+			resolved[key] = value
+		}
+		server.Headers = resolved
+	}
 	client, err := mcp.Start(ctx, server, env)
 	if err != nil {
 		m.record(name, "connection_failed", err)
@@ -107,7 +122,43 @@ func handleMCPCommand(ctx context.Context, text string, manager *mcpManager) (st
 		return strings.Join(lines, "\n"), true
 	}
 	if text == "/mcp" {
-		return "用法：/mcp list 或 /mcp connect <name>", true
+		return "用法：/mcp list、/mcp connect <name>、/mcp resources <name> 或 /mcp prompts <name>", true
+	}
+	for _, kind := range []string{"resources", "prompts"} {
+		prefix := "/mcp " + kind + " "
+		if strings.HasPrefix(text, prefix) {
+			name := strings.TrimSpace(strings.TrimPrefix(text, prefix))
+			client, ok := manager.clients[name]
+			if !ok {
+				return "MCP 未连接：" + name, true
+			}
+			if kind == "resources" {
+				items, err := client.ListResources(ctx)
+				if err != nil {
+					return "MCP resources 失败：" + err.Error(), true
+				}
+				lines := make([]string, 0, len(items))
+				for _, item := range items {
+					lines = append(lines, item.Name+" · "+item.URI)
+				}
+				if len(lines) == 0 {
+					return "MCP：没有 resources", true
+				}
+				return strings.Join(lines, "\n"), true
+			}
+			items, err := client.ListPrompts(ctx)
+			if err != nil {
+				return "MCP prompts 失败：" + err.Error(), true
+			}
+			lines := make([]string, 0, len(items))
+			for _, item := range items {
+				lines = append(lines, item.Name)
+			}
+			if len(lines) == 0 {
+				return "MCP：没有 prompts", true
+			}
+			return strings.Join(lines, "\n"), true
+		}
 	}
 	const prefix = "/mcp connect "
 	if strings.HasPrefix(text, prefix) {
@@ -121,7 +172,7 @@ func handleMCPCommand(ctx context.Context, text string, manager *mcpManager) (st
 		return "MCP 已连接：" + name, true
 	}
 	if strings.HasPrefix(text, "/mcp ") {
-		return "用法：/mcp list 或 /mcp connect <name>", true
+		return "用法：/mcp list、/mcp connect <name>、/mcp resources <name> 或 /mcp prompts <name>", true
 	}
 	return "", false
 }

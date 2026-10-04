@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"runtime"
@@ -25,16 +26,46 @@ type Tool struct {
 
 type Result struct{ Text string }
 
+type ContentBlock struct {
+	Type     string `json:"type"`
+	Text     string `json:"text,omitempty"`
+	URI      string `json:"uri,omitempty"`
+	MimeType string `json:"mimeType,omitempty"`
+	Data     string `json:"data,omitempty"`
+}
+type Resource struct {
+	URI         string `json:"uri"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	MimeType    string `json:"mimeType,omitempty"`
+}
+type PromptArgument struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Required    bool   `json:"required,omitempty"`
+}
+type Prompt struct {
+	Name        string           `json:"name"`
+	Description string           `json:"description,omitempty"`
+	Arguments   []PromptArgument `json:"arguments,omitempty"`
+}
+
 type Client struct {
-	mu     sync.Mutex
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	stdout *bufio.Reader
-	nextID int
-	closed bool
+	mu         sync.Mutex
+	cmd        *exec.Cmd
+	stdin      io.WriteCloser
+	stdout     *bufio.Reader
+	nextID     int
+	closed     bool
+	httpClient *http.Client
+	endpoint   string
+	headers    map[string]string
 }
 
 func Start(ctx context.Context, server Server, env []string) (*Client, error) {
+	if server.Transport == "http" || server.Transport == "streamable-http" {
+		return startHTTP(ctx, server)
+	}
 	if server.Transport != "stdio" || server.Command == "" {
 		return nil, errors.New("mcp: invalid stdio server")
 	}
@@ -65,6 +96,23 @@ func Start(ctx context.Context, server Server, env []string) (*Client, error) {
 	}
 	if err := client.notify("notifications/initialized", map[string]any{}); err != nil {
 		_ = client.Close()
+		return nil, err
+	}
+	return client, nil
+}
+
+func startHTTP(ctx context.Context, server Server) (*Client, error) {
+	client := &Client{httpClient: &http.Client{}, endpoint: server.URL, headers: server.Headers}
+	var initialized struct {
+		ProtocolVersion string `json:"protocolVersion"`
+	}
+	if err := client.request(ctx, "initialize", map[string]any{"protocolVersion": "2024-11-05", "capabilities": map[string]any{}, "clientInfo": map[string]string{"name": "Drift", "version": "m5.14"}}, &initialized); err != nil {
+		return nil, err
+	}
+	if initialized.ProtocolVersion == "" {
+		return nil, errors.New("mcp: server did not negotiate protocol version")
+	}
+	if err := client.notify("notifications/initialized", map[string]any{}); err != nil {
 		return nil, err
 	}
 	return client, nil
@@ -139,11 +187,8 @@ func (c *Client) CallTool(ctx context.Context, name string, args json.RawMessage
 		return Result{}, errors.New("mcp: invalid tool call")
 	}
 	var response struct {
-		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"content"`
-		IsError bool `json:"isError"`
+		Content []ContentBlock `json:"content"`
+		IsError bool           `json:"isError"`
 	}
 	if err := c.request(ctx, "tools/call", map[string]any{"name": name, "arguments": json.RawMessage(args)}, &response); err != nil {
 		return Result{}, err
@@ -164,6 +209,49 @@ func (c *Client) CallTool(ctx context.Context, name string, args json.RawMessage
 	return Result{Text: output.String()}, nil
 }
 
+func (c *Client) ListResources(ctx context.Context) ([]Resource, error) {
+	var response struct {
+		Resources []Resource `json:"resources"`
+	}
+	if err := c.request(ctx, "resources/list", map[string]any{}, &response); err != nil {
+		return nil, err
+	}
+	return response.Resources, nil
+}
+func (c *Client) ReadResource(ctx context.Context, uri string) ([]ContentBlock, error) {
+	if strings.TrimSpace(uri) == "" || len(uri) > 2048 {
+		return nil, errors.New("mcp: invalid resource URI")
+	}
+	var response struct {
+		Contents []ContentBlock `json:"contents"`
+	}
+	if err := c.request(ctx, "resources/read", map[string]any{"uri": uri}, &response); err != nil {
+		return nil, err
+	}
+	return response.Contents, nil
+}
+func (c *Client) ListPrompts(ctx context.Context) ([]Prompt, error) {
+	var response struct {
+		Prompts []Prompt `json:"prompts"`
+	}
+	if err := c.request(ctx, "prompts/list", map[string]any{}, &response); err != nil {
+		return nil, err
+	}
+	return response.Prompts, nil
+}
+func (c *Client) GetPrompt(ctx context.Context, name string, args map[string]string) ([]ContentBlock, error) {
+	if !identifier.MatchString(name) {
+		return nil, errors.New("mcp: invalid prompt name")
+	}
+	var response struct {
+		Messages []ContentBlock `json:"messages"`
+	}
+	if err := c.request(ctx, "prompts/get", map[string]any{"name": name, "arguments": args}, &response); err != nil {
+		return nil, err
+	}
+	return response.Messages, nil
+}
+
 func (c *Client) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -175,6 +263,9 @@ func (c *Client) Close() error {
 
 func (c *Client) terminateLocked() error {
 	c.closed = true
+	if c.httpClient != nil {
+		return nil
+	}
 	_ = c.stdin.Close()
 	if c.cmd.Process != nil {
 		_ = c.cmd.Process.Kill()
@@ -183,12 +274,18 @@ func (c *Client) terminateLocked() error {
 }
 
 func (c *Client) notify(method string, params any) error {
+	if c.httpClient != nil {
+		return c.httpNotify(context.Background(), method, params)
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.write(map[string]any{"jsonrpc": "2.0", "method": method, "params": params})
 }
 
 func (c *Client) request(ctx context.Context, method string, params any, result any) error {
+	if c.httpClient != nil {
+		return c.httpRequest(ctx, method, params, result)
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.closed {
@@ -246,6 +343,111 @@ func (c *Client) request(ctx context.Context, method string, params any, result 
 		}
 		return nil
 	}
+}
+
+func (c *Client) httpNotify(ctx context.Context, method string, params any) error {
+	body, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "method": method, "params": params})
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, strings.NewReader(string(body)))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	for key, value := range c.headers {
+		req.Header.Set(key, value)
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("mcp: http status %s", resp.Status)
+	}
+	return nil
+}
+
+func (c *Client) httpRequest(ctx context.Context, method string, params any, result any) error {
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return errors.New("mcp: client is closed")
+	}
+	c.nextID++
+	id := c.nextID
+	c.mu.Unlock()
+	body, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params})
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, strings.NewReader(string(body)))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	for key, value := range c.headers {
+		req.Header.Set(key, value)
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("mcp: http request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("mcp: http status %s", resp.Status)
+	}
+	raw, err := readHTTPResponse(resp.Body, resp.Header.Get("Content-Type"))
+	if err != nil {
+		return err
+	}
+	return decodeResponse(raw, id, result)
+}
+
+func readHTTPResponse(body io.Reader, contentType string) ([]byte, error) {
+	if strings.Contains(strings.ToLower(contentType), "text/event-stream") {
+		scanner := bufio.NewScanner(body)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if strings.HasPrefix(line, "data:") {
+				return []byte(strings.TrimSpace(strings.TrimPrefix(line, "data:"))), nil
+			}
+		}
+		if err := scanner.Err(); err != nil {
+			return nil, err
+		}
+		return nil, errors.New("mcp: empty SSE response")
+	}
+	return io.ReadAll(io.LimitReader(body, maxMessageBytes+1))
+}
+
+func decodeResponse(raw []byte, id int, result any) error {
+	if len(raw) > maxMessageBytes {
+		return errors.New("mcp: message exceeds limit")
+	}
+	var response struct {
+		JSONRPC string          `json:"jsonrpc"`
+		ID      int             `json:"id"`
+		Result  json.RawMessage `json:"result"`
+		Error   *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(raw, &response); err != nil {
+		return fmt.Errorf("mcp: decode response: %w", err)
+	}
+	if response.JSONRPC != "2.0" || response.ID != id {
+		return errors.New("mcp: invalid response id")
+	}
+	if response.Error != nil {
+		return fmt.Errorf("mcp: server error: %s", response.Error.Message)
+	}
+	if len(response.Result) == 0 {
+		return errors.New("mcp: response is missing result")
+	}
+	return json.Unmarshal(response.Result, result)
 }
 
 func (c *Client) write(message any) error {

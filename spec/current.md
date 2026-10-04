@@ -6,6 +6,10 @@
 
 完整目标与验收记录见 [`m5.13-memory-governance.md`](m5.13-memory-governance.md)。已完成长期记忆状态/类型过滤、未验证经验默认隔离和过期清理；向量检索暂不实现。
 
+## M5.14：MCP Client 完整能力
+
+完整目标与验收记录见 [`m5.14-mcp-complete.md`](m5.14-mcp-complete.md)。当前补齐 stdio/HTTP/Streamable HTTP、Resource、Prompt 发现与协议级结果处理；Drift 不提供 MCP Server。
+
 ## M5.12-A：上下文管理（当前阶段）
 
 完整设计与验收记录见 [`m5.12-context-management.md`](m5.12-context-management.md) 和 [`m5.12-context-acceptance.md`](m5.12-context-acceptance.md)。已完成预算触发、自动压缩、工具调用边界保护、失败原子回滚和 `deepseek-chat` 真实 LLM `/compact` 验收。

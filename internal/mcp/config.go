@@ -17,11 +17,13 @@ var environmentName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
 // Server describes an external MCP server that Drift connects to as a client.
 // Drift does not expose an MCP server endpoint or accept inbound MCP sessions.
 type Server struct {
-	Name      string   `json:"name"`
-	Transport string   `json:"transport"`
-	Command   string   `json:"command"`
-	Args      []string `json:"args,omitempty"`
-	EnvRefs   []string `json:"env_refs,omitempty"`
+	Name      string            `json:"name"`
+	Transport string            `json:"transport"`
+	Command   string            `json:"command"`
+	Args      []string          `json:"args,omitempty"`
+	EnvRefs   []string          `json:"env_refs,omitempty"`
+	URL       string            `json:"url,omitempty"`
+	Headers   map[string]string `json:"headers,omitempty"`
 }
 
 type Config struct {
@@ -62,7 +64,7 @@ func Load(root string) (Config, error) {
 		server.Name = strings.TrimSpace(server.Name)
 		server.Transport = strings.TrimSpace(server.Transport)
 		server.Command = strings.TrimSpace(server.Command)
-		if !identifier.MatchString(server.Name) || server.Transport != "stdio" || server.Command == "" {
+		if !identifier.MatchString(server.Name) || (server.Transport != "stdio" && server.Transport != "http" && server.Transport != "streamable-http") || (server.Transport == "stdio" && server.Command == "") || (server.Transport != "stdio" && server.URL == "") {
 			return Config{}, fmt.Errorf("mcp: server %d is invalid", index+1)
 		}
 		if _, exists := seen[server.Name]; exists {

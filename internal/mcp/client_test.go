@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -54,6 +56,73 @@ func TestClientCancellationClosesTheServerProcess(t *testing.T) {
 	}
 	if _, err := client.CallTool(context.Background(), "echo", json.RawMessage(`{"text":"after"}`)); !strings.Contains(err.Error(), "client is closed") {
 		t.Fatalf("follow-up error=%v, want closed client", err)
+	}
+}
+
+func TestHTTPClientSupportsToolsResourcesAndPrompts(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			ID     int    `json:"id"`
+			Method string `json:"method"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Error(err)
+			return
+		}
+		if req.Method == "notifications/initialized" {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		var result any
+		switch req.Method {
+		case "initialize":
+			result = map[string]any{"protocolVersion": "2024-11-05"}
+		case "tools/list":
+			result = map[string]any{"tools": []any{map[string]any{"name": "echo", "description": "echo", "inputSchema": map[string]any{"type": "object"}}}}
+		case "tools/call":
+			result = map[string]any{"content": []any{map[string]any{"type": "text", "text": "ok"}}}
+		case "resources/list":
+			result = map[string]any{"resources": []any{map[string]any{"uri": "memory://one", "name": "one"}}}
+		case "resources/read":
+			result = map[string]any{"contents": []any{map[string]any{"type": "text", "text": "resource"}}}
+		case "prompts/list":
+			result = map[string]any{"prompts": []any{map[string]any{"name": "summarize"}}}
+		case "prompts/get":
+			result = map[string]any{"messages": []any{map[string]any{"type": "text", "text": "prompt"}}}
+		default:
+			result = map[string]any{}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": result})
+	}))
+	defer server.Close()
+	client, err := Start(context.Background(), Server{Transport: "streamable-http", URL: server.URL}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	tools, err := client.ListTools(context.Background())
+	if err != nil || len(tools) != 1 {
+		t.Fatalf("tools=%v err=%v", tools, err)
+	}
+	result, err := client.CallTool(context.Background(), "echo", json.RawMessage(`{}`))
+	if err != nil || result.Text != "ok" {
+		t.Fatalf("result=%v err=%v", result, err)
+	}
+	resources, err := client.ListResources(context.Background())
+	if err != nil || len(resources) != 1 {
+		t.Fatalf("resources=%v err=%v", resources, err)
+	}
+	contents, err := client.ReadResource(context.Background(), resources[0].URI)
+	if err != nil || contents[0].Text != "resource" {
+		t.Fatalf("contents=%v err=%v", contents, err)
+	}
+	prompts, err := client.ListPrompts(context.Background())
+	if err != nil || len(prompts) != 1 {
+		t.Fatalf("prompts=%v err=%v", prompts, err)
+	}
+	messages, err := client.GetPrompt(context.Background(), prompts[0].Name, nil)
+	if err != nil || messages[0].Text != "prompt" {
+		t.Fatalf("messages=%v err=%v", messages, err)
 	}
 }
 
