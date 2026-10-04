@@ -151,6 +151,7 @@ func (c *Coordinator) run(parent context.Context, root string, timeout time.Dura
 			c.mu.Unlock()
 			return snapshot, fmt.Errorf("coordinator runner unavailable")
 		}
+		retryScheduled := false
 		for _, id := range c.order {
 			if len(c.active) >= c.max {
 				break
@@ -166,6 +167,7 @@ func (c *Coordinator) run(parent context.Context, root string, timeout time.Dura
 				if c.shouldRetryLocked(id, "failed", err) {
 					task.Status, task.Error = "pending", err.Error()
 					c.tasks[id] = task
+					retryScheduled = true
 					continue
 				}
 				task.Status, task.Error = "failed", err.Error()
@@ -179,6 +181,10 @@ func (c *Coordinator) run(parent context.Context, root string, timeout time.Dura
 			}(id, handle)
 		}
 		if len(c.active) == 0 {
+			if retryScheduled {
+				c.mu.Unlock()
+				continue
+			}
 			failed := false
 			pending := false
 			for _, task := range c.tasks {

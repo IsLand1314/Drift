@@ -139,6 +139,24 @@ func TestRunRetriesTemporaryFailure(t *testing.T) {
 	}
 }
 
+func TestRunRetriesRunnerStartFailure(t *testing.T) {
+	attempts := 0
+	runner := func(context.Context, tool.TaskState, string, time.Duration) (tool.TaskHandle, error) {
+		attempts++
+		if attempts == 1 {
+			return nil, context.DeadlineExceeded
+		}
+		handle := newFakeHandle(tool.TaskExecutionResult{State: "completed"})
+		close(handle.done)
+		return handle, nil
+	}
+	c := New([]tool.TaskState{{ID: "task-1", Status: "pending"}}, runner, nil, Options{MaxRetries: 1})
+	got, err := c.Run(context.Background(), t.TempDir())
+	if err != nil || attempts != 2 || got[0].Status != "completed" {
+		t.Fatalf("attempts=%d tasks=%+v err=%v", attempts, got, err)
+	}
+}
+
 func TestCancelPreservesCancelledState(t *testing.T) {
 	started := make(chan struct{})
 	runner := func(context.Context, tool.TaskState, string, time.Duration) (tool.TaskHandle, error) {
