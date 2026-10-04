@@ -131,6 +131,11 @@ func (t planExecuteTool) Execute(ctx context.Context, root, raw string) (string,
 	runnerAvailable := t.tasks.runner != nil
 	t.tasks.mu.Unlock()
 	if !runnerAvailable {
+		for _, planTask := range t.plan.plan.Tasks {
+			if item, ok := t.tasks.state(planTask.ID); ok && item.Status != "completed" {
+				t.tasks.fail(planTask.ID, "TaskRun is unavailable in this host")
+			}
+		}
 		return "", fmt.Errorf("PlanExecute is unavailable in this host")
 	}
 	for _, planTask := range t.plan.plan.Tasks {

@@ -99,3 +99,33 @@ func TestPlanExecuteRunsPlanTasksThroughTaskRunner(t *testing.T) {
 		t.Fatalf("result=%q err=%v", result, err)
 	}
 }
+
+func TestPlanExecuteMarksTasksFailedWhenRunnerUnavailable(t *testing.T) {
+	registry := NewChatRegistry()
+	search, _ := registry.Lookup("ToolSearch")
+	root := t.TempDir()
+	if _, err := search.Execute(context.Background(), root, `{"query":"plan","load":["PlanUpdate","PlanExecute"]}`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := search.Execute(context.Background(), root, `{"query":"task status","load":["TaskStatus"]}`); err != nil {
+		t.Fatal(err)
+	}
+	plans := registry.(PlanRegistry)
+	plans.SetPlanID("plan-1")
+	if err := os.MkdirAll(filepath.Join(root, ".worktrees", "agent-1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	update, _ := registry.Lookup("PlanUpdate")
+	if _, err := update.Execute(context.Background(), root, `{"goal":"demo","tasks":[{"id":"task-1","title":"run","status":"pending","worktree":".worktrees/agent-1"}]}`); err != nil {
+		t.Fatal(err)
+	}
+	execute, _ := registry.Lookup("PlanExecute")
+	if _, err := execute.Execute(context.Background(), root, `{}`); err == nil {
+		t.Fatal("PlanExecute unexpectedly succeeded without a runner")
+	}
+	status, _ := registry.Lookup("TaskStatus")
+	got, err := status.Execute(context.Background(), root, `{"task_id":"task-1"}`)
+	if err != nil || !strings.Contains(got, "· failed ·") || !strings.Contains(got, "TaskRun is unavailable in this host") {
+		t.Fatalf("status=%q err=%v", got, err)
+	}
+}
