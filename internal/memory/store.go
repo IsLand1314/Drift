@@ -26,6 +26,7 @@ const (
 	KindDecision   Kind = "decision"
 	KindConstraint Kind = "constraint"
 	KindOpenTask   Kind = "open_task"
+	KindExperience Kind = "experience"
 )
 
 type Item struct {
@@ -33,6 +34,7 @@ type Item struct {
 	Text      string    `json:"text"`
 	Source    string    `json:"source,omitempty"`
 	UpdatedAt time.Time `json:"updated_at"`
+	Status    string    `json:"status,omitempty"`
 }
 
 type Store struct {
@@ -115,7 +117,7 @@ func (s *Store) PromptText() string {
 
 func validKind(kind Kind) bool {
 	switch kind {
-	case KindFact, KindDecision, KindConstraint, KindOpenTask:
+	case KindFact, KindDecision, KindConstraint, KindOpenTask, KindExperience:
 		return true
 	default:
 		return false

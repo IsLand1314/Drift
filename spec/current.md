@@ -10,6 +10,10 @@
 
 完整目标与验收记录见 [`m5.12-b-short-term-memory.md`](m5.12-b-short-term-memory.md) 和 [`m5.12-b-memory-acceptance.md`](m5.12-b-memory-acceptance.md)。已完成 Session 级结构化短期记忆、敏感信息拒绝、Runner 注入和 Snapshot 恢复；长期跨会话检索尚未开始。
 
+## M5.12-C：跨会话长期记忆（当前阶段）
+
+完整目标与验收记录见 [`m5.12-c-long-term-memory.md`](m5.12-c-long-term-memory.md) 和 [`m5.12-c-memory-acceptance.md`](m5.12-c-memory-acceptance.md)。已完成 workspace 级 JSONL 存储、关键词检索、删除和延迟加载的 `MemorySearch`；经验自动提取与用户确认流程属于 M5.12-D。
+
 ## M5.11：Coordinator 调度
 
 完整设计与验收记录见 [`m5.11-coordinator-design.md`](m5.11-coordinator-design.md) 和 [`m5.11-coordinator-acceptance.md`](m5.11-coordinator-acceptance.md)。Coordinator 已接入 `PlanExecute`，负责 DAG ready queue、并发额度、取消、超时传递、暂时性错误重试、失败依赖阻塞、Worktree 合并协调和状态持久化；`CoordinatorStatus` 通过 ToolSearch 按需加载。确定性测试、全量 race、vet、build 和真实 DeepSeek `deepseek-chat` TTY 工具链均通过。

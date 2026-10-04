@@ -23,6 +23,7 @@ import (
 	"github.com/IsLand1314/Drift/internal/llm/anthropic"
 	"github.com/IsLand1314/Drift/internal/llm/codex"
 	"github.com/IsLand1314/Drift/internal/llm/openai"
+	"github.com/IsLand1314/Drift/internal/memory"
 	"github.com/IsLand1314/Drift/internal/session"
 	"github.com/IsLand1314/Drift/internal/skill"
 	"github.com/IsLand1314/Drift/internal/tool"
@@ -338,6 +339,11 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 		if err != nil {
 			fmt.Fprintln(stderr, "错误：无法创建 Codex 文本模式工具注册表：", err)
 			return 1
+		}
+	}
+	if memoryRepo, memoryErr := memory.NewRepository(selection.Root); memoryErr == nil {
+		if memories, ok := registry.(tool.MemoryRegistry); ok {
+			memories.SetMemoryRepository(memoryRepo)
 		}
 	}
 	if chat {

@@ -8,6 +8,7 @@ import (
 	"unicode"
 
 	"github.com/IsLand1314/Drift/internal/llm"
+	"github.com/IsLand1314/Drift/internal/memory"
 	"github.com/IsLand1314/Drift/internal/message"
 )
 
@@ -15,6 +16,10 @@ import (
 type Registry interface {
 	Definitions() []llm.ToolDefinition
 	Lookup(name string) (Tool, bool)
+}
+
+type MemoryRegistry interface {
+	SetMemoryRepository(repo *memory.Repository)
 }
 
 type registry struct {
@@ -79,7 +84,7 @@ func NewChatRegistryWithSandbox(sandboxMode SandboxMode) Registry {
 	result.plan.tasks = result.tasks
 	tasks := result.tasks
 	cache := newFileStateCache()
-	for _, current := range []Tool{listFilesTool{}, searchTextTool{}, readFileTool{cache: cache}, writeFileTool{cache: cache}, editFileTool{cache: cache}, deleteFileTool{cache: cache}, runCommandTool{sandboxMode: sandboxMode}, askUserQuestionTool{}, taskCreateTool{tasks}, taskListTool{tasks}, taskGetTool{tasks}, taskUpdateTool{tasks}, taskSwitchTool{tasks}, taskRunTool{tasks}, taskStatusTool{tasks}, taskCancelTool{tasks}, taskMergeTool{tasks}, coordinatorStatusTool{tasks}, agentMessageSendTool{result.messages}, agentMessageListTool{result.messages}, agentSummaryTool{result.messages}} {
+	for _, current := range []Tool{listFilesTool{}, searchTextTool{}, readFileTool{cache: cache}, writeFileTool{cache: cache}, editFileTool{cache: cache}, deleteFileTool{cache: cache}, runCommandTool{sandboxMode: sandboxMode}, askUserQuestionTool{}, memorySearchTool{}, taskCreateTool{tasks}, taskListTool{tasks}, taskGetTool{tasks}, taskUpdateTool{tasks}, taskSwitchTool{tasks}, taskRunTool{tasks}, taskStatusTool{tasks}, taskCancelTool{tasks}, taskMergeTool{tasks}, coordinatorStatusTool{tasks}, agentMessageSendTool{result.messages}, agentMessageListTool{result.messages}, agentSummaryTool{result.messages}} {
 		result.add(current, false)
 	}
 	result.add(toolSearchTool{registry: result}, true)
@@ -89,6 +94,13 @@ func NewChatRegistryWithSandbox(sandboxMode SandboxMode) Registry {
 	result.add(planUpdateTool{store: result.plan}, false)
 	result.add(planExecuteTool{plan: result.plan, tasks: result.tasks}, false)
 	return result
+}
+
+func (r *registry) SetMemoryRepository(repo *memory.Repository) {
+	if current, ok := r.tools["MemorySearch"]; ok {
+		_ = current
+		r.tools["MemorySearch"] = memorySearchTool{repo: repo}
+	}
 }
 
 func (r *registry) MessageBus() *message.Bus { return r.messages }
@@ -210,7 +222,7 @@ func (r *registry) search(query string) []toolSummary {
 
 func toolCategory(name string) string {
 	switch name {
-	case "Glob", "Grep", "ReadFile":
+	case "Glob", "Grep", "ReadFile", "MemorySearch":
 		return "read"
 	case "WriteFile", "EditFile", "DeleteFile":
 		return "write"
