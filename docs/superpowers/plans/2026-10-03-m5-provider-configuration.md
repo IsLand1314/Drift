@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add user-level behavior, Provider/model and credential files so Drift safely selects a configured OpenAI-compatible or Anthropic model without putting credentials in a workspace.
+**Goal:** Add workspace-scoped behavior, Provider/model and credential files so Drift safely selects a configured OpenAI-compatible or Anthropic model while keeping credential access outside Agent tools.
 
-**Architecture:** `internal/config` discovers the user directory, loads TOML and JSON, validates it and resolves a profile/key. `internal/app` turns that profile into the existing Provider clients; its flags remain one-run overrides. Workspace `.env` remains solely as a legacy fallback when user `config.toml` is absent.
+**Architecture:** `internal/config` loads `<workspace>/.drift`, decodes TOML and JSON, validates it and resolves a profile/key. `internal/app` resolves the workspace before configuration, turns that profile into the existing Provider clients, and keeps flags as one-run overrides. Workspace `.env` remains solely as a legacy fallback when `.drift/config.toml` is absent.
 
 **Tech Stack:** Go 1.26, `github.com/pelletier/go-toml/v2`, Go `encoding/json`, existing Bubble Tea and OpenAI/Anthropic clients.
 
@@ -12,13 +12,13 @@
 
 ## Global Constraints
 
-- The sole configuration directory is `filepath.Join(os.UserConfigDir(), "Drift")`; do not add project, local or layered overrides.
-- `settings.toml` and `config.toml` never contain secrets; `auth.json` never belongs in the workspace or Git.
+- The sole configuration directory is `filepath.Join(workspace, ".drift")`; do not add global, local or layered overrides.
+- `settings.toml` and `config.toml` never contain secrets; `auth.json` is ignored by Git and protected from Agent tools.
 - M5.1 reads auth only. Do not implement OAuth, login/logout, writing credentials, secret shell resolvers, custom headers, YAML, Hooks or hot reload.
 - Valid configured protocols are exactly `openai`, `openai-compat` and `anthropic`.
 - Unknown fields, duplicate names, unsafe URLs and invalid modes fail before a provider request and without echoing a credential.
 - `bypassPermissions` cannot be persisted as the settings default; existing CLI behavior remains supported.
-- Existing `.env` behavior remains only when user `config.toml` is absent.
+- Existing `.env` behavior remains only when workspace `.drift/config.toml` is absent.
 
 ---
 
@@ -27,7 +27,7 @@
 | File | Responsibility |
 | --- | --- |
 | `go.mod`, `go.sum` | Pin the TOML parser. |
-| `internal/config/user_config.go` | User-path discovery, decoding, validation and secret resolution. |
+| `internal/config/user_config.go` | Workspace `.drift` decoding, validation and secret resolution. |
 | `internal/config/user_config_test.go` | TDD coverage for parsing, validation and secret precedence. |
 | `internal/app/provider_config.go` | Merge one-run flags with a resolved configured profile. |
 | `internal/app/provider_config_test.go` | Provider selection, fallback and override tests. |
@@ -141,7 +141,7 @@ The Boolean is true only when the caller must use existing `.env` behavior.
 
 - [ ] **Step 1: Write failing app tests**
 
-Use `httptest.Server` and temporary user paths to add:
+Use `httptest.Server` and temporary workspace `.drift` paths to add:
 
 ```go
 func TestRunUsesConfiguredOpenAICompatProfile(t *testing.T) {
@@ -167,7 +167,7 @@ func TestRunLegacyDotEnvWhenConfigTomlMissing(t *testing.T) {
 }
 ```
 
-Also assert unknown configured names fail before HTTP, `--api-key` beats auth, `--model`/`--base-url` affect only one request, and a present user `config.toml` prevents workspace `.env` loading.
+Also assert unknown configured names fail before HTTP, `--api-key` beats auth, `--model`/`--base-url` affect only one request, and a present `.drift/config.toml` prevents workspace `.env` loading.
 
 - [ ] **Step 2: Verify RED**
 
@@ -177,11 +177,11 @@ Run:
 go test ./internal/app -run 'TestRunUsesConfigured|TestRunPrintModeUsesDefault|TestRunLegacyDotEnvWhenConfigTomlMissing' -count=1
 ```
 
-Expected: failure because startup cannot resolve user configuration.
+Expected: failure because startup cannot resolve workspace configuration.
 
 - [ ] **Step 3: Implement the resolver and wire `app.Run`**
 
-Add public `--api-key`; retain `--provider`, `--model`, `--base-url`, `--permission-mode` and `--sandbox` as per-run overrides. Resolve workspace before legacy `.env`. If user `config.toml` exists, load only the user files; otherwise use the present `LoadDotEnv`/`MergeLookup` code unchanged. Map `openai`/`openai-compat` to `openai.New`, and `anthropic` to `anthropic.New`.
+Add public `--api-key`; retain `--provider`, `--model`, `--base-url`, `--permission-mode` and `--sandbox` as per-run overrides. Resolve workspace before loading `.drift` or legacy `.env`. If `.drift/config.toml` exists, load only the three workspace files; otherwise use the present `LoadDotEnv`/`MergeLookup` code unchanged. Map `openai`/`openai-compat` to `openai.New`, and `anthropic` to `anthropic.New`.
 
 Pass only the resolved key to `session.NewJSONLWriterWithSecrets`; never persist overrides or configuration values.
 
@@ -282,7 +282,7 @@ git commit -m "feat: add provider selection picker"
 
 - [ ] **Step 1: Write failing security tests**
 
-Use sentinel `m5-config-secret-do-not-log`. Assert it is absent from stdout, stderr, trace and audit JSONL for malformed auth JSON, unknown profile, missing selected credential and provider HTTP failure. Also prove `<workspace>/.drift/config.toml` is ignored: only the user configuration directory is accepted.
+Use sentinel `m5-config-secret-do-not-log`. Assert it is absent from stdout, stderr, trace and audit JSONL for malformed auth JSON, unknown profile, missing selected credential and provider HTTP failure. Also prove Agent file tools cannot read `<workspace>/.drift/auth.json`.
 
 - [ ] **Step 2: Verify RED**
 
@@ -292,7 +292,7 @@ Run:
 go test ./internal/config ./internal/app -run 'Test(UserConfig|Run).*Secret|TestWorkspaceDriftConfigIsIgnored' -count=1
 ```
 
-Expected: failure until every error path is redacted and user-dir resolution is complete.
+Expected: failure until every error path is redacted and workspace configuration resolution is complete.
 
 - [ ] **Step 3: Implement minimal redaction and docs**
 
@@ -336,7 +336,7 @@ Expected: all commands exit 0. Delete only `.codex-temp\\drift-m51.exe` after re
 
 - [ ] **Step 2: Run real configured DeepSeek validation**
 
-Create temporary user-config and workspace directories outside the repository. Put one `deepseek` profile in TOML and its credential in temporary `auth.json`, without printing it. Run:
+Create a temporary workspace with `.drift/config.toml` and `.drift/auth.json`, without printing the credential. Run:
 
 ```powershell
 go run ./cmd/drift -p "Read README.md and report its first line." -w <temporary-workspace> --provider deepseek
