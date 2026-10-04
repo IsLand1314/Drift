@@ -84,7 +84,7 @@ func NewChatRegistryWithSandbox(sandboxMode SandboxMode) Registry {
 	result.plan.tasks = result.tasks
 	tasks := result.tasks
 	cache := newFileStateCache()
-	for _, current := range []Tool{listFilesTool{}, searchTextTool{}, readFileTool{cache: cache}, writeFileTool{cache: cache}, editFileTool{cache: cache}, deleteFileTool{cache: cache}, runCommandTool{sandboxMode: sandboxMode}, askUserQuestionTool{}, memorySearchTool{}, taskCreateTool{tasks}, taskListTool{tasks}, taskGetTool{tasks}, taskUpdateTool{tasks}, taskSwitchTool{tasks}, taskRunTool{tasks}, taskStatusTool{tasks}, taskCancelTool{tasks}, taskMergeTool{tasks}, coordinatorStatusTool{tasks}, agentMessageSendTool{result.messages}, agentMessageListTool{result.messages}, agentSummaryTool{result.messages}} {
+	for _, current := range []Tool{listFilesTool{}, searchTextTool{}, readFileTool{cache: cache}, writeFileTool{cache: cache}, editFileTool{cache: cache}, deleteFileTool{cache: cache}, runCommandTool{sandboxMode: sandboxMode}, askUserQuestionTool{}, memorySearchTool{}, experienceProposeTool{}, experienceSaveTool{}, taskCreateTool{tasks}, taskListTool{tasks}, taskGetTool{tasks}, taskUpdateTool{tasks}, taskSwitchTool{tasks}, taskRunTool{tasks}, taskStatusTool{tasks}, taskCancelTool{tasks}, taskMergeTool{tasks}, coordinatorStatusTool{tasks}, agentMessageSendTool{result.messages}, agentMessageListTool{result.messages}, agentSummaryTool{result.messages}} {
 		result.add(current, false)
 	}
 	result.add(toolSearchTool{registry: result}, true)
@@ -100,6 +100,9 @@ func (r *registry) SetMemoryRepository(repo *memory.Repository) {
 	if current, ok := r.tools["MemorySearch"]; ok {
 		_ = current
 		r.tools["MemorySearch"] = memorySearchTool{repo: repo}
+	}
+	if _, ok := r.tools["ExperienceSave"]; ok {
+		r.tools["ExperienceSave"] = experienceSaveTool{repo: repo}
 	}
 }
 
@@ -224,6 +227,10 @@ func toolCategory(name string) string {
 	switch name {
 	case "Glob", "Grep", "ReadFile", "MemorySearch":
 		return "read"
+	case "ExperiencePropose":
+		return "control"
+	case "ExperienceSave":
+		return "write"
 	case "WriteFile", "EditFile", "DeleteFile":
 		return "write"
 	case "Bash":
