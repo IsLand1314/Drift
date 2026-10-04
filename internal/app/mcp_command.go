@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 
 	"github.com/IsLand1314/Drift/internal/agent"
@@ -89,11 +88,18 @@ func (m *mcpManager) Connect(ctx context.Context, name string) error {
 		m.record(name, "sandbox_denied", decisionErr)
 		return decisionErr
 	}
-	launcher := func(launchCtx context.Context, configured mcp.Server, launchEnv []string) *exec.Cmd {
-		return tool.NewMCPProcess(launchCtx, m.root, configured.Command, configured.Args, decision, configured.NetworkEnabled)
-	}
-	client, err := mcp.StartWithLauncher(ctx, server, env, launcher)
-	if server.Transport != "stdio" {
+	var client *mcp.Client
+	var err error
+	if server.Transport == "stdio" {
+		client, err = mcp.StartWithLauncher(ctx, server, env, func(launchCtx context.Context, configured mcp.Server, launchEnv []string) mcp.Process {
+			if decision.Backend == "appcontainer" {
+				return tool.NewAppContainerMCPProcess(launchCtx, m.root, configured.Command, configured.Args, launchEnv, configured.NetworkEnabled)
+			}
+			cmd := tool.NewMCPProcess(launchCtx, m.root, configured.Command, configured.Args, decision, configured.NetworkEnabled)
+			cmd.Env = append(os.Environ(), launchEnv...)
+			return cmd
+		})
+	} else {
 		client, err = mcp.Start(ctx, server, env)
 	}
 	if err != nil {

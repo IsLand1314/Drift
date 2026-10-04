@@ -6,6 +6,7 @@
 | --- | --- |
 | `go test ./... -count=1` | PASS |
 | `go test -race ./internal/mcp ./internal/tool ./internal/app -count=1` | PASS |
+| `go test ./internal/tool -run 'TestMCPProcess' -count=1 -v` | PASS (Windows AppContainer lifecycle and protected-directory checks) |
 | `go vet ./...` | PASS |
 | `go build ./cmd/drift` | PASS |
 | `git diff --check` | PASS |
@@ -17,7 +18,7 @@
 - Linux stdio MCP 在 `auto`/`required` 下通过 bwrap 启动，默认关闭网络，并遮蔽 `.drift` 与 `.git`；`network_enabled` 只来自可信配置。
 - `off` 模式不启用 OS 沙箱；`required` 在后端不可用时拒绝连接；`auto` 才允许记录 `sandboxed=false` 后回退。
 - HTTP MCP 是客户端网络连接，不创建本地子进程，因此不套用 stdio 子进程沙箱。
-- Windows AppContainer 当前已用于 Bash 命令生命周期；MCP stdio 仍使用现有 `exec.Cmd` 启动路径，不能宣称已获得 AppContainer 文件/网络隔离。Windows MCP 需要后续把自定义进程句柄接入 MCP 客户端后再开启同等保证。
+- Windows stdio MCP 使用 AppContainer + Job Object，自定义进程句柄接入 MCP 客户端；默认无网络，并通过 `internetClient` capability 仅在 `network_enabled=true` 时放行。
 
 ## 外部 MCP 验收样例
 

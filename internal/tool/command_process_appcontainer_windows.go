@@ -150,8 +150,14 @@ func (p *appContainerCommandProcess) start(stdout, stderr io.Writer) error {
 }
 
 func sanitizedEnvironmentBlock() ([]uint16, error) {
+	return sanitizedEnvironmentBlockWithOverrides(nil)
+}
+
+func sanitizedEnvironmentBlockWithOverrides(overrides []string) ([]uint16, error) {
+	entries := append([]string(nil), sanitizedCommandEnv()...)
+	entries = append(entries, overrides...)
 	block := make([]uint16, 0)
-	for _, entry := range sanitizedCommandEnv() {
+	for _, entry := range entries {
 		encoded, err := windows.UTF16FromString(entry)
 		if err != nil {
 			return nil, err

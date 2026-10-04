@@ -77,7 +77,7 @@ func FormatContent(blocks []ContentBlock) (string, error) {
 
 type Client struct {
 	mu           sync.Mutex
-	cmd          *exec.Cmd
+	cmd          Process
 	stdin        io.WriteCloser
 	stdout       *bufio.Reader
 	nextID       int
@@ -88,6 +88,16 @@ type Client struct {
 	capabilities json.RawMessage
 }
 
+// Process is the small process surface needed by a stdio MCP client. It lets
+// platform-specific sandboxes provide their own process/job lifecycle instead
+// of being forced through exec.Cmd.
+type Process interface {
+	StdinPipe() (io.WriteCloser, error)
+	StdoutPipe() (io.ReadCloser, error)
+	Start() error
+	Wait() error
+}
+
 func Start(ctx context.Context, server Server, env []string) (*Client, error) {
 	if server.Transport == "http" || server.Transport == "streamable-http" {
 		return startHTTP(ctx, server)
@@ -95,12 +105,14 @@ func Start(ctx context.Context, server Server, env []string) (*Client, error) {
 	if server.Transport != "stdio" || server.Command == "" {
 		return nil, errors.New("mcp: invalid stdio server")
 	}
-	return startStdio(ctx, server, env, func(ctx context.Context, server Server, env []string) *exec.Cmd {
-		return exec.CommandContext(ctx, server.Command, server.Args...)
+	return startStdio(ctx, server, env, func(ctx context.Context, server Server, env []string) Process {
+		cmd := exec.CommandContext(ctx, server.Command, server.Args...)
+		cmd.Env = mergeEnv(os.Environ(), env)
+		return cmd
 	})
 }
 
-type ProcessLauncher func(context.Context, Server, []string) *exec.Cmd
+type ProcessLauncher func(context.Context, Server, []string) Process
 
 func StartWithLauncher(ctx context.Context, server Server, env []string, launcher ProcessLauncher) (*Client, error) {
 	if server.Transport != "stdio" || server.Command == "" || launcher == nil {
@@ -111,7 +123,9 @@ func StartWithLauncher(ctx context.Context, server Server, env []string, launche
 
 func startStdio(ctx context.Context, server Server, env []string, launcher ProcessLauncher) (*Client, error) {
 	cmd := launcher(ctx, server, env)
-	cmd.Env = mergeEnv(os.Environ(), env)
+	if cmd == nil {
+		return nil, errors.New("mcp: process launcher returned nil")
+	}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, fmt.Errorf("mcp: stdin: %w", err)
@@ -316,10 +330,16 @@ func (c *Client) terminateLocked() error {
 		return nil
 	}
 	_ = c.stdin.Close()
-	if c.cmd.Process != nil {
-		_ = c.cmd.Process.Kill()
+	if killer, ok := c.cmd.(interface{ Kill() error }); ok {
+		_ = killer.Kill()
+	} else if process, ok := c.cmd.(*exec.Cmd); ok && process.Process != nil {
+		_ = process.Process.Kill()
 	}
-	return c.cmd.Wait()
+	err := c.cmd.Wait()
+	if closer, ok := c.cmd.(interface{ Close() error }); ok {
+		_ = closer.Close()
+	}
+	return err
 }
 
 func (c *Client) notify(method string, params any) error {
