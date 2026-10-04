@@ -14,6 +14,14 @@
 
 完整目标与验收记录见 [`m5.12-c-long-term-memory.md`](m5.12-c-long-term-memory.md) 和 [`m5.12-c-memory-acceptance.md`](m5.12-c-memory-acceptance.md)。已完成 workspace 级 JSONL 存储、关键词检索、删除和延迟加载的 `MemorySearch`；经验自动提取与用户确认流程属于 M5.12-D。
 
+## M5.12-D：经验管理（当前阶段）
+
+完整目标与验收记录见 [`m5.12-d-experience-management.md`](m5.12-d-experience-management.md) 和 [`m5.12-d-experience-acceptance.md`](m5.12-d-experience-acceptance.md)。已完成候选/已验证/弃用/拒绝状态基础和显式 review；自动提取与用户确认交互仍待增量实现。
+
+## M5.12-E：Skill 生命周期（当前阶段）
+
+完整目标与验收记录见 [`m5.12-e-skill-lifecycle.md`](m5.12-e-skill-lifecycle.md) 和 [`m5.12-e-skill-acceptance.md`](m5.12-e-skill-acceptance.md)。已完成本地 Skill 的发现、加载、安装和删除；网络下载和自动执行脚本明确不在范围内。
+
 ## M5.11：Coordinator 调度
 
 完整设计与验收记录见 [`m5.11-coordinator-design.md`](m5.11-coordinator-design.md) 和 [`m5.11-coordinator-acceptance.md`](m5.11-coordinator-acceptance.md)。Coordinator 已接入 `PlanExecute`，负责 DAG ready queue、并发额度、取消、超时传递、暂时性错误重试、失败依赖阻塞、Worktree 合并协调和状态持久化；`CoordinatorStatus` 通过 ToolSearch 按需加载。确定性测试、全量 race、vet、build 和真实 DeepSeek `deepseek-chat` TTY 工具链均通过。

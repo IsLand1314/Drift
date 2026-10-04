@@ -108,6 +108,34 @@ func (r *Repository) Delete(kind Kind, text string) error {
 	return r.writeIndexLocked()
 }
 
+func (r *Repository) ReviewExperience(text, status string) error {
+	status = strings.TrimSpace(status)
+	if status != "candidate" && status != "verified" && status != "deprecated" && status != "rejected" {
+		return ErrInvalidItem
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	items, err := r.readKindLocked(KindExperience)
+	if err != nil {
+		return err
+	}
+	found := false
+	for index := range items {
+		if strings.EqualFold(items[index].Text, strings.TrimSpace(text)) {
+			items[index].Status = status
+			items[index].UpdatedAt = time.Now().UTC()
+			found = true
+		}
+	}
+	if !found {
+		return os.ErrNotExist
+	}
+	if err := r.replaceKindLocked(KindExperience, items); err != nil {
+		return err
+	}
+	return r.writeIndexLocked()
+}
+
 func (r *Repository) readKindLocked(kind Kind) ([]Item, error) {
 	path := filepath.Join(r.root, kindFile(kind))
 	file, err := os.Open(path)

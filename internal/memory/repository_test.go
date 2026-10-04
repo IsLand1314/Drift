@@ -36,6 +36,24 @@ func TestRepositorySearchesByKeywordAndDeletesWithinWorkspace(t *testing.T) {
 	}
 }
 
+func TestRepositoryReviewsExperienceWithoutAutoPromotingIt(t *testing.T) {
+	repo, err := NewRepository(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	item := Item{Kind: KindExperience, Text: "窗口缩放时保留 viewport", Source: "session/1", Status: "candidate"}
+	if err := repo.Add(item); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.ReviewExperience(item.Text, "verified"); err != nil {
+		t.Fatal(err)
+	}
+	hits, err := repo.Search("viewport", 20)
+	if err != nil || len(hits) != 1 || hits[0].Status != "verified" {
+		t.Fatalf("hits=%+v err=%v", hits, err)
+	}
+}
+
 func TestRepositoryRejectsSensitiveItems(t *testing.T) {
 	repo, err := NewRepository(t.TempDir())
 	if err != nil {
