@@ -205,6 +205,25 @@ func runTuiMainScreenLoop(ctx context.Context, runner *agent.Runner, audit sessi
 			}
 			return decision, decisionErr
 		})
+		runner.SetPlanModeHooks(agent.PlanModeHooks{
+			Enter: func() error {
+				permissionMode = permissionModePlan
+				if tui, ok := input.(*tuiMainScreenInput); ok {
+					tui.permissionMode = permissionModePlan
+				}
+				return nil
+			},
+			Exit: func() error {
+				if permissionMode != permissionModePlan {
+					return fmt.Errorf("not currently in plan mode")
+				}
+				permissionMode = permissionModeDefault
+				if tui, ok := input.(*tuiMainScreenInput); ok {
+					tui.permissionMode = permissionModeDefault
+				}
+				return nil
+			},
+		})
 	}
 	var mcpManager *mcpManager
 	if status.Registry != nil && status.Workspace != "" {

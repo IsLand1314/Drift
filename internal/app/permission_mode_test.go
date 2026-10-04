@@ -45,6 +45,17 @@ func TestMCPCallsAlwaysAskExceptPlan(t *testing.T) {
 	}
 }
 
+func TestPlanModeTransitions(t *testing.T) {
+	enter := decidePermission(permissionModeDefault, agent.PermissionRequest{ToolName: "EnterPlanMode", Operation: "enterplanmode"})
+	if !enter.Allow || enter.Policy != agent.PolicyAllow {
+		t.Fatalf("enter=%+v", enter)
+	}
+	exit := decidePermission(permissionModePlan, agent.PermissionRequest{ToolName: "ExitPlanMode", Operation: "exitplanmode"})
+	if exit.Allow || exit.Policy != agent.PolicyAsk {
+		t.Fatalf("exit=%+v", exit)
+	}
+}
+
 func TestParsePermissionMode(t *testing.T) {
 	for _, tt := range []struct {
 		input string

@@ -81,6 +81,8 @@ func NewChatRegistryWithSandbox(sandboxMode SandboxMode) Registry {
 	}
 	result.add(toolSearchTool{registry: result}, true)
 	result.enable("AskUserQuestion")
+	result.add(planModeTool{name: "EnterPlanMode"}, false)
+	result.add(planModeTool{name: "ExitPlanMode"}, false)
 	return result
 }
 

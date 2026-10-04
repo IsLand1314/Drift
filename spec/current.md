@@ -1,6 +1,6 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M5.5。M3.17 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M5.6。M3.17 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
 
 ## M5.5：API-Key Provider 诊断（当前阶段）
 
@@ -12,6 +12,10 @@
 - 缺少模型时，提示 `config.toml` 或 `-model`；
 - 错误发生在发起模型请求前；
 - 不把 API Key 写入 stderr、审计、session 或工具结果。
+
+## M5.6：Plan Mode 流程
+
+完整目标与验收标准见 [`m5.6-plan-mode.md`](m5.6-plan-mode.md)。`EnterPlanMode` 和 `ExitPlanMode` 复用现有 `plan` 权限、审批和审计链路，不新增沙箱或权限绕过。
 
 ## M5.1：Provider 配置与认证分离
 

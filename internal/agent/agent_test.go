@@ -284,6 +284,29 @@ func TestAskUserQuestionCancellationIsAuditable(t *testing.T) {
 	}
 }
 
+func TestPlanModeToolInvokesTransitionHookAfterApproval(t *testing.T) {
+	client := &scriptedClient{steps: []scriptedStep{
+		{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{{ID: "plan-1", Type: "function", Name: "EnterPlanMode", Arguments: `{}`}}}, FinishReason: "tool_calls"}},
+		{events: []llm.StreamEvent{{Text: "planned"}}, completion: llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "planned"}, FinishReason: "stop"}},
+	}}
+	runner := NewRunner(client, t.TempDir(), "", tool.NewChatRegistry())
+	search, _ := runner.registry.Lookup("ToolSearch")
+	if _, err := search.Execute(context.Background(), t.TempDir(), `{"query":"plan","load":["EnterPlanMode"]}`); err != nil {
+		t.Fatal(err)
+	}
+	entered := false
+	runner.SetPlanModeHooks(PlanModeHooks{Enter: func() error { entered = true; return nil }})
+	runner.SetPermissionPrompt(func(context.Context, PermissionRequest) (PermissionDecision, error) {
+		return PermissionDecision{Allow: true, Policy: PolicyAllow}, nil
+	})
+	if err := runner.RunEvents(context.Background(), "make a plan", nil); err != nil {
+		t.Fatal(err)
+	}
+	if !entered || !strings.Contains(runner.Messages()[2].Content, "Plan mode enabled") {
+		t.Fatalf("entered=%v messages=%+v", entered, runner.Messages())
+	}
+}
+
 func TestToolSearchMakesLoadedSchemaAvailableOnNextRequest(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("hello"), 0o600); err != nil {
