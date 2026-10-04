@@ -173,6 +173,7 @@ func (t planExecuteTool) Execute(ctx context.Context, root, raw string) (string,
 			case "completed":
 				break
 			case "failed", "cancelled", "timeout", "blocked":
+				blockPlanDependents(t.tasks, t.plan.plan.Tasks, current.ID)
 				return "", fmt.Errorf("PlanExecute task %q ended with %s", current.ID, current.Status)
 			default:
 				time.Sleep(20 * time.Millisecond)
@@ -182,6 +183,31 @@ func (t planExecuteTool) Execute(ctx context.Context, root, raw string) (string,
 		}
 	}
 	return fmt.Sprintf("PlanExecute: completed %d tasks", len(t.plan.plan.Tasks)), nil
+}
+
+func blockPlanDependents(store *taskStore, planTasks []PlanTask, failedID string) {
+	changed := true
+	for changed {
+		changed = false
+		for _, planTask := range planTasks {
+			item, ok := store.state(planTask.ID)
+			if !ok || item.Status != "pending" {
+				continue
+			}
+			for _, dependency := range item.DependsOn {
+				dependencyState, exists := store.state(dependency)
+				if dependency == failedID || (exists && (dependencyState.Status == "failed" || dependencyState.Status == "cancelled" || dependencyState.Status == "timeout" || dependencyState.Status == "blocked")) {
+					store.mu.Lock()
+					item.Status = "blocked"
+					item.Error = "dependency " + dependency + " failed"
+					store.tasks[item.ID] = item
+					store.mu.Unlock()
+					changed = true
+					break
+				}
+			}
+		}
+	}
 }
 
 func dependenciesCompleted(store *taskStore, item TaskState) bool {

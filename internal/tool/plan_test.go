@@ -3,6 +3,7 @@ package tool
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -131,6 +132,54 @@ func TestPlanExecuteMarksTasksFailedWhenRunnerUnavailable(t *testing.T) {
 	status, _ := registry.Lookup("TaskStatus")
 	got, err := status.Execute(context.Background(), root, `{"task_id":"task-1"}`)
 	if err != nil || !strings.Contains(got, "· failed ·") || !strings.Contains(got, "TaskRun is unavailable in this host") {
+		t.Fatalf("status=%q err=%v", got, err)
+	}
+}
+
+func TestPlanExecuteBlocksDependentsAfterTaskFailure(t *testing.T) {
+	registry := NewChatRegistry()
+	search, _ := registry.Lookup("ToolSearch")
+	root := t.TempDir()
+	if _, err := search.Execute(context.Background(), root, `{"query":"plan","load":["PlanUpdate","PlanExecute"]}`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := search.Execute(context.Background(), root, `{"query":"task status","load":["TaskStatus"]}`); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".worktrees", "agent-1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".worktrees", "agent-2"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	registry.(PlanRegistry).SetPlanID("plan-1")
+	handles := map[string]*testTaskHandle{}
+	registry.(TaskRegistry).SetTaskRunner(func(_ context.Context, task TaskState, _ string, _ time.Duration) (TaskHandle, error) {
+		handle := newTestTaskHandle()
+		handles[task.ID] = handle
+		return handle, nil
+	})
+	update, _ := registry.Lookup("PlanUpdate")
+	if _, err := update.Execute(context.Background(), root, `{"goal":"demo","tasks":[{"id":"task-1","title":"first","status":"pending","worktree":".worktrees/agent-1"},{"id":"task-2","title":"second","status":"pending","worktree":".worktrees/agent-2","dependencies":["task-1"]}]}`); err != nil {
+		t.Fatal(err)
+	}
+	execute, _ := registry.Lookup("PlanExecute")
+	done := make(chan error, 1)
+	go func() { _, err := execute.Execute(context.Background(), root, `{}`); done <- err }()
+	deadline := time.Now().Add(time.Second)
+	for handles["task-1"] == nil && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if handles["task-1"] == nil {
+		t.Fatal("first task did not start")
+	}
+	handles["task-1"].complete(TaskExecutionResult{State: "failed", Err: errors.New("first failed")})
+	if err := <-done; err == nil {
+		t.Fatal("PlanExecute unexpectedly succeeded")
+	}
+	status, _ := registry.Lookup("TaskStatus")
+	got, err := status.Execute(context.Background(), root, `{"task_id":"task-2"}`)
+	if err != nil || !strings.Contains(got, "· blocked ·") || !strings.Contains(got, "dependency task-1 failed") {
 		t.Fatalf("status=%q err=%v", got, err)
 	}
 }
