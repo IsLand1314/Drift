@@ -1,10 +1,14 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M5.10。M3.17 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M5.11。M3.17 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
 
-## M5.10：多 Agent 可靠性（当前阶段）
+## M5.11：Coordinator 调度（当前阶段）
 
-见 [`m5.10-multi-agent-reliability.md`](m5.10-multi-agent-reliability.md)。子 Agent 的失败、取消、超时、依赖阻塞和 worktree 合并状态均必须可观测、可恢复；Coordinator 调度策略不属于本阶段。
+完整设计与验收记录见 [`m5.11-coordinator-design.md`](m5.11-coordinator-design.md) 和 [`m5.11-coordinator-acceptance.md`](m5.11-coordinator-acceptance.md)。Coordinator 已接入 `PlanExecute`，负责 DAG ready queue、并发额度、取消、超时传递、暂时性错误重试、失败依赖阻塞、Worktree 合并协调和状态持久化；`CoordinatorStatus` 通过 ToolSearch 按需加载。确定性测试、全量 race、vet、build 和真实 DeepSeek `deepseek-chat` TTY 工具链均通过。
+
+## M5.10：多 Agent 可靠性
+
+见 [`m5.10-multi-agent-reliability.md`](m5.10-multi-agent-reliability.md)。子 Agent 的失败、取消、超时、依赖阻塞和 worktree 合并状态均必须可观测、可恢复；其调度由后续 M5.11 Coordinator 统一接管。
 
 ## M5.5：API-Key Provider 诊断（当前阶段）
 
