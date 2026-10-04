@@ -143,7 +143,15 @@ func (t planExecuteTool) Execute(ctx context.Context, root, raw string) (string,
 	runnerAvailable := t.tasks.runner != nil
 	t.tasks.mu.Unlock()
 	if coordinator != nil {
-		states, err := coordinator.Run(ctx, root, t.tasks.export())
+		var states []TaskState
+		var err error
+		if timed, ok := coordinator.(interface {
+			RunWithTimeout(context.Context, string, []TaskState, time.Duration) ([]TaskState, error)
+		}); ok {
+			states, err = timed.RunWithTimeout(ctx, root, t.tasks.export(), time.Duration(args.TimeoutMS)*time.Millisecond)
+		} else {
+			states, err = coordinator.Run(ctx, root, t.tasks.export())
+		}
 		t.tasks.applyCoordinatorStates(states)
 		if err != nil {
 			return "", err

@@ -19,17 +19,18 @@ type Options struct {
 }
 
 type Coordinator struct {
-	mu         sync.Mutex
-	tasks      map[string]tool.TaskState
-	order      []string
-	runner     tool.TaskRunner
-	merger     tool.TaskMerger
-	max        int
-	maxRetries int
-	root       string
-	cancel     context.CancelFunc
-	active     map[string]tool.TaskHandle
-	retries    map[string]int
+	mu          sync.Mutex
+	tasks       map[string]tool.TaskState
+	order       []string
+	runner      tool.TaskRunner
+	merger      tool.TaskMerger
+	max         int
+	maxRetries  int
+	root        string
+	taskTimeout time.Duration
+	cancel      context.CancelFunc
+	active      map[string]tool.TaskHandle
+	retries     map[string]int
 }
 
 type completedTask struct {
@@ -55,6 +56,33 @@ func New(tasks []tool.TaskState, runner tool.TaskRunner, merger tool.TaskMerger,
 		c.order = append(c.order, task.ID)
 	}
 	return c
+}
+
+// Restore replaces a scheduler snapshot. Interrupted active tasks are safe to
+// retry; completed and failed terminal states remain unchanged.
+func (c *Coordinator) Restore(tasks []tool.TaskState) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.active) != 0 {
+		return fmt.Errorf("cannot restore while coordinator is running")
+	}
+	next := make(map[string]tool.TaskState, len(tasks))
+	order := make([]string, 0, len(tasks))
+	for _, task := range tasks {
+		if task.ID == "" {
+			return fmt.Errorf("task id is required")
+		}
+		if _, exists := next[task.ID]; exists {
+			return fmt.Errorf("duplicate task %q", task.ID)
+		}
+		if task.Status == "running" || task.Status == "in_progress" {
+			task.Status = "pending"
+		}
+		next[task.ID] = task
+		order = append(order, task.ID)
+	}
+	c.tasks, c.order, c.retries = next, order, make(map[string]int)
+	return nil
 }
 
 func (c *Coordinator) Status() []tool.TaskState {
@@ -87,10 +115,20 @@ func (c *Coordinator) Cancel() {
 }
 
 func (c *Coordinator) Run(parent context.Context, root string) ([]tool.TaskState, error) {
+	return c.run(parent, root, 0)
+}
+
+// RunWithTimeout applies one timeout budget to every child task in this plan.
+func (c *Coordinator) RunWithTimeout(parent context.Context, root string, timeout time.Duration) ([]tool.TaskState, error) {
+	return c.run(parent, root, timeout)
+}
+
+func (c *Coordinator) run(parent context.Context, root string, timeout time.Duration) ([]tool.TaskState, error) {
 	ctx, cancel := context.WithCancel(parent)
 	c.mu.Lock()
 	c.cancel = cancel
 	c.root = root
+	c.taskTimeout = timeout
 	c.mu.Unlock()
 	defer func() {
 		cancel()
@@ -123,7 +161,7 @@ func (c *Coordinator) Run(parent context.Context, root string) ([]tool.TaskState
 			}
 			task.Status = "running"
 			c.tasks[id] = task
-			handle, err := c.runner(ctx, task, task.Description, 0)
+			handle, err := c.runner(ctx, task, task.Description, c.taskTimeout)
 			if err != nil {
 				if c.shouldRetryLocked(id, "failed", err) {
 					task.Status, task.Error = "pending", err.Error()
@@ -269,6 +307,14 @@ func NewRunner(runner tool.TaskRunner, merger tool.TaskMerger, options Options) 
 }
 
 func (r *Runner) Run(ctx context.Context, root string, tasks []tool.TaskState) ([]tool.TaskState, error) {
+	return r.run(ctx, root, tasks, 0)
+}
+
+func (r *Runner) RunWithTimeout(ctx context.Context, root string, tasks []tool.TaskState, timeout time.Duration) ([]tool.TaskState, error) {
+	return r.run(ctx, root, tasks, timeout)
+}
+
+func (r *Runner) run(ctx context.Context, root string, tasks []tool.TaskState, timeout time.Duration) ([]tool.TaskState, error) {
 	c := New(tasks, r.runner, r.merger, r.options)
 	r.mu.Lock()
 	r.current = c
@@ -280,7 +326,7 @@ func (r *Runner) Run(ctx context.Context, root string, tasks []tool.TaskState) (
 		}
 		r.mu.Unlock()
 	}()
-	return c.Run(ctx, root)
+	return c.run(ctx, root, timeout)
 }
 
 func (r *Runner) Cancel() {

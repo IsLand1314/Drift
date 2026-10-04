@@ -160,3 +160,31 @@ func TestCancelPreservesCancelledState(t *testing.T) {
 		t.Fatal("cancel did not stop coordinator")
 	}
 }
+
+func TestRunWithTimeoutPassesTaskBudgetToRunner(t *testing.T) {
+	var got time.Duration
+	runner := func(_ context.Context, _ tool.TaskState, _ string, timeout time.Duration) (tool.TaskHandle, error) {
+		got = timeout
+		handle := newFakeHandle(tool.TaskExecutionResult{State: "completed"})
+		close(handle.done)
+		return handle, nil
+	}
+	c := New([]tool.TaskState{{ID: "task-1", Status: "pending"}}, runner, nil, Options{})
+	if _, err := c.RunWithTimeout(context.Background(), t.TempDir(), 1500*time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	if got != 1500*time.Millisecond {
+		t.Fatalf("timeout=%v", got)
+	}
+}
+
+func TestRestoreConvertsInterruptedTasksToPending(t *testing.T) {
+	c := New(nil, nil, nil, Options{})
+	if err := c.Restore([]tool.TaskState{{ID: "task-1", Status: "running"}, {ID: "task-2", Status: "completed"}}); err != nil {
+		t.Fatal(err)
+	}
+	got := c.Status()
+	if got[0].Status != "pending" || got[1].Status != "completed" {
+		t.Fatalf("tasks=%+v", got)
+	}
+}
