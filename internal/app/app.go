@@ -393,6 +393,13 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 				}
 			}
 			runner = agent.NewRunnerWithMessagesAndSystemContext(modelClient{Client: client, model: *model}, selection.Root, snapshot.Focus, selectedSkill.Name, selectedSkill.Content, registry, snapshot.Messages)
+			runner.RestorePlanState(snapshot.PlanID, snapshot.PlanPhase)
+			if plans, ok := registry.(tool.PlanRegistry); ok {
+				if planErr := plans.RestorePlan(snapshot.Plan); planErr != nil {
+					fmt.Fprintln(stderr, "错误：无法恢复会话计划：", planErr)
+					return 2
+				}
+			}
 			persistence = &chatPersistence{store: store, snapshot: snapshot, persistent: true, registry: registry}
 			persistence.usage = usageTotals{InputTokens: snapshot.InputTokens, OutputTokens: snapshot.OutputTokens, ReportedRequests: snapshot.ReportedRequests, UnreportedRequests: snapshot.UnreportedRequests}
 			if _, _, isTTY := tuiMainScreenFiles(in, out); !isTTY {

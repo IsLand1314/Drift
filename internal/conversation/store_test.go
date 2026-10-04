@@ -59,6 +59,28 @@ func TestStorePreservesTaskState(t *testing.T) {
 	}
 }
 
+func TestStorePreservesStructuredPlan(t *testing.T) {
+	root := t.TempDir()
+	store := NewStore(root)
+	snapshot, err := store.Create("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot.PlanID = "plan-1"
+	snapshot.PlanPhase = "planning"
+	snapshot.Plan = tool.Plan{ID: "plan-1", Goal: "demo", Tasks: []tool.PlanTask{{ID: "task-1", Title: "inspect", Status: "pending"}}}
+	if err := store.Save(snapshot); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.Load(snapshot.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.PlanID != "plan-1" || loaded.PlanPhase != "planning" || loaded.Plan.Goal != "demo" || len(loaded.Plan.Tasks) != 1 {
+		t.Fatalf("loaded plan=%+v/%s/%s", loaded.Plan, loaded.PlanID, loaded.PlanPhase)
+	}
+}
+
 func TestStoreSaveAndLoadPreservesToolMessages(t *testing.T) {
 	store := NewStore(t.TempDir())
 	snapshot, err := store.Create("README.md")

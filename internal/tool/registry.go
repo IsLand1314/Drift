@@ -25,6 +25,7 @@ type registry struct {
 	eager     bool
 	tasks     *taskStore
 	messages  *message.Bus
+	plan      *planStore
 }
 
 // NewRegistry 创建工具注册表，并拒绝空名称和重复名称。
@@ -36,6 +37,7 @@ func NewRegistry(tools ...Tool) (Registry, error) {
 		summaries: make(map[string]toolSummary, len(tools)),
 		tasks:     newTaskStore(),
 		messages:  message.NewBus(),
+		plan:      &planStore{},
 	}
 	for _, current := range tools {
 		if current == nil {
@@ -73,7 +75,7 @@ func NewChatRegistry() Registry {
 // NewChatRegistryWithSandbox returns the chat tools with a user-selected,
 // control-plane sandbox policy fixed into Bash.
 func NewChatRegistryWithSandbox(sandboxMode SandboxMode) Registry {
-	result := &registry{tools: make(map[string]Tool), enabled: make(map[string]bool), summaries: make(map[string]toolSummary), tasks: newTaskStore(), messages: message.NewBus()}
+	result := &registry{tools: make(map[string]Tool), enabled: make(map[string]bool), summaries: make(map[string]toolSummary), tasks: newTaskStore(), messages: message.NewBus(), plan: &planStore{}}
 	tasks := result.tasks
 	cache := newFileStateCache()
 	for _, current := range []Tool{listFilesTool{}, searchTextTool{}, readFileTool{cache: cache}, writeFileTool{cache: cache}, editFileTool{cache: cache}, deleteFileTool{cache: cache}, runCommandTool{sandboxMode: sandboxMode}, askUserQuestionTool{}, taskCreateTool{tasks}, taskListTool{tasks}, taskGetTool{tasks}, taskUpdateTool{tasks}, taskSwitchTool{tasks}, taskRunTool{tasks}, taskStatusTool{tasks}, taskCancelTool{tasks}, taskMergeTool{tasks}, agentMessageSendTool{result.messages}, agentMessageListTool{result.messages}, agentSummaryTool{result.messages}} {
@@ -83,6 +85,7 @@ func NewChatRegistryWithSandbox(sandboxMode SandboxMode) Registry {
 	result.enable("AskUserQuestion")
 	result.add(planModeTool{name: "EnterPlanMode"}, false)
 	result.add(planModeTool{name: "ExitPlanMode"}, false)
+	result.add(planUpdateTool{store: result.plan}, false)
 	return result
 }
 
@@ -112,6 +115,23 @@ func (r *registry) ExportTasks() []TaskState { return r.tasks.export() }
 func (r *registry) RestoreTasks(items []TaskState) error { return r.tasks.restore(items) }
 
 func (r *registry) ResetTasks() { r.tasks.reset() }
+
+func (r *registry) SetPlanID(id string) { r.plan.plan.ID = id }
+func (r *registry) ExportPlan() Plan {
+	plan := r.plan.plan
+	plan.Tasks = append([]PlanTask(nil), plan.Tasks...)
+	plan.Risks = append([]string(nil), plan.Risks...)
+	plan.Acceptance = append([]string(nil), plan.Acceptance...)
+	return plan
+}
+func (r *registry) RestorePlan(plan Plan) error {
+	if plan.ID != "" && !strings.HasPrefix(plan.ID, "plan-") {
+		return fmt.Errorf("invalid plan id")
+	}
+	r.plan.plan = plan
+	return nil
+}
+func (r *registry) ResetPlan() { r.plan.plan = Plan{} }
 
 func (r *registry) ActiveWorktree(root string) (string, error) { return r.tasks.activeWorktree(root) }
 

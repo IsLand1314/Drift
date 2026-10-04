@@ -66,7 +66,13 @@ func switchChatSession(runner *agent.Runner, persistence *chatPersistence, targe
 			return fmt.Errorf("chat: restore tasks: %w", err)
 		}
 	}
+	if plans, ok := persistence.registry.(tool.PlanRegistry); ok {
+		if err := plans.RestorePlan(target.Plan); err != nil {
+			return fmt.Errorf("chat: restore plan: %w", err)
+		}
+	}
 	runner.RestoreMessages(target.Messages)
+	runner.RestorePlanState(target.PlanID, target.PlanPhase)
 	persistence.snapshot = target
 	persistence.usage = usage
 	return nil
@@ -87,6 +93,10 @@ func startNewChatSession(runner *agent.Runner, persistence *chatPersistence) err
 	if tasks, ok := persistence.registry.(tool.TaskRegistry); ok {
 		tasks.ResetTasks()
 	}
+	if plans, ok := persistence.registry.(tool.PlanRegistry); ok {
+		plans.ResetPlan()
+	}
+	runner.RestorePlanState("", "")
 	return nil
 }
 
@@ -130,6 +140,10 @@ func (p *chatPersistence) saveRunner(runner *agent.Runner) error {
 	if tasks, ok := p.registry.(tool.TaskRegistry); ok {
 		p.snapshot.Tasks = tasks.ExportTasks()
 	}
+	if plans, ok := p.registry.(tool.PlanRegistry); ok {
+		p.snapshot.Plan = plans.ExportPlan()
+	}
+	p.snapshot.PlanID, p.snapshot.PlanPhase = runner.PlanState()
 	p.snapshot.UpdatedAt = time.Now().UTC()
 	return p.store.Save(p.snapshot)
 }
@@ -145,6 +159,7 @@ func (p *chatPersistence) clearRunner(runner *agent.Runner) error {
 	cleared.InputTokens, cleared.OutputTokens = 0, 0
 	cleared.ReportedRequests, cleared.UnreportedRequests = 0, 0
 	cleared.Tasks = nil
+	cleared.PlanID, cleared.PlanPhase, cleared.Plan = "", "", tool.Plan{}
 	cleared.UpdatedAt = time.Now().UTC()
 	if err := p.store.Save(cleared); err != nil {
 		return err
@@ -152,6 +167,9 @@ func (p *chatPersistence) clearRunner(runner *agent.Runner) error {
 	p.snapshot = cleared
 	if tasks, ok := p.registry.(tool.TaskRegistry); ok {
 		tasks.ResetTasks()
+	}
+	if plans, ok := p.registry.(tool.PlanRegistry); ok {
+		plans.ResetPlan()
 	}
 	runner.ResetContext()
 	return nil

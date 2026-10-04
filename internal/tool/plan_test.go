@@ -34,3 +34,25 @@ func TestPlanModeToolsAreAvailableAndSideEffectFree(t *testing.T) {
 		}
 	}
 }
+
+func TestPlanUpdateStoresStructuredPlan(t *testing.T) {
+	registry := NewChatRegistry()
+	search, _ := registry.Lookup("ToolSearch")
+	if _, err := search.Execute(context.Background(), t.TempDir(), `{"query":"plan","load":["PlanUpdate"]}`); err != nil {
+		t.Fatal(err)
+	}
+	plans, ok := registry.(PlanRegistry)
+	if !ok {
+		t.Fatal("registry does not expose plan state")
+	}
+	plans.SetPlanID("plan-1")
+	update, _ := registry.Lookup("PlanUpdate")
+	result, err := update.Execute(context.Background(), t.TempDir(), `{"goal":"demo","tasks":[{"id":"task-1","title":"inspect","status":"pending"}],"risks":["none"],"acceptance":["go test ./..."]}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := plans.ExportPlan()
+	if plan.ID != "plan-1" || plan.Goal != "demo" || len(plan.Tasks) != 1 || !strings.Contains(result, "plan-1") {
+		t.Fatalf("plan=%+v result=%q", plan, result)
+	}
+}

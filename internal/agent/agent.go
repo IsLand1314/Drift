@@ -127,6 +127,9 @@ func (r *Runner) SetQuestionPrompt(prompt QuestionPrompt) { r.questionPrompt = p
 // SetPlanModeHooks installs the callbacks used by EnterPlanMode/ExitPlanMode.
 func (r *Runner) SetPlanModeHooks(hooks PlanModeHooks) { r.planModeHooks = hooks }
 
+func (r *Runner) PlanState() (string, string)       { return r.planID, r.planPhase }
+func (r *Runner) RestorePlanState(id, phase string) { r.planID, r.planPhase = id, phase }
+
 func (r *Runner) SetHooks(hooks []HookSpec, executor HookExecutor) {
 	r.hooks = append([]HookSpec(nil), hooks...)
 	r.hookExecutor = executor
@@ -493,6 +496,9 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) (
 										if toolErr == nil {
 											r.planPhase = PlanPhasePlanning
 											r.planID = "plan-" + strconv.FormatInt(time.Now().UTC().UnixNano(), 10)
+											if plans, ok := r.registry.(tool.PlanRegistry); ok {
+												plans.SetPlanID(r.planID)
+											}
 											if emitErr := emit(Event{Type: EventPlanState, PlanID: r.planID, PlanPhase: r.planPhase}); emitErr != nil {
 												toolErr = emitErr
 											} else if hookErr := r.runHooks(ctx, "plan_state_changed", Event{Type: EventPlanState, PlanID: r.planID, PlanPhase: r.planPhase}); hookErr != nil {
@@ -519,7 +525,11 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) (
 						}
 					}
 				} else {
-					result, toolErr = registeredTool.Execute(ctx, r.root, call.Arguments)
+					if call.Name == "PlanUpdate" && r.planPhase != PlanPhasePlanning {
+						toolErr = errors.New("PlanUpdate requires plan mode")
+					} else {
+						result, toolErr = registeredTool.Execute(ctx, r.root, call.Arguments)
+					}
 					if toolErr == nil && call.Name == "TaskSwitch" {
 						if switcher, ok := r.registry.(tool.TaskSwitcher); ok {
 							if nextRoot, switchErr := switcher.ActiveWorktree(r.root); switchErr != nil {
