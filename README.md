@@ -1,12 +1,12 @@
 # Drift
 
-使用 Go 构建的本地受控 Coding Agent Runtime。当前版本为 M3.4：除单次 `-p` 请求外，还支持 `drift chat` 多轮交互、默认本地完整会话保存、`--resume` 启动恢复、chat 内 `/resume` 会话切换、`/new` 新建会话、`--no-session` 临时模式、`/status` 状态面板、`/compact` 手动压缩、活动轮次 Ctrl+C 取消、workspace Skills、确认式文件创建/编辑/删除、受控命令执行和终端审批选择器。模型可以在选定 workspace 内列出文件、搜索文本、分页读取大文件，并根据每轮结果继续探索后给出解释；可选 `--trace` 会把安全运行摘要写到 stderr。`session` 管理可恢复会话，`audit` 查看脱敏审计。Provider 默认是 OpenAI Compatible，也可显式选择 Anthropic Messages。
+使用 Go 构建的本地受控 Coding Agent Runtime。当前版本为 M5.2：除单次 `-p` 请求外，还支持 `drift chat` 多轮交互、默认本地完整会话保存、`--resume` 启动恢复、chat 内 `/resume` 会话切换、`/new` 新建会话、`--no-session` 临时模式、`/status` 状态面板、`/compact` 手动压缩、活动轮次 Ctrl+C 取消、workspace Skills、确认式文件创建/编辑/删除、受控命令执行和终端审批选择器。模型可以在选定 workspace 内按模式查找文件、搜索文本、分页读取大文件，并根据每轮结果继续探索后给出解释；可选 `--trace` 会把安全运行摘要写到 stderr。`session` 管理可恢复会话，`audit` 查看脱敏审计。Provider 支持 OpenAI Compatible、Anthropic Messages 和 Codex 登录态。
 
-`-p` 只注册三个只读工具：`list_files`、`search_text`、`read_file`。`chat` 额外注册 `write_file`、`edit_file`、`delete_file` 和 `run_command`；文件变更与命令执行前必须由用户通过审批选择器确认；一轮多文件操作聚合到一个 `.drift/changes` change set。单次运行最多 6 次模型请求、12 次工具调用；成功工具结果累计最多 512 KiB，单文件最多 128 KiB。`list_files` 最多返回 200 个文件，`search_text` 最多扫描 200 个文件、返回 100 个匹配，输出最多 32 KiB。命令默认 30 秒超时，最长 60 秒，stdout/stderr 各自限流并只把结果摘要写入审计。
+`-p` 只注册三个只读工具：`Glob`、`Grep`、`ReadFile`。`chat` 额外注册 `WriteFile`、`EditFile`、`DeleteFile` 和 `Bash`；文件变更与命令执行前必须由用户通过审批选择器确认；一轮多文件操作聚合到一个 `.drift/changes` change set。写入预览会保存目标文件状态，提交前检测外部修改，避免覆盖用户的新内容。单次运行最多 6 次模型请求、12 次工具调用；成功工具结果累计最多 512 KiB，单文件最多 128 KiB。`Glob` 最多返回 200 个文件，`Grep` 最多扫描 200 个文件、返回 100 个匹配，输出最多 32 KiB。命令默认 30 秒超时，最长 60 秒，stdout/stderr 各自限流并只把结果摘要写入审计。
 
 ## 快速开始
 
-需要 Go 1.26+。M5.1 使用当前 workspace 的 `.drift` 配置目录：
+需要 Go 1.26+。M5.2 使用当前 workspace 的 `.drift` 配置目录：
 
 ```text
 .drift/settings.toml  # 行为默认值
@@ -112,11 +112,11 @@ go run ./cmd/drift audit show .drift/audits/run-<timestamp>.jsonl
 
 长对话达到上下文上限时，输入 `/clear` 可清空当前上下文；持久会话会先保存空快照，保存成功后才清理。普通文本 `clear` 不会清理上下文，只会提示使用 `/clear`。完整快照可能包含提示词、回答和工具结果，不是脱敏日志，不应上传或分享；`.drift/audits/` 只保存脱敏审计，永远不作为恢复来源。`session prune` 不带 `--yes` 时只预览，不会删除文件。
 
-没有 `config.toml` 时，旧配置优先级为：命令行 `-model`/`-base-url` > 进程环境变量 > 当前目录 `.env` > 内置默认值。缺少 Key 或模型时，请求不会发出。OAuth/Codex 登录态不属于 M5.1。
+没有 `config.toml` 时，旧配置优先级为：命令行 `-model`/`-base-url` > 进程环境变量 > 当前目录 `.env` > 内置默认值。缺少 Key 或模型时，请求不会发出。配置 `protocol = "codex"` 时，Drift 通过官方 `codex app-server` 使用本机登录态，不从 `auth.json` 读取 Codex token；当前 Codex Provider 只支持文本请求。
 
 该示例会让模型按需探索并解释当前项目；stdout 只输出最终回答，同一次运行的安全审计事件会写入被 Git 忽略的 `.drift/audits/`。`chat` 中的写入过程记录在 `.drift/changes/YYYY/MM/DD/`，可能包含项目敏感内容，不应上传。需要观察过程时加 `--trace`，摘要会写入 stderr；需要查看完整会话时使用 `drift session list/show`，`drift session timeline <id>` 只显示消息角色、工具名、调用 ID 和字节数，不显示正文；需要查看脱敏审计时使用 `drift audit list/show`。这两套命令不互为别名，聊天输入区也不提供 `/audit`。新 JSONL 不保存提示词、原始工具参数、文件内容或回答正文，只保存安全的相对路径、脱敏占位符、字节数和结束原因。运行时为预算收敛或伪工具重试附加的控制提示只在当次 system context 中存在，不会伪装成用户输入写入完整会话；完整快照也不会保存 Provider 的 `reasoning_content`。失败事件含稳定的 `stage`，例如 `provider_timeout`、`provider_sse_invalid_json`、`agent_empty_response` 或 `agent_context_limit`。完整对话恢复和边界见 [M1.2 阶段说明](doc/m1.2-conversation-persistence.md)，消息完整性见 [M2.5 阶段说明](doc/m2.5-message-integrity.md)，安全写入见 [M3.1 阶段说明](doc/m3.1-safe-file-write.md)，进程内上下文规则见 [M1.1 阶段说明](doc/m1.1-context-control.md) 和 [M1.0 阶段说明](doc/m1.0-interactive-chat.md)。当前范围和验收标准见 [spec/current.md](spec/current.md)。
 
-Drift 的 `-p` 模式只接受三个只读工具；`chat` 额外接受经过确认的 `write_file`、`edit_file`、`delete_file` 和 `run_command`。命令固定在 workspace cwd 运行，当前 chat 的“允许此类操作”只匹配同一工具、cwd 和精确命令，退出后失效。OpenAI Compatible 与 Anthropic Messages 的工具调用都会归一化为同一套 Agent 事件；若模型输出 `<｜｜DSML｜｜ calls>`（或 ASCII 变体）等文本，这不是原生工具调用，而是模型生成的不兼容伪工具格式。所有无原生工具调用且以 `stop` 结束的最终文本都会经过兼容性守卫，不会把伪工具文本打印到 stdout，也不会执行它。
+Drift 的 `-p` 模式只接受三个只读工具；`chat` 额外接受经过确认的 `WriteFile`、`EditFile`、`DeleteFile` 和 `Bash`。命令固定在 workspace cwd 运行，当前 chat 的“允许此类操作”只匹配同一工具、cwd 和精确命令，退出后失效。OpenAI Compatible 与 Anthropic Messages 的工具调用都会归一化为同一套 Agent 事件；Codex Provider 当前为 text-only，不接管 Drift 工具。若模型输出 `<｜｜DSML｜｜ calls>`（或 ASCII 变体）等文本，这不是原生工具调用，而是模型生成的不兼容伪工具格式。所有无原生工具调用且以 `stop` 结束的最终文本都会经过兼容性守卫，不会把伪工具文本打印到 stdout，也不会执行它。
 
 ## 开发
 
