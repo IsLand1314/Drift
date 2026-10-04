@@ -1,6 +1,14 @@
 # 当前交付范围
 
-本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M5.16。M3.17 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+本文件是当前版本范围与验收标准的唯一事实来源；架构边界见 [`doc/architecture.md`](../doc/architecture.md)。当前版本为 M5.18。M3.17 及更早阶段记录见 [`docs/spec-history.md`](../docs/spec-history.md)。
+
+## M5.18：真实 LLM 工具链验收
+
+真实 Provider 验收记录见 [`m5.18-llm-tool-acceptance.md`](m5.18-llm-tool-acceptance.md) 和 [`../artifacts/verification/m5.18/acceptance.md`](../artifacts/verification/m5.18/acceptance.md)。DeepSeek 已验证原生 `ToolSearch → ReadFile` 链路；OpenAI Compatible 本轮因配置返回 HTTP 401，按失败记录，不宣称通过。伪工具调用、拒绝、超时、重试和恢复均与真实 Provider 结果分栏记录。
+
+## M5.17：文档与规格收口
+
+文档同步和旧版本/旧工具名扫描见 [`m5.17-doc-spec-sync.md`](m5.17-doc-spec-sync.md) 与 [`../artifacts/verification/m5.17/scan.md`](../artifacts/verification/m5.17/scan.md)。README、当前规格头部和已交付能力状态已同步；历史阶段文档中的内部 operation 名称保留用于 change set 兼容，不作为公开工具名。
 
 ## M5.13：Memory 质量与治理
 
@@ -18,23 +26,23 @@
 
 完整目标与验收记录见 [`m5.16-mcp-production.md`](m5.16-mcp-production.md)。连接支持有限重试、超时配置、结构化失败诊断和 `/mcp status` 运行状态查询；不引入后台重连、远程沙箱或 MCP Server。
 
-## M5.12-A：上下文管理（当前阶段）
+## M5.12-A：上下文管理（已完成）
 
 完整设计与验收记录见 [`m5.12-context-management.md`](m5.12-context-management.md) 和 [`m5.12-context-acceptance.md`](m5.12-context-acceptance.md)。已完成预算触发、自动压缩、工具调用边界保护、失败原子回滚和 `deepseek-chat` 真实 LLM `/compact` 验收。
 
-## M5.12-B：短期记忆（当前阶段）
+## M5.12-B：短期记忆（已完成）
 
 完整目标与验收记录见 [`m5.12-b-short-term-memory.md`](m5.12-b-short-term-memory.md) 和 [`m5.12-b-memory-acceptance.md`](m5.12-b-memory-acceptance.md)。已完成 Session 级结构化短期记忆、敏感信息拒绝、Runner 注入和 Snapshot 恢复；长期跨会话检索尚未开始。
 
-## M5.12-C：跨会话长期记忆（当前阶段）
+## M5.12-C：跨会话长期记忆（已完成）
 
 完整目标与验收记录见 [`m5.12-c-long-term-memory.md`](m5.12-c-long-term-memory.md) 和 [`m5.12-c-memory-acceptance.md`](m5.12-c-memory-acceptance.md)。已完成 workspace 级 JSONL 存储、关键词检索、删除和延迟加载的 `MemorySearch`；经验自动提取与用户确认流程属于 M5.12-D。
 
-## M5.12-D：经验管理（当前阶段）
+## M5.12-D：经验管理（已完成基础闭环）
 
 完整目标与验收记录见 [`m5.12-d-experience-management.md`](m5.12-d-experience-management.md) 和 [`m5.12-d-experience-acceptance.md`](m5.12-d-experience-acceptance.md)。已完成候选/已验证/弃用/拒绝状态基础和显式 review；自动提取与用户确认交互仍待增量实现。
 
-## M5.12-E：Skill 生命周期（当前阶段）
+## M5.12-E：Skill 生命周期（已完成）
 
 完整目标与验收记录见 [`m5.12-e-skill-lifecycle.md`](m5.12-e-skill-lifecycle.md) 和 [`m5.12-e-skill-acceptance.md`](m5.12-e-skill-acceptance.md)。已完成本地 Skill 的发现、加载、安装和删除；网络下载和自动执行脚本明确不在范围内。
 
@@ -46,7 +54,7 @@
 
 见 [`m5.10-multi-agent-reliability.md`](m5.10-multi-agent-reliability.md)。子 Agent 的失败、取消、超时、依赖阻塞和 worktree 合并状态均必须可观测、可恢复；其调度由后续 M5.11 Coordinator 统一接管。
 
-## M5.5：API-Key Provider 诊断（当前阶段）
+## M5.5：API-Key Provider 诊断（已完成）
 
 在 M5.1 多 Provider 配置基础上，启动前区分缺少 API Key、模型和 Provider 配置错误；错误只给出修复位置，不回显密钥。Codex 登录态仍保持 text-only，不属于本阶段主线。
 
@@ -77,15 +85,15 @@
 
 完整目标、边界与验收标准见 [`m5.1-provider-configuration.md`](m5.1-provider-configuration.md)。本阶段以 workspace `.drift/` 中的 `settings.toml`、`config.toml` 和 `auth.json` 取代新增的项目 `.env` 依赖；实现多 Provider 选择、无密钥配置和认证分离。原生 Tool Call 恢复策略属于后续独立阶段。
 
-## M5.2：Codex 登录态 Provider（当前阶段）
+## M5.2：Codex 登录态 Provider（已完成 text-only 范围）
 
 完整目标、边界与验收标准见 [`m5.2-codex-provider.md`](m5.2-codex-provider.md)。本阶段通过官方 `codex app-server` 使用现有 Codex 登录态，先支持文本请求，不读取私有 token 文件，也不委托 Drift 工具执行。
 
-## M5.3：读取快照与编辑一致性（当前阶段）
+## M5.3：读取快照与编辑一致性（已完成）
 
 完整目标与验收标准见 [`m5.3-file-state-cache.md`](m5.3-file-state-cache.md)。ReadFile 快照只保留在当前进程内，EditFile 会拒绝读取后发生外部修改的目标；写入成功后缓存失效，不持久化文件内容或摘要。
 
-## M5.4：工具 Schema 加载策略（当前阶段）
+## M5.4：工具 Schema 加载策略（已完成）
 
 完整目标与边界见 [`m5.4-tool-loading.md`](m5.4-tool-loading.md)。Drift 支持 `eager`、`dispatch` 和安全降级的 `native` 策略；MCP 工具复用同一加载策略。
 
