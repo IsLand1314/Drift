@@ -2,6 +2,7 @@ package tool
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -34,6 +35,14 @@ func TestPlanModeToolsAreAvailableAndSideEffectFree(t *testing.T) {
 		result, err := previewable.ExecutePreview(context.Background(), t.TempDir(), preview)
 		if err != nil || !strings.Contains(result, "Plan mode") {
 			t.Fatalf("%s result=%q err=%v", name, result, err)
+		}
+		var definition map[string]any
+		if err := json.Unmarshal(plan.Definition().Function, &definition); err != nil {
+			t.Fatal(err)
+		}
+		parameters := definition["parameters"].(map[string]any)
+		if required, ok := parameters["required"]; !ok || required == nil {
+			t.Fatalf("%s schema omitted required", name)
 		}
 	}
 }

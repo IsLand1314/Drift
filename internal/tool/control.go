@@ -181,6 +181,9 @@ func ToolSearchDefinition() llm.ToolDefinition {
 }
 
 func controlDefinition(name, description string, properties map[string]any, required []string) llm.ToolDefinition {
+	if required == nil {
+		required = []string{}
+	}
 	function := map[string]any{"name": name, "description": description, "parameters": map[string]any{"type": "object", "properties": properties, "required": required, "additionalProperties": false}}
 	raw, err := json.Marshal(function)
 	if err != nil {
