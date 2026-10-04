@@ -341,11 +341,6 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 			return 1
 		}
 	}
-	if memoryRepo, memoryErr := memory.NewRepository(selection.Root); memoryErr == nil {
-		if memories, ok := registry.(tool.MemoryRegistry); ok {
-			memories.SetMemoryRepository(memoryRepo)
-		}
-	}
 	if chat {
 		if protocol != "codex" {
 			registry = tool.NewChatRegistryWithSandbox(sandboxMode)
@@ -375,6 +370,11 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 			tasks.SetTaskRunner(taskRunner)
 			tasks.SetTaskMerger(taskMerger)
 			tasks.SetCoordinator(coordinatorpkg.NewRunner(taskRunner, taskMerger, coordinatorpkg.Options{MaxConcurrency: agent.DefaultChildConcurrency}))
+		}
+	}
+	if memoryRepo, memoryErr := memory.NewRepository(selection.Root); memoryErr == nil {
+		if memories, ok := registry.(tool.MemoryRegistry); ok {
+			memories.SetMemoryRepository(memoryRepo)
 		}
 	}
 	if chat {
