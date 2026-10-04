@@ -30,6 +30,17 @@ type Settings struct {
 	ToolLoading     string       `toml:"tool_loading"`
 	TUIMode         string       `toml:"tui_mode"`
 	Chat            ChatSettings `toml:"chat"`
+	Hooks           []Hook       `toml:"hooks"`
+}
+
+type Hook struct {
+	ID        string `toml:"id"`
+	Event     string `toml:"event"`
+	Tool      string `toml:"tool"`
+	Match     string `toml:"match"`
+	Command   string `toml:"command"`
+	TimeoutMS int    `toml:"timeout_ms"`
+	OnError   string `toml:"on_error"`
 }
 
 type ChatSettings struct {
@@ -180,6 +191,27 @@ func validateSettings(s Settings, providers []Provider) error {
 	}
 	if s.TUIMode != "main" {
 		return fmt.Errorf("settings.toml: invalid tui_mode")
+	}
+	if len(s.Hooks) > 32 {
+		return fmt.Errorf("settings.toml: too many hooks")
+	}
+	seenHooks := map[string]bool{}
+	for _, hook := range s.Hooks {
+		if hook.ID == "" || seenHooks[hook.ID] || hook.Command == "" {
+			return fmt.Errorf("settings.toml: invalid hook")
+		}
+		seenHooks[hook.ID] = true
+		switch hook.Event {
+		case "session_start", "session_end", "turn_start", "turn_end", "pre_tool_use", "post_tool_use", "plan_state_changed":
+		default:
+			return fmt.Errorf("settings.toml: invalid hook event")
+		}
+		if hook.TimeoutMS < 0 || hook.TimeoutMS > 60000 {
+			return fmt.Errorf("settings.toml: invalid hook timeout_ms")
+		}
+		if hook.OnError != "" && hook.OnError != "ignore" && hook.OnError != "report" && hook.OnError != "block" {
+			return fmt.Errorf("settings.toml: invalid hook on_error")
+		}
 	}
 	if s.DefaultProvider != "" {
 		for _, p := range providers {

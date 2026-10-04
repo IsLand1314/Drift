@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/IsLand1314/Drift/internal/agent"
 	"github.com/IsLand1314/Drift/internal/changes"
+	"github.com/IsLand1314/Drift/internal/config"
 	"github.com/IsLand1314/Drift/internal/conversation"
 	"github.com/IsLand1314/Drift/internal/llm"
 	"github.com/IsLand1314/Drift/internal/session"
@@ -29,6 +31,7 @@ type chatStatus struct {
 	Registry       tool.Registry
 	PermissionMode permissionMode
 	SandboxMode    tool.SandboxMode
+	Hooks          []config.Hook
 }
 
 type chatPersistence struct {
@@ -224,6 +227,62 @@ func runTuiMainScreenLoop(ctx context.Context, runner *agent.Runner, audit sessi
 				return nil
 			},
 		})
+		hookSpecs := make([]agent.HookSpec, 0, len(status.Hooks))
+		for _, hook := range status.Hooks {
+			hookSpecs = append(hookSpecs, agent.HookSpec{ID: hook.ID, Event: hook.Event, Tool: hook.Tool, Match: hook.Match, Command: hook.Command, TimeoutMS: hook.TimeoutMS, OnError: hook.OnError})
+		}
+		runner.SetHooks(hookSpecs, func(hookCtx context.Context, hook agent.HookSpec, event agent.Event) (bool, error) {
+			if hook.Match != "" {
+				value := event.Path
+				if value == "" {
+					value = event.ToolName
+				}
+				matched, matchErr := filepath.Match(hook.Match, filepath.ToSlash(value))
+				if matchErr != nil || !matched {
+					return true, nil
+				}
+			}
+			raw, err := json.Marshal(map[string]any{"command": hook.Command, "cwd": ".", "timeout_ms": hook.TimeoutMS, "max_output_bytes": tool.MaxCommandOutputBytes})
+			if err != nil {
+				return false, err
+			}
+			preview, err := tool.RunCommandPreviewWithSandbox(status.Workspace, string(raw), status.SandboxMode)
+			if err != nil {
+				return false, err
+			}
+			request := agent.PermissionRequest{ToolName: "Hook:" + hook.ID, Operation: "hook_command", Command: hook.Command, CWD: status.Workspace}
+			decision, err := confirmWrite(hookCtx, input, out, permissionMode, permissionMemory, permissionPolicyStore, request)
+			if err != nil || !decision.Allow {
+				return false, err
+			}
+			hookCall := agent.Event{Type: agent.EventToolCall, ToolName: "Hook:" + hook.ID, Operation: "hook_command", Command: hook.Command, CWD: status.Workspace, SandboxMode: string(preview.SandboxMode), SandboxBackend: preview.Sandbox.Backend, SandboxAvailable: preview.Sandbox.Available, SandboxProbe: preview.Sandbox.Probe}
+			if err := appendChatEvent(audit, traceSink, hookCall); err != nil {
+				return false, err
+			}
+			result, execErr := tool.ExecuteCommand(hookCtx, status.Workspace, preview)
+			statusText := "failed"
+			if strings.Contains(result, "run_command status=success ") {
+				statusText = "success"
+			}
+			hookResult := agent.Event{Type: agent.EventToolResult, ToolName: "Hook:" + hook.ID, Operation: "hook_command", Command: hook.Command, CWD: status.Workspace, Result: result, ExecutionStatus: statusText}
+			if execErr != nil {
+				hookResult.ErrorSummary = execErr.Error()
+				hookResult.FailureReason = execErr.Error()
+			}
+			if auditErr := appendChatEvent(audit, traceSink, hookResult); execErr == nil && auditErr != nil {
+				execErr = auditErr
+			}
+			return execErr == nil, execErr
+		})
+		if err := runner.EmitHookEvent(ctx, "session_start", agent.Event{Type: agent.EventRunStarted}); err != nil {
+			fmt.Fprintln(stderr, "错误：session_start hook：", err)
+			return 1
+		}
+		defer func() {
+			if err := runner.EmitHookEvent(context.Background(), "session_end", agent.Event{Type: agent.EventRunFinished}); err != nil {
+				fmt.Fprintln(stderr, "错误：session_end hook：", err)
+			}
+		}()
 	}
 	var mcpManager *mcpManager
 	if status.Registry != nil && status.Workspace != "" {
@@ -532,6 +591,12 @@ func runTuiMainScreenLoop(ctx context.Context, runner *agent.Runner, audit sessi
 			currentActivity.Start()
 		}
 		toolStarted := make(map[string]toolProgress)
+		if err := runner.EmitHookEvent(turnCtx, "turn_start", agent.Event{Type: agent.EventRunStarted, Text: prompt}); err != nil {
+			endTurn()
+			turnCancel()
+			fmt.Fprintln(out, chatError(out)+"✖ turn_start hook："+err.Error()+chatReset(out))
+			continue
+		}
 		err = runner.RunEvents(turnCtx, prompt, func(event agent.Event) error {
 			// 同一事件先写脱敏审计，再按需转发 trace 和 stdout。
 			if err := audit.Append(event); err != nil {
@@ -588,6 +653,16 @@ func runTuiMainScreenLoop(ctx context.Context, runner *agent.Runner, audit sessi
 			_, err := io.WriteString(out, event.Text)
 			return err
 		})
+		turnStatus := "complete"
+		turnFailure := ""
+		if err != nil {
+			turnStatus = "failed"
+			turnFailure = err.Error()
+		}
+		turnEndErr := runner.EmitHookEvent(turnCtx, "turn_end", agent.Event{Type: agent.EventRunFinished, ExecutionStatus: turnStatus, FailureReason: turnFailure})
+		if err == nil && turnEndErr != nil {
+			err = turnEndErr
+		}
 		if currentActivity != nil {
 			currentActivity.Stop()
 			currentActivity = nil

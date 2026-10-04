@@ -100,6 +100,21 @@ func TestLoadUserConfigAcceptsToolLoadingStrategy(t *testing.T) {
 	}
 }
 
+func TestLoadUserConfigAcceptsCommandHook(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte("version = 1\n[[providers]]\nname = \"p\"\nprotocol = \"openai\"\nbase_url = \"https://api.openai.com/v1\"\nmodel = \"m\"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	settings := "version = 1\n[[hooks]]\nid = \"format\"\nevent = \"post_tool_use\"\ntool = \"EditFile\"\nmatch = \"*.go\"\ncommand = \"gofmt -w\"\ntimeout_ms = 30000\non_error = \"report\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "settings.toml"), []byte(settings), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadUserConfig(dir)
+	if err != nil || len(cfg.Settings.Hooks) != 1 || cfg.Settings.Hooks[0].ID != "format" {
+		t.Fatalf("settings=%+v err=%v", cfg.Settings, err)
+	}
+}
+
 func TestLoadDotEnvParsesCommentsBlanksAndQuotedValues(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".env")
 	contents := "\n# comment\n KEY = value \nSINGLE='quoted value'\nDOUBLE=\"another value\"\n"

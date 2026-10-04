@@ -53,6 +53,8 @@ type Runner struct {
 	planModeHooks    PlanModeHooks
 	planPhase        string
 	planID           string
+	hooks            []HookSpec
+	hookExecutor     HookExecutor
 }
 
 // PlanModeHooks lets the chat layer apply the permission-mode transition after
@@ -61,6 +63,18 @@ type PlanModeHooks struct {
 	Enter func() error
 	Exit  func() error
 }
+
+type HookSpec struct {
+	ID        string
+	Event     string
+	Tool      string
+	Match     string
+	Command   string
+	TimeoutMS int
+	OnError   string
+}
+
+type HookExecutor func(context.Context, HookSpec, Event) (allow bool, err error)
 
 const (
 	PlanPhasePlanning  = "planning"
@@ -112,6 +126,39 @@ func (r *Runner) SetQuestionPrompt(prompt QuestionPrompt) { r.questionPrompt = p
 
 // SetPlanModeHooks installs the callbacks used by EnterPlanMode/ExitPlanMode.
 func (r *Runner) SetPlanModeHooks(hooks PlanModeHooks) { r.planModeHooks = hooks }
+
+func (r *Runner) SetHooks(hooks []HookSpec, executor HookExecutor) {
+	r.hooks = append([]HookSpec(nil), hooks...)
+	r.hookExecutor = executor
+}
+
+// EmitHookEvent dispatches a lifecycle event to configured hooks. Callers use
+// this for session and turn boundaries that are outside the tool loop.
+func (r *Runner) EmitHookEvent(ctx context.Context, eventName string, event Event) error {
+	return r.runHooks(ctx, eventName, event)
+}
+
+func (r *Runner) runHooks(ctx context.Context, eventName string, event Event) error {
+	if r.hookExecutor == nil {
+		return nil
+	}
+	for _, hook := range r.hooks {
+		if hook.Event != eventName || (hook.Tool != "" && hook.Tool != event.ToolName) {
+			continue
+		}
+		allow, err := r.hookExecutor(ctx, hook, event)
+		if err != nil {
+			if hook.OnError == "ignore" || (eventName != "pre_tool_use" && hook.OnError != "block") {
+				continue
+			}
+			return err
+		}
+		if eventName == "pre_tool_use" && !allow {
+			return errors.New("pre_tool_use hook blocked tool")
+		}
+	}
+	return nil
+}
 
 // RestoreMessages replaces the current messages with a caller-owned snapshot.
 func (r *Runner) RestoreMessages(messages []llm.Message) { r.messages = cloneMessages(messages) }
@@ -334,6 +381,9 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) (
 				if err := emit(Event{Type: EventPlanState, PlanID: r.planID, PlanPhase: r.planPhase}); err != nil {
 					return err
 				}
+				if err := r.runHooks(ctx, "plan_state_changed", Event{Type: EventPlanState, PlanID: r.planID, PlanPhase: r.planPhase}); err != nil {
+					return fail(err)
+				}
 			}
 			return emit(Event{Type: EventRunFinished, FinishReason: completion.FinishReason})
 		}
@@ -348,6 +398,9 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) (
 		limitReached := false
 		limitInstruction := ""
 		for _, call := range calls {
+			if err := r.runHooks(ctx, "pre_tool_use", Event{Type: EventToolCall, ToolCallID: call.ID, ToolName: call.Name, Arguments: call.Arguments}); err != nil {
+				return fail(err)
+			}
 			if err := emit(Event{Type: EventToolCall, ToolCallID: call.ID, ToolName: call.Name, Arguments: call.Arguments}); err != nil {
 				return err
 			}
@@ -442,6 +495,8 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) (
 											r.planID = "plan-" + strconv.FormatInt(time.Now().UTC().UnixNano(), 10)
 											if emitErr := emit(Event{Type: EventPlanState, PlanID: r.planID, PlanPhase: r.planPhase}); emitErr != nil {
 												toolErr = emitErr
+											} else if hookErr := r.runHooks(ctx, "plan_state_changed", Event{Type: EventPlanState, PlanID: r.planID, PlanPhase: r.planPhase}); hookErr != nil {
+												toolErr = hookErr
 											}
 										}
 									}
@@ -454,6 +509,8 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) (
 											r.planPhase = PlanPhaseExecuting
 											if emitErr := emit(Event{Type: EventPlanState, PlanID: r.planID, PlanPhase: r.planPhase}); emitErr != nil {
 												toolErr = emitErr
+											} else if hookErr := r.runHooks(ctx, "plan_state_changed", Event{Type: EventPlanState, PlanID: r.planID, PlanPhase: r.planPhase}); hookErr != nil {
+												toolErr = hookErr
 											}
 										}
 									}
@@ -527,8 +584,12 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) (
 				}
 			}
 			r.messages = append(r.messages, llm.Message{Role: "tool", Content: content, ToolCallID: call.ID})
-			if err := emit(Event{Type: EventToolResult, ToolCallID: call.ID, ToolName: call.Name, MCPServer: mcpServer, Result: content, ErrorSummary: errorSummary, Operation: operation, Path: path, Command: command, CWD: cwd, OldBytes: oldBytes, NewBytes: newBytes, SandboxMode: sandboxMode, SandboxBackend: sandboxBackend, SandboxAvailable: sandboxAvailable, SandboxProbe: sandboxProbe, ExecutionStatus: executionStatus, FailureReason: failureReason}); err != nil {
+			toolEvent := Event{Type: EventToolResult, ToolCallID: call.ID, ToolName: call.Name, MCPServer: mcpServer, Result: content, ErrorSummary: errorSummary, Operation: operation, Path: path, Command: command, CWD: cwd, OldBytes: oldBytes, NewBytes: newBytes, SandboxMode: sandboxMode, SandboxBackend: sandboxBackend, SandboxAvailable: sandboxAvailable, SandboxProbe: sandboxProbe, ExecutionStatus: executionStatus, FailureReason: failureReason}
+			if err := emit(toolEvent); err != nil {
 				return err
+			}
+			if err := r.runHooks(ctx, "post_tool_use", toolEvent); err != nil {
+				return fail(err)
 			}
 		}
 		if toolCalls >= MaxToolCalls {

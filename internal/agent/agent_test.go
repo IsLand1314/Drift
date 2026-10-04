@@ -313,6 +313,35 @@ func TestPlanModeToolInvokesTransitionHookAfterApproval(t *testing.T) {
 	}
 }
 
+func TestPreToolHookCanBlockExecution(t *testing.T) {
+	client := &scriptedClient{steps: []scriptedStep{{completion: llm.Completion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{{ID: "read-1", Type: "function", Name: "ReadFile", Arguments: `{"path":"missing.txt"}`}}}, FinishReason: "tool_calls"}}}}
+	runner := NewRunner(client, t.TempDir(), "", tool.NewDefaultRegistry())
+	runner.SetHooks([]HookSpec{{ID: "block", Event: "pre_tool_use", Tool: "ReadFile", Command: "echo blocked", OnError: "block"}}, func(context.Context, HookSpec, Event) (bool, error) {
+		return false, nil
+	})
+	if err := runner.RunEvents(context.Background(), "read", nil); err == nil || !strings.Contains(err.Error(), "pre_tool_use hook blocked") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestEmitHookEventDispatchesLifecycleHook(t *testing.T) {
+	runner := NewRunner(&scriptedClient{}, t.TempDir(), "", tool.NewDefaultRegistry())
+	var got Event
+	runner.SetHooks([]HookSpec{{ID: "turn-start", Event: "turn_start", Command: "echo start"}}, func(_ context.Context, hook HookSpec, event Event) (bool, error) {
+		if hook.ID != "turn-start" {
+			t.Fatalf("hook=%+v", hook)
+		}
+		got = event
+		return true, nil
+	})
+	if err := runner.EmitHookEvent(context.Background(), "turn_start", Event{Type: EventRunStarted, Text: "prompt"}); err != nil {
+		t.Fatal(err)
+	}
+	if got.Type != EventRunStarted || got.Text != "prompt" {
+		t.Fatalf("event=%+v", got)
+	}
+}
+
 func TestToolSearchMakesLoadedSchemaAvailableOnNextRequest(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("hello"), 0o600); err != nil {
