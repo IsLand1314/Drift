@@ -709,3 +709,13 @@ func TestRunValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestRunShortResumeAliasUsesChatRouter(t *testing.T) {
+	var out, stderr bytes.Buffer
+	code := RunWithInput(context.Background(), []string{"-c", "--no-session"}, func(key string) string {
+		return map[string]string{"OPENAI_API_KEY": "test-key", "OPENAI_MODEL": "test"}[key]
+	}, strings.NewReader(""), &out, &stderr)
+	if code != 2 || strings.Contains(stderr.String(), "flag provided but not defined") || !strings.Contains(stderr.String(), "不能同时使用") {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+}

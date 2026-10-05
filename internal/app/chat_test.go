@@ -551,6 +551,15 @@ func TestTuiSessionHeaderDoesNotRenderSessionMetadata(t *testing.T) {
 	}
 }
 
+func TestChatRuntimeFooterIncludesProvider(t *testing.T) {
+	footer := chatRuntimeFooter(chatStatus{Workspace: "F:/work", Provider: "deepseek", Model: "chat"}, &chatPersistence{persistent: true, snapshot: session.Snapshot{ID: "conv-123"}})
+	for _, want := range []string{"F:/work", "deepseek/chat", "session conv-123"} {
+		if !strings.Contains(footer, want) {
+			t.Fatalf("footer=%q missing %q", footer, want)
+		}
+	}
+}
+
 func TestParseChatPersistenceArgsAcceptsShortResumeAliases(t *testing.T) {
 	args, options, err := parseChatPersistenceArgs([]string{"-c", "-w", "workspace"})
 	if err != nil || !options.resume || options.resumeID != "" || strings.Join(args, " ") != "-w workspace" {

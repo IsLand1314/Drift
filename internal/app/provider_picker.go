@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"github.com/IsLand1314/Drift/internal/config"
@@ -40,8 +41,13 @@ func runProviderPicker(ctx context.Context, in io.Reader, out io.Writer, provide
 			return "", false, fmt.Errorf("provider picker returned invalid model")
 		}
 	}
+	if file, ok := out.(*os.File); ok && isTTY(file) {
+		_, _ = io.WriteString(out, startupPickerCleanupSequence())
+	}
 	return picked.selected, !picked.cancelled && picked.selected != "", nil
 }
+
+func startupPickerCleanupSequence() string { return "\x1b[2J\x1b[H" }
 
 func (m providerPickerModel) Init() tea.Cmd { return nil }
 

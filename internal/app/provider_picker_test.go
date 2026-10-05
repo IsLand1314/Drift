@@ -26,3 +26,9 @@ func TestProviderPickerShowsDriftBrandAndWorkspace(t *testing.T) {
 		t.Fatalf("picker view missing branding: %q", view)
 	}
 }
+
+func TestStartupPickerCleanupClearsTemporaryFrame(t *testing.T) {
+	if got := startupPickerCleanupSequence(); got != "\x1b[2J\x1b[H" {
+		t.Fatalf("cleanup=%q", got)
+	}
+}

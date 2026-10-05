@@ -27,6 +27,7 @@ func runChatLoop(ctx context.Context, runner *agent.Runner, audit audit.Writer, 
 
 type chatStatus struct {
 	Model          string
+	Provider       string
 	Workspace      string
 	ToolCount      int
 	Registry       tool.Registry
@@ -776,8 +777,8 @@ func runTuiMainScreenLoop(ctx context.Context, runner *agent.Runner, audit audit
 
 func chatRuntimeFooter(status chatStatus, persistence *chatPersistence) string {
 	parts := []string{status.Workspace}
-	if status.Model != "" {
-		parts = append(parts, status.Model)
+	if status.Provider != "" || status.Model != "" {
+		parts = append(parts, strings.Trim(status.Provider+"/"+status.Model, "/"))
 	}
 	if persistence != nil && persistence.persistent {
 		parts = append(parts, "session "+persistence.snapshot.ID)

@@ -85,10 +85,10 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 	if len(args) > 0 && args[0] == "login" {
 		return runLoginCommand(args[1:], in, out, stderr)
 	}
-	chat := len(args) == 0 || args[0] == "chat"
+	chat := len(args) == 0 || args[0] == "chat" || args[0] == "-c" || args[0] == "-r"
 	var persistenceOptions chatPersistenceOptions
 	if chat {
-		if len(args) > 0 {
+		if len(args) > 0 && args[0] == "chat" {
 			args = args[1:]
 		}
 		var parseErr error
@@ -459,7 +459,7 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 		runner = agent.NewRunnerWithSystemContext(modelClient{Client: client, model: *model}, selection.Root, selection.Focus, selectedSkill.Name, selectedSkill.Content, registry)
 	}
 	if chat {
-		status := chatStatus{Model: *model, Workspace: selection.Root, ToolCount: len(registry.Definitions()), Registry: registry, PermissionMode: permissionMode, SandboxMode: sandboxMode, Hooks: userConfig.Settings.Hooks, AutoMemory: userConfig.Settings.Memory.AutoExtract, AutoRetrieve: userConfig.Settings.Memory.AutoRetrieve}
+		status := chatStatus{Model: *model, Provider: providerName, Workspace: selection.Root, ToolCount: len(registry.Definitions()), Registry: registry, PermissionMode: permissionMode, SandboxMode: sandboxMode, Hooks: userConfig.Settings.Hooks, AutoMemory: userConfig.Settings.Memory.AutoExtract, AutoRetrieve: userConfig.Settings.Memory.AutoRetrieve}
 		code := runChatLoopWithPersistence(runCtx, runner, sessionWriter, traceSink, persistence, status, coordinator, in, out, stderr)
 		if childManager != nil {
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
