@@ -14,8 +14,8 @@ import (
 	"time"
 
 	"github.com/IsLand1314/Drift/internal/agent"
+	"github.com/IsLand1314/Drift/internal/audit"
 	"github.com/IsLand1314/Drift/internal/config"
-	"github.com/IsLand1314/Drift/internal/conversation"
 	coordinatorpkg "github.com/IsLand1314/Drift/internal/coordinator"
 	gitops "github.com/IsLand1314/Drift/internal/git"
 	"github.com/IsLand1314/Drift/internal/layout"
@@ -34,11 +34,9 @@ type modelClient struct {
 	model string
 }
 
-// Stream 给底层 Provider 请求补上命令行解析后的模型名。
-// Agent 不需要知道具体 Provider，只依赖 llm.Client 接口。
-func (c modelClient) Stream(ctx context.Context, request llm.Request, emit func(llm.StreamEvent) error) (llm.Completion, error) {
+func (c modelClient) StreamEvents(ctx context.Context, request llm.Request, emit func(llm.Event) error) error {
 	request.Model = c.model
-	return c.Client.Stream(ctx, request, emit)
+	return c.Client.StreamEvents(ctx, request, emit)
 }
 
 // Run 是 CLI 的应用编排层：加载配置 → 校验参数 → 创建 Provider → 启动 Agent。
@@ -81,6 +79,9 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 	if len(args) > 0 && args[0] == "skill" {
 		return runSkillCommand(args[1:], out, stderr)
 	}
+	if len(args) > 0 && args[0] == "doctor" {
+		return runDoctorCommand(args[1:], getenv, out, stderr)
+	}
 	chat := len(args) > 0 && args[0] == "chat"
 	var persistenceOptions chatPersistenceOptions
 	if chat {
@@ -94,11 +95,9 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 	}
 	flags := flag.NewFlagSet("drift", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	var dotenv map[string]string
 	var err error
-	dotenv = map[string]string{}
 	userConfig := config.UserConfig{}
-	lookup := func(key string) string { return config.MergeLookup(dotenv, getenv, key) }
+	lookup := getenv
 	prompt := flags.String("p", "", "发送一次提示词并流式输出回复")
 	workspaceTarget := flags.String("w", "", "要分析的目录或文件（默认当前目录）")
 	skillName := flags.String("skill", "", "显式选择 workspace Skill")
@@ -158,16 +157,9 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 		fmt.Fprintln(stderr, "错误：", userConfigErr)
 		return 2
 	}
-	if !userConfig.ConfigPresent {
-		dotenv, err = config.LoadDotEnv(".env")
-		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 2
-		}
-		if !flagWasSet(flags, "provider") {
-			if configured := lookup("DRIFT_PROVIDER"); configured != "" {
-				*provider = configured
-			}
+	if !userConfig.ConfigPresent && !flagWasSet(flags, "provider") {
+		if configured := lookup("DRIFT_PROVIDER"); configured != "" {
+			*provider = configured
 		}
 	}
 	if userConfig.ConfigPresent {
@@ -221,7 +213,7 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 		}
 		protocol = profile.Protocol
 		codexHome = profile.CodexHome
-		apiKeyEnv = profile.APIKeyEnv
+		apiKeyEnv = profile.APIKey
 		if *model == "" {
 			*model = profile.Model
 		}
@@ -298,6 +290,8 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 		client, err = codex.New(codexHome)
 	} else if protocol == "anthropic" {
 		client, err = anthropic.New(*baseURL, key)
+	} else if protocol == "openai" && userConfig.ConfigPresent {
+		client, err = openai.NewResponses(*baseURL, key)
 	} else {
 		client, err = openai.New(*baseURL, key)
 	}
@@ -325,7 +319,7 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 		return 1
 	}
 	sessionPath := filepath.Join(layout.DateDir(storageLayout.Audits, startedAt), fmt.Sprintf("run-%s-%s.jsonl", layout.FileTimestamp(startedAt), hex.EncodeToString(runID)))
-	sessionWriter, err := session.NewJSONLWriterWithSecrets(sessionPath, selection.Root, key)
+	sessionWriter, err := audit.NewJSONLWriterWithSecrets(sessionPath, selection.Root, key)
 	if err != nil {
 		fmt.Fprintln(stderr, "错误：", err)
 		return 1
@@ -350,7 +344,7 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 			registry = tool.NewChatRegistryWithSandbox(sandboxMode)
 		}
 		childManager = agent.NewChildManager(agent.DefaultChildConcurrency)
-		if loadingStrategy == tool.LoadingEager {
+		if loadingStrategy == tool.LoadingEager || (loadingStrategy == tool.LoadingNative && nativeLoading) {
 			if eager, ok := registry.(interface{ LoadAll() }); ok {
 				eager.LoadAll()
 			}
@@ -384,9 +378,9 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 		}
 	}
 	if chat {
-		store := conversation.NewStore(selection.Root)
+		store := session.NewStore(selection.Root)
 		if persistenceOptions.resume {
-			var snapshot conversation.Snapshot
+			var snapshot session.Snapshot
 			if persistenceOptions.resumeID == "" {
 				snapshot, err = store.Latest()
 			} else {
@@ -408,7 +402,7 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 					return 2
 				}
 			}
-			runner = agent.NewRunnerWithMessagesAndSystemContext(modelClient{Client: client, model: *model}, selection.Root, snapshot.Focus, selectedSkill.Name, selectedSkill.Content, registry, snapshot.Messages)
+			runner = agent.NewRunnerWithMessagesAndSystemContext(modelClient{Client: client, model: *model}, selection.Root, snapshot.Focus, selectedSkill.Name, selectedSkill.Content, registry, session.NormalizeToolPairing(snapshot.Messages))
 			runner.RestoreShortTermMemory(snapshot.ShortTermMemory)
 			runner.RestorePlanState(snapshot.PlanID, snapshot.PlanPhase)
 			if plans, ok := registry.(tool.PlanRegistry); ok {
@@ -444,7 +438,7 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 		runner = agent.NewRunnerWithSystemContext(modelClient{Client: client, model: *model}, selection.Root, selection.Focus, selectedSkill.Name, selectedSkill.Content, registry)
 	}
 	if chat {
-		status := chatStatus{Model: *model, Workspace: selection.Root, ToolCount: len(registry.Definitions()), Registry: registry, PermissionMode: permissionMode, SandboxMode: sandboxMode, Hooks: userConfig.Settings.Hooks}
+		status := chatStatus{Model: *model, Workspace: selection.Root, ToolCount: len(registry.Definitions()), Registry: registry, PermissionMode: permissionMode, SandboxMode: sandboxMode, Hooks: userConfig.Settings.Hooks, AutoMemory: userConfig.Settings.Memory.AutoExtract, AutoRetrieve: userConfig.Settings.Memory.AutoRetrieve}
 		code := runChatLoopWithPersistence(runCtx, runner, sessionWriter, traceSink, persistence, status, coordinator, in, out, stderr)
 		if childManager != nil {
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

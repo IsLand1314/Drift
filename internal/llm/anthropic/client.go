@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/IsLand1314/Drift/internal/llm"
+	"github.com/IsLand1314/Drift/internal/llm/transport"
 )
 
 const maxTokens = 4096
@@ -28,7 +29,53 @@ type Client struct {
 	http     *http.Client
 }
 
-func (c *Client) Capabilities() llm.Capabilities { return llm.Capabilities{NativeToolCalls: true} }
+func (c *Client) StreamEvents(ctx context.Context, request llm.Request, emit func(llm.Event) error) error {
+	return llm.WithTerminal(ctx, emit, func(emit func(llm.Event) error) error {
+		return c.streamEvents(ctx, request, emit)
+	})
+}
+
+func (c *Client) streamEvents(ctx context.Context, request llm.Request, emit func(llm.Event) error) error {
+	body, err := encodeRequest(request)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(body))
+	if err != nil {
+		return errors.New("无法创建模型请求")
+	}
+	req.Header.Set("x-api-key", c.key)
+	req.Header.Set("anthropic-version", "2023-06-01")
+	if request.NativeToolReferences {
+		req.Header.Set("anthropic-beta", "advanced-tool-use-2025-11-20")
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		var networkErr net.Error
+		if errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &networkErr) && networkErr.Timeout()) {
+			return &llm.ProviderError{Stage: llm.ErrorStageTimeout, Message: "模型请求超时，请检查网络和服务状态", Cause: err}
+		}
+		return &llm.ProviderError{Stage: llm.ErrorStageTransport, Message: "模型连接失败，请检查地址、网络和服务状态", Cause: err}
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return &llm.ProviderError{Stage: llm.ErrorStageHTTP, Message: fmt.Sprintf("模型请求失败：HTTP %d (%s)", resp.StatusCode, http.StatusText(resp.StatusCode))}
+	}
+	media, _, _ := mime.ParseMediaType(resp.Header.Get("Content-Type"))
+	if media != "text/event-stream" {
+		return &llm.ProviderError{Stage: llm.ErrorStageNonSSE, Message: "模型未返回 SSE 流，请检查 API 地址及流式支持"}
+	}
+	return readStreamEvents(transport.NewSSESanitizer(transport.NewIdleTimeoutReader(ctx, resp.Body, 30*time.Second)), emit)
+}
+
+func (c *Client) Capabilities() llm.Capabilities {
+	return llm.Capabilities{NativeToolCalls: true, NativeToolReferences: true}
+}
 
 // New validates an Anthropic API root and appends the Messages endpoint.
 func New(baseURL, key string) (*Client, error) {
@@ -51,12 +98,12 @@ func New(baseURL, key string) (*Client, error) {
 }
 
 type request struct {
-	Model     string          `json:"model"`
-	MaxTokens int             `json:"max_tokens"`
-	System    string          `json:"system,omitempty"`
-	Messages  []message       `json:"messages"`
-	Tools     []anthropicTool `json:"tools,omitempty"`
-	Stream    bool            `json:"stream"`
+	Model     string            `json:"model"`
+	MaxTokens int               `json:"max_tokens"`
+	System    string            `json:"system,omitempty"`
+	Messages  []message         `json:"messages"`
+	Tools     []json.RawMessage `json:"tools,omitempty"`
+	Stream    bool              `json:"stream"`
 }
 
 type message struct {
@@ -67,6 +114,9 @@ type message struct {
 type contentBlock struct {
 	Type      string          `json:"type"`
 	Text      string          `json:"text,omitempty"`
+	Thinking  string          `json:"thinking,omitempty"`
+	Signature string          `json:"signature,omitempty"`
+	Encrypted string          `json:"encrypted_content,omitempty"`
 	ID        string          `json:"id,omitempty"`
 	Name      string          `json:"name,omitempty"`
 	Input     json.RawMessage `json:"input,omitempty"`
@@ -75,48 +125,10 @@ type contentBlock struct {
 }
 
 type anthropicTool struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description,omitempty"`
-	InputSchema json.RawMessage `json:"input_schema"`
-}
-
-func (c *Client) Stream(ctx context.Context, input llm.Request, emit func(llm.StreamEvent) error) (llm.Completion, error) {
-	body, err := encodeRequest(input)
-	if err != nil {
-		return llm.Completion{}, err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(body))
-	if err != nil {
-		return llm.Completion{}, errors.New("无法创建模型请求")
-	}
-	req.Header.Set("x-api-key", c.key)
-	req.Header.Set("anthropic-version", "2023-06-01")
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "text/event-stream")
-	resp, err := c.http.Do(req)
-	if err != nil {
-		if ctx.Err() != nil {
-			return llm.Completion{}, ctx.Err()
-		}
-		var networkErr net.Error
-		if errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &networkErr) && networkErr.Timeout()) {
-			return llm.Completion{}, &llm.ProviderError{Stage: llm.ErrorStageTimeout, Message: "模型请求超时，请检查网络和服务状态", Cause: err}
-		}
-		return llm.Completion{}, &llm.ProviderError{Stage: llm.ErrorStageTransport, Message: "模型连接失败，请检查地址、网络和服务状态", Cause: err}
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return llm.Completion{}, &llm.ProviderError{Stage: llm.ErrorStageHTTP, Message: fmt.Sprintf("模型请求失败：HTTP %d (%s)", resp.StatusCode, http.StatusText(resp.StatusCode))}
-	}
-	media, _, _ := mime.ParseMediaType(resp.Header.Get("Content-Type"))
-	if media != "text/event-stream" {
-		return llm.Completion{}, &llm.ProviderError{Stage: llm.ErrorStageNonSSE, Message: "模型未返回 SSE 流，请检查 API 地址及流式支持"}
-	}
-	completion, err := readStream(resp.Body, emit)
-	if ctx.Err() != nil {
-		return llm.Completion{}, ctx.Err()
-	}
-	return completion, err
+	Name         string          `json:"name"`
+	Description  string          `json:"description,omitempty"`
+	InputSchema  json.RawMessage `json:"input_schema"`
+	DeferLoading bool            `json:"defer_loading,omitempty"`
 }
 
 func encodeRequest(input llm.Request) ([]byte, error) {
@@ -129,7 +141,10 @@ func encodeRequest(input llm.Request) ([]byte, error) {
 			}
 			result.System += current.Content
 		case "user", "assistant":
-			blocks := make([]contentBlock, 0, 1+len(current.ToolCalls))
+			blocks := make([]contentBlock, 0, 2+len(current.ToolCalls))
+			if current.Role == "assistant" && (current.ReasoningContent != "" || current.ReasoningSignature != "" || current.EncryptedReasoning != "") {
+				blocks = append(blocks, contentBlock{Type: "thinking", Thinking: current.ReasoningContent, Signature: current.ReasoningSignature, Encrypted: current.EncryptedReasoning})
+			}
 			if current.Content != "" {
 				blocks = append(blocks, contentBlock{Type: "text", Text: current.Content})
 			}
@@ -153,6 +168,9 @@ func encodeRequest(input llm.Request) ([]byte, error) {
 			return nil, fmt.Errorf("Anthropic 不支持消息角色 %q", current.Role)
 		}
 	}
+	if input.NativeToolReferences {
+		result.Tools = append(result.Tools, json.RawMessage(`{"type":"tool_search_tool_bm25_20251119","name":"tool_search_tool_bm25"}`))
+	}
 	for _, definition := range input.Tools {
 		var function struct {
 			Name        string          `json:"name"`
@@ -162,7 +180,14 @@ func encodeRequest(input llm.Request) ([]byte, error) {
 		if err := json.Unmarshal(definition.Function, &function); err != nil || function.Name == "" || len(function.Parameters) == 0 {
 			return nil, errors.New("Anthropic 工具定义无效")
 		}
-		result.Tools = append(result.Tools, anthropicTool{Name: function.Name, Description: function.Description, InputSchema: function.Parameters})
+		if input.NativeToolReferences && function.Name == "ToolSearch" {
+			continue
+		}
+		encoded, err := json.Marshal(anthropicTool{Name: function.Name, Description: function.Description, InputSchema: function.Parameters, DeferLoading: input.NativeToolReferences || definition.Deferred})
+		if err != nil {
+			return nil, err
+		}
+		result.Tools = append(result.Tools, encoded)
 	}
 	return json.Marshal(result)
 }
@@ -183,6 +208,8 @@ type streamEvent struct {
 	Delta struct {
 		Type        string `json:"type"`
 		Text        string `json:"text"`
+		Thinking    string `json:"thinking"`
+		Signature   string `json:"signature"`
 		PartialJSON string `json:"partial_json"`
 		StopReason  string `json:"stop_reason"`
 	} `json:"delta"`
@@ -192,15 +219,16 @@ type streamEvent struct {
 	Error json.RawMessage `json:"error"`
 }
 
-func readStream(r io.Reader, emit func(llm.StreamEvent) error) (llm.Completion, error) {
+func readStreamEvents(r io.Reader, emit func(llm.Event) error) error {
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 4096), 1<<20)
 	var eventName string
 	var data []string
-	completion := llm.Completion{Assistant: llm.Message{Role: "assistant"}}
 	calls := make(map[int]*llm.ToolCall)
+	thinkingBlocks := make(map[int]*llm.ThinkingComplete)
 	inputTokens, outputTokens := 0, 0
 	haveInput, haveOutput := false, false
+	finishReason := ""
 	flush := func() error {
 		if len(data) == 0 {
 			return nil
@@ -224,12 +252,16 @@ func readStream(r io.Reader, emit func(llm.StreamEvent) error) (llm.Completion, 
 		case "content_block_start":
 			if event.ContentBlock.Type == "tool_use" {
 				calls[event.Index] = &llm.ToolCall{ID: event.ContentBlock.ID, Type: "function", Name: event.ContentBlock.Name}
+				if err := emit(llm.ToolCallStart{Index: event.Index, ID: event.ContentBlock.ID, Name: event.ContentBlock.Name}); err != nil {
+					return err
+				}
+			} else if event.ContentBlock.Type == "thinking" {
+				thinkingBlocks[event.Index] = &llm.ThinkingComplete{}
 			}
 		case "content_block_delta":
 			switch event.Delta.Type {
 			case "text_delta":
-				completion.Assistant.Content += event.Delta.Text
-				if err := emit(llm.StreamEvent{Text: event.Delta.Text}); err != nil {
+				if err := emit(llm.TextDelta{Text: event.Delta.Text}); err != nil {
 					return err
 				}
 			case "input_json_delta":
@@ -238,14 +270,33 @@ func readStream(r io.Reader, emit func(llm.StreamEvent) error) (llm.Completion, 
 					return errors.New("Anthropic 工具参数块缺少 tool_use")
 				}
 				call.Arguments += event.Delta.PartialJSON
-				if err := emit(llm.StreamEvent{ToolCallDelta: &llm.ToolCallDelta{Index: event.Index, ID: call.ID, Name: call.Name, Arguments: event.Delta.PartialJSON}}); err != nil {
+				if err := emit(llm.ToolCallDelta{Index: event.Index, ID: call.ID, Name: call.Name, Arguments: event.Delta.PartialJSON}); err != nil {
 					return err
 				}
+			case "thinking_delta":
+				block := thinkingBlocks[event.Index]
+				if block == nil {
+					return errors.New("Anthropic 思考参数块缺少 thinking block")
+				}
+				block.Thinking += event.Delta.Thinking
+			case "signature_delta":
+				block := thinkingBlocks[event.Index]
+				if block == nil {
+					return errors.New("Anthropic 签名参数块缺少 thinking block")
+				}
+				block.Signature += event.Delta.Signature
+			}
+		case "content_block_stop":
+			if block := thinkingBlocks[event.Index]; block != nil {
+				if err := emit(*block); err != nil {
+					return err
+				}
+				delete(thinkingBlocks, event.Index)
 			}
 		case "message_delta":
-			completion.FinishReason = event.Delta.StopReason
-			if completion.FinishReason == "end_turn" {
-				completion.FinishReason = "stop"
+			finishReason = event.Delta.StopReason
+			if finishReason == "end_turn" {
+				finishReason = "stop"
 			}
 			if event.Usage.OutputTokens > 0 {
 				outputTokens = event.Usage.OutputTokens
@@ -258,10 +309,17 @@ func readStream(r io.Reader, emit func(llm.StreamEvent) error) (llm.Completion, 
 			}
 			sort.Ints(indexes)
 			for _, index := range indexes {
-				completion.Assistant.ToolCalls = append(completion.Assistant.ToolCalls, *calls[index])
+				call := calls[index]
+				if err := emit(llm.ToolCallComplete{Index: index, ID: call.ID, Name: call.Name, Arguments: call.Arguments}); err != nil {
+					return err
+				}
 			}
+			var usage *llm.Usage
 			if haveInput || haveOutput {
-				completion.Usage = &llm.Usage{InputTokens: inputTokens, OutputTokens: outputTokens, TotalTokens: inputTokens + outputTokens}
+				usage = &llm.Usage{InputTokens: inputTokens, OutputTokens: outputTokens, TotalTokens: inputTokens + outputTokens}
+			}
+			if err := emit(llm.StreamEnd{Status: llm.StreamCompleted, FinishReason: finishReason, Usage: usage}); err != nil {
+				return err
 			}
 			return io.EOF
 		}
@@ -273,9 +331,9 @@ func readStream(r io.Reader, emit func(llm.StreamEvent) error) (llm.Completion, 
 		if line == "" {
 			if err := flush(); err != nil {
 				if errors.Is(err, io.EOF) {
-					return completion, nil
+					return nil
 				}
-				return llm.Completion{}, err
+				return err
 			}
 			eventName, data = "", nil
 			continue
@@ -287,15 +345,18 @@ func readStream(r io.Reader, emit func(llm.StreamEvent) error) (llm.Completion, 
 		if value, ok := strings.CutPrefix(line, "data:"); ok {
 			data = append(data, strings.TrimPrefix(value, " "))
 			if len(strings.Join(data, "\n")) > 1<<20 {
-				return llm.Completion{}, &llm.ProviderError{Stage: llm.ErrorStageSSEEventTooLarge, Message: "模型 SSE 事件超过 1 MiB 限制"}
+				return &llm.ProviderError{Stage: llm.ErrorStageSSEEventTooLarge, Message: "模型 SSE 事件超过 1 MiB 限制"}
 			}
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		if strings.Contains(err.Error(), "token too long") {
-			return llm.Completion{}, &llm.ProviderError{Stage: llm.ErrorStageSSELineTooLarge, Message: "模型 SSE 单行超过 1 MiB 限制", Cause: err}
+		if errors.Is(err, transport.ErrIdleTimeout) {
+			return &llm.ProviderError{Stage: llm.ErrorStageTimeout, Message: "模型 SSE 流空闲超时", Cause: err}
 		}
-		return llm.Completion{}, &llm.ProviderError{Stage: llm.ErrorStageSSERead, Message: "读取模型 SSE 流失败", Cause: err}
+		if strings.Contains(err.Error(), "token too long") {
+			return &llm.ProviderError{Stage: llm.ErrorStageSSELineTooLarge, Message: "模型 SSE 单行超过 1 MiB 限制", Cause: err}
+		}
+		return &llm.ProviderError{Stage: llm.ErrorStageSSERead, Message: "读取模型 SSE 流失败", Cause: err}
 	}
-	return llm.Completion{}, &llm.ProviderError{Stage: llm.ErrorStageSSEDisconnected, Message: "模型 SSE 流提前断开，未收到 message_stop"}
+	return &llm.ProviderError{Stage: llm.ErrorStageSSEDisconnected, Message: "模型 SSE 流提前断开，未收到 message_stop"}
 }

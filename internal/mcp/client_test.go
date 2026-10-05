@@ -2,9 +2,11 @@ package mcp
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,6 +14,31 @@ import (
 	"testing"
 	"time"
 )
+
+func TestReadMessageSupportsContentLengthFraming(t *testing.T) {
+	payload := []byte(`{"jsonrpc":"2.0","id":1,"result":{}}`)
+	var wire bytes.Buffer
+	fmt.Fprintf(&wire, "Content-Length: %d\r\nContent-Type: application/vscode-jsonrpc; charset=utf-8\r\n\r\n", len(payload))
+	wire.Write(payload)
+	got, err := readMessage(bufio.NewReader(&wire))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, payload) {
+		t.Fatalf("payload=%q want %q", got, payload)
+	}
+}
+
+func TestNormalizeInputSchemaDefaultsMissingObjectType(t *testing.T) {
+	got, err := normalizeInputSchema(json.RawMessage(`{"$schema":"http://json-schema.org/draft-07/schema#"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema map[string]any
+	if err := json.Unmarshal(got, &schema); err != nil || schema["type"] != "object" {
+		t.Fatalf("schema=%s err=%v", got, err)
+	}
+}
 
 func TestClientInitializesListsAndCallsTool(t *testing.T) {
 	client, err := Start(context.Background(), Server{Name: "demo", Transport: "stdio", Command: os.Args[0], Args: []string{"-test.run=TestMCPHelperProcess"}}, []string{"DRIFT_MCP_TEST_HELPER=1"})
@@ -130,14 +157,18 @@ func TestMCPHelperProcess(t *testing.T) {
 	if os.Getenv("DRIFT_MCP_TEST_HELPER") != "1" {
 		return
 	}
-	scanner := bufio.NewScanner(os.Stdin)
-	for scanner.Scan() {
+	reader := bufio.NewReader(os.Stdin)
+	for {
+		message, err := readMessage(reader)
+		if err != nil {
+			break
+		}
 		var request struct {
 			ID     int             `json:"id"`
 			Method string          `json:"method"`
 			Params json.RawMessage `json:"params"`
 		}
-		if err := json.Unmarshal(scanner.Bytes(), &request); err != nil {
+		if err := json.Unmarshal(message, &request); err != nil {
 			os.Exit(2)
 		}
 		if request.Method == "notifications/initialized" {
@@ -162,7 +193,7 @@ func TestMCPHelperProcess(t *testing.T) {
 			result = map[string]any{}
 		}
 		response, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": request.ID, "result": result})
-		_, _ = os.Stdout.Write(append(response, '\n'))
+		_ = writeMessage(os.Stdout, response)
 	}
 	os.Exit(0)
 }

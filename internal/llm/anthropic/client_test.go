@@ -11,6 +11,75 @@ import (
 	"github.com/IsLand1314/Drift/internal/llm"
 )
 
+func TestReadStreamEmitsThinkingComplete(t *testing.T) {
+	input := strings.Join([]string{
+		`event: content_block_start`, `data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking"}}`, "",
+		`event: content_block_delta`, `data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"reason"}}`, "",
+		`event: content_block_delta`, `data: {"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig"}}`, "",
+		`event: content_block_stop`, `data: {"type":"content_block_stop","index":0}`, "",
+		`event: message_delta`, `data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}`, "",
+		`event: message_stop`, `data: {"type":"message_stop"}`, "", "",
+	}, "\n")
+	var complete llm.ThinkingComplete
+	if err := readStreamEvents(strings.NewReader(input), func(event llm.Event) error {
+		if value, ok := event.(llm.ThinkingComplete); ok {
+			complete = value
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if complete.Thinking != "reason" || complete.Signature != "sig" {
+		t.Fatalf("thinking complete = %#v", complete)
+	}
+}
+
+// Test-only access to the protocol parser; production callers use StreamEvents.
+func (c *Client) Stream(ctx context.Context, request llm.Request, emit func(llm.StreamEvent) error) (testCompletion, error) {
+	return collectStream(func(out func(llm.Event) error) error { return c.StreamEvents(ctx, request, out) }, emit)
+}
+
+func collectStream(run func(func(llm.Event) error) error, emit func(llm.StreamEvent) error) (testCompletion, error) {
+	completion := testCompletion{Assistant: llm.Message{Role: "assistant"}}
+	calls := map[int]*llm.ToolCall{}
+	err := run(func(event llm.Event) error {
+		switch e := event.(type) {
+		case llm.TextDelta:
+			completion.Assistant.Content += e.Text
+			return emit(llm.StreamEvent{Text: e.Text})
+		case llm.ToolCallStart:
+			calls[e.Index] = &llm.ToolCall{ID: e.ID, Type: "function", Name: e.Name}
+		case llm.ToolCallDelta:
+			call := calls[e.Index]
+			if call == nil {
+				call = &llm.ToolCall{ID: e.ID, Type: "function", Name: e.Name}
+				calls[e.Index] = call
+			}
+			call.Arguments += e.Arguments
+			return emit(llm.StreamEvent{ToolCallDelta: &llm.ToolCallDelta{Index: e.Index, ID: e.ID, Name: e.Name, Arguments: e.Arguments}})
+		case llm.ToolCallComplete:
+			call := calls[e.Index]
+			if call == nil {
+				call = &llm.ToolCall{}
+			}
+			call.ID, call.Name, call.Arguments, call.Type = e.ID, e.Name, e.Arguments, "function"
+			calls[e.Index] = call
+		case llm.StreamEnd:
+			completion.FinishReason, completion.Usage = e.FinishReason, e.Usage
+		}
+		return nil
+	})
+	if err != nil {
+		return testCompletion{}, err
+	}
+	for index := 0; index < len(calls); index++ {
+		if call, ok := calls[index]; ok {
+			completion.Assistant.ToolCalls = append(completion.Assistant.ToolCalls, *call)
+		}
+	}
+	return completion, nil
+}
+
 func TestStreamMapsRequestAndSSE(t *testing.T) {
 	const secret = "anthropic-secret"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -79,14 +148,15 @@ func TestStreamMapsToolsAndResults(t *testing.T) {
 				Content json.RawMessage `json:"content"`
 			} `json:"messages"`
 			Tools []struct {
-				Name        string                 `json:"name"`
-				InputSchema map[string]interface{} `json:"input_schema"`
+				Name         string                 `json:"name"`
+				InputSchema  map[string]interface{} `json:"input_schema"`
+				DeferLoading bool                   `json:"defer_loading"`
 			} `json:"tools"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Fatal(err)
 		}
-		if len(body.Tools) != 1 || body.Tools[0].Name != "ReadFile" || body.Tools[0].InputSchema["type"] != "object" {
+		if len(body.Tools) != 1 || body.Tools[0].Name != "ReadFile" || body.Tools[0].InputSchema["type"] != "object" || !body.Tools[0].DeferLoading {
 			t.Fatalf("tools = %+v", body.Tools)
 		}
 		if len(body.Messages) != 3 || body.Messages[1].Role != "assistant" || body.Messages[2].Role != "user" {
@@ -134,13 +204,53 @@ func TestStreamMapsToolsAndResults(t *testing.T) {
 			{Role: "assistant", ToolCalls: []llm.ToolCall{{ID: "call-1", Type: "function", Name: "ReadFile", Arguments: `{"path":"README.md"}`}}},
 			{Role: "tool", ToolCallID: "call-1", Content: "file text"},
 		},
-		Tools: []llm.ToolDefinition{{Type: "function", Function: json.RawMessage(`{"name":"ReadFile","description":"read","parameters":{"type":"object"}}`)}},
+		Tools: []llm.ToolDefinition{{Type: "function", Deferred: true, Function: json.RawMessage(`{"name":"ReadFile","description":"read","parameters":{"type":"object"}}`)}},
 	}, func(llm.StreamEvent) error { return nil })
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(completion.Assistant.ToolCalls) != 1 || completion.Assistant.ToolCalls[0].Arguments != `{"path":"README.md"}` {
 		t.Fatalf("tool calls = %+v", completion.Assistant.ToolCalls)
+	}
+}
+
+func TestNativeToolReferencesUseAnthropicToolSearchWireFormat(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("anthropic-beta"); got != "advanced-tool-use-2025-11-20" {
+			t.Fatalf("anthropic-beta = %q", got)
+		}
+		var body struct {
+			Tools []struct {
+				Type         string `json:"type"`
+				Name         string `json:"name"`
+				DeferLoading bool   `json:"defer_loading"`
+			} `json:"tools"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if len(body.Tools) != 2 || body.Tools[0].Type != "tool_search_tool_bm25_20251119" || body.Tools[0].Name != "tool_search_tool_bm25" || !body.Tools[1].DeferLoading {
+			t.Fatalf("native tools = %+v", body.Tools)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeAnthropicEvent(w, `{"type":"message_start","message":{"usage":{"input_tokens":1}}}`)
+		writeAnthropicEvent(w, `{"type":"content_block_start","index":0,"content_block":{"type":"text"}}`)
+		writeAnthropicEvent(w, `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}`)
+		writeAnthropicEvent(w, `{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":1}}`)
+		writeAnthropicEvent(w, `{"type":"message_stop"}`)
+	}))
+	defer server.Close()
+	client, err := New(server.URL, "secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.Stream(context.Background(), llm.Request{
+		Model: "claude-test", NativeToolReferences: true,
+		Tools:    []llm.ToolDefinition{{Type: "function", Function: json.RawMessage(`{"name":"ReadFile","description":"read","parameters":{"type":"object"}}`)}},
+		Messages: []llm.Message{{Role: "user", Content: "read"}},
+	}, func(llm.StreamEvent) error { return nil })
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 

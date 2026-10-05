@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/IsLand1314/Drift/internal/agent"
+	"github.com/IsLand1314/Drift/internal/audit"
 	gitops "github.com/IsLand1314/Drift/internal/git"
 	"github.com/IsLand1314/Drift/internal/layout"
-	"github.com/IsLand1314/Drift/internal/session"
 	"github.com/IsLand1314/Drift/internal/tool"
 )
 
@@ -77,7 +77,7 @@ func runGitCommandContext(ctx context.Context, args []string, out, stderr io.Wri
 		return 1
 	}
 	auditPath := filepath.Join(layout.DateDir(storage.Audits, started), "git-revert-"+layout.FileTimestamp(started)+".jsonl")
-	audit, err := session.NewJSONLWriterWithSecrets(auditPath, root)
+	audit, err := audit.NewJSONLWriterWithSecrets(auditPath, root)
 	if err != nil {
 		fmt.Fprintln(stderr, "错误：无法打开审计记录：", err)
 		return 1

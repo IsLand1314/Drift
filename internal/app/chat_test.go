@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"github.com/IsLand1314/Drift/internal/agent"
-	"github.com/IsLand1314/Drift/internal/conversation"
+	"github.com/IsLand1314/Drift/internal/audit"
 	"github.com/IsLand1314/Drift/internal/llm"
 	"github.com/IsLand1314/Drift/internal/memory"
 	"github.com/IsLand1314/Drift/internal/session"
@@ -31,23 +31,63 @@ type answerClient struct{}
 
 type compactThenAnswerClient struct{ calls int }
 
-func (c *compactThenAnswerClient) Stream(_ context.Context, _ llm.Request, emit func(llm.StreamEvent) error) (llm.Completion, error) {
+func collectLegacyEvents(ctx context.Context, client interface {
+	Stream(context.Context, llm.Request, func(llm.StreamEvent) error) (testCompletion, error)
+}, request llm.Request, emit func(llm.Event) error) error {
+	completion, err := client.Stream(ctx, request, func(event llm.StreamEvent) error {
+		if event.Text != "" {
+			if err := emit(llm.TextDelta{Text: event.Text}); err != nil {
+				return err
+			}
+		}
+		if event.ReasoningContent != "" {
+			if err := emit(llm.ThinkingDelta{Text: event.ReasoningContent}); err != nil {
+				return err
+			}
+		}
+		if event.ToolCallDelta != nil {
+			if err := emit(*event.ToolCallDelta); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	for index, call := range completion.Assistant.ToolCalls {
+		if err := emit(llm.ToolCallComplete{Index: index, ID: call.ID, Name: call.Name, Arguments: call.Arguments}); err != nil {
+			return err
+		}
+	}
+	return emit(llm.StreamEnd{FinishReason: completion.FinishReason, Usage: completion.Usage})
+}
+
+func (c *compactThenAnswerClient) StreamEvents(ctx context.Context, request llm.Request, emit func(llm.Event) error) error {
+	return collectLegacyEvents(ctx, c, request, emit)
+}
+
+func (c *compactThenAnswerClient) Stream(_ context.Context, _ llm.Request, emit func(llm.StreamEvent) error) (testCompletion, error) {
 	c.calls++
 	text := "summary"
 	if c.calls > 1 {
 		text = "answer after compaction"
 	}
 	if err := emit(llm.StreamEvent{Text: text}); err != nil {
-		return llm.Completion{}, err
+		return testCompletion{}, err
 	}
-	return llm.Completion{Assistant: llm.Message{Role: "assistant", Content: text}, FinishReason: "stop"}, nil
+	return testCompletion{Assistant: llm.Message{Role: "assistant", Content: text}, FinishReason: "stop"}, nil
 }
 
-func (answerClient) Stream(_ context.Context, _ llm.Request, emit func(llm.StreamEvent) error) (llm.Completion, error) {
+func (answerClient) Stream(_ context.Context, _ llm.Request, emit func(llm.StreamEvent) error) (testCompletion, error) {
 	if err := emit(llm.StreamEvent{Text: "main screen answer"}); err != nil {
-		return llm.Completion{}, err
+		return testCompletion{}, err
 	}
-	return llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "main screen answer"}, FinishReason: "stop"}, nil
+	return testCompletion{Assistant: llm.Message{Role: "assistant", Content: "main screen answer"}, FinishReason: "stop"}, nil
+}
+
+func (c answerClient) StreamEvents(ctx context.Context, request llm.Request, emit func(llm.Event) error) error {
+	return collectLegacyEvents(ctx, c, request, emit)
 }
 
 type blockingReader struct {
@@ -85,6 +125,41 @@ func TestMemoryCommandsManageShortAndLongTermMemory(t *testing.T) {
 	}
 }
 
+func TestAutomaticMemoryCandidatesArePersistedAsUnverified(t *testing.T) {
+	repo, err := memory.NewRepository(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved := saveAutomaticMemoryCandidates(repo, "以后：默认使用中文回答")
+	if len(saved) != 1 || saved[0].Status != "candidate" {
+		t.Fatalf("saved=%+v", saved)
+	}
+	visible, err := repo.Search("中文", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(visible) != 0 {
+		t.Fatalf("candidate leaked into default search: %+v", visible)
+	}
+	review, err := repo.SearchWithOptions("中文", memory.SearchOptions{Status: "candidate", Limit: 20})
+	if err != nil || len(review) != 1 {
+		t.Fatalf("review=%+v err=%v", review, err)
+	}
+	var out bytes.Buffer
+	if !handleMemoryCommand("/memory candidates", agent.NewRunner(nil, t.TempDir(), "", tool.NewDefaultRegistry()), &chatPersistence{memoryRepo: repo}, &out) {
+		t.Fatal("candidates command not handled")
+	}
+	if !strings.Contains(out.String(), "默认使用中文回答") {
+		t.Fatalf("candidate output=%q", out.String())
+	}
+	if !handleMemoryCommand("/memory approve 默认使用中文回答", agent.NewRunner(nil, t.TempDir(), "", tool.NewDefaultRegistry()), &chatPersistence{memoryRepo: repo}, &out) {
+		t.Fatal("approve command not handled")
+	}
+	if hits, err := repo.Search("中文", 20); err != nil || len(hits) != 1 || hits[0].Status != "verified" {
+		t.Fatalf("approved hits=%+v err=%v", hits, err)
+	}
+}
+
 func (r *blockingReader) Read([]byte) (int, error) {
 	select {
 	case <-r.started:
@@ -95,22 +170,26 @@ func (r *blockingReader) Read([]byte) (int, error) {
 	return 0, io.EOF
 }
 
-func (c *cancelThenAnswerClient) Stream(ctx context.Context, _ llm.Request, emit func(llm.StreamEvent) error) (llm.Completion, error) {
+func (c *cancelThenAnswerClient) Stream(ctx context.Context, _ llm.Request, emit func(llm.StreamEvent) error) (testCompletion, error) {
 	c.calls++
 	if c.calls == 1 {
 		c.signals <- os.Interrupt
 		<-ctx.Done()
-		return llm.Completion{}, ctx.Err()
+		return testCompletion{}, ctx.Err()
 	}
 	if err := emit(llm.StreamEvent{Text: "continued answer"}); err != nil {
-		return llm.Completion{}, err
+		return testCompletion{}, err
 	}
-	return llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "continued answer"}, FinishReason: "stop"}, nil
+	return testCompletion{Assistant: llm.Message{Role: "assistant", Content: "continued answer"}, FinishReason: "stop"}, nil
+}
+
+func (c *cancelThenAnswerClient) StreamEvents(ctx context.Context, request llm.Request, emit func(llm.Event) error) error {
+	return collectLegacyEvents(ctx, c, request, emit)
 }
 
 func TestTuiMainScreenAppendsCompletedTurnsWithoutScreenControl(t *testing.T) {
 	root := t.TempDir()
-	audit, err := session.NewJSONLWriter(filepath.Join(root, "audit.jsonl"))
+	audit, err := audit.NewJSONLWriter(filepath.Join(root, "audit.jsonl"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +267,7 @@ func TestChatPreservesConversationAcrossTurns(t *testing.T) {
 	if !strings.Contains(out.String(), "first answer") || !strings.Contains(out.String(), "second answer") || requests != 2 {
 		t.Fatalf("out=%q requests=%d", out.String(), requests)
 	}
-	files, err := session.ListFiles(filepath.Join(root, ".drift", "audits"))
+	files, err := audit.ListFiles(filepath.Join(root, ".drift", "audits"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +285,7 @@ func TestChatPreservesConversationAcrossTurns(t *testing.T) {
 
 func TestSwitchChatSessionStagesTargetBeforeReplacingCurrent(t *testing.T) {
 	root := t.TempDir()
-	store := conversation.NewStore(root)
+	store := session.NewStore(root)
 	current, err := store.Create("")
 	if err != nil {
 		t.Fatal(err)
@@ -243,7 +322,7 @@ func TestSwitchChatSessionStagesTargetBeforeReplacingCurrent(t *testing.T) {
 
 func TestChatResumeCommandSwitchesPersistentSession(t *testing.T) {
 	root := t.TempDir()
-	store := conversation.NewStore(root)
+	store := session.NewStore(root)
 	current, err := store.Create("")
 	if err != nil {
 		t.Fatal(err)
@@ -260,7 +339,7 @@ func TestChatResumeCommandSwitchesPersistentSession(t *testing.T) {
 	if err := store.Save(target); err != nil {
 		t.Fatal(err)
 	}
-	audit, err := session.NewJSONLWriter(filepath.Join(root, "audit.jsonl"))
+	audit, err := audit.NewJSONLWriter(filepath.Join(root, "audit.jsonl"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -280,7 +359,7 @@ func TestChatResumeCommandSwitchesPersistentSession(t *testing.T) {
 
 func TestStartNewChatSessionKeepsOldSnapshot(t *testing.T) {
 	root := t.TempDir()
-	store := conversation.NewStore(root)
+	store := session.NewStore(root)
 	current, err := store.Create("")
 	if err != nil {
 		t.Fatal(err)
@@ -305,7 +384,7 @@ func TestStartNewChatSessionKeepsOldSnapshot(t *testing.T) {
 
 func TestChatPersistenceRestoresTaskStateWithSession(t *testing.T) {
 	root := t.TempDir()
-	store := conversation.NewStore(root)
+	store := session.NewStore(root)
 	snapshot, err := store.Create("")
 	if err != nil {
 		t.Fatal(err)
@@ -348,12 +427,12 @@ func TestChatPersistenceRestoresTaskStateWithSession(t *testing.T) {
 
 func TestChatNewCommandCreatesPersistentSession(t *testing.T) {
 	root := t.TempDir()
-	store := conversation.NewStore(root)
+	store := session.NewStore(root)
 	current, err := store.Create("")
 	if err != nil {
 		t.Fatal(err)
 	}
-	audit, err := session.NewJSONLWriter(filepath.Join(root, "audit.jsonl"))
+	audit, err := audit.NewJSONLWriter(filepath.Join(root, "audit.jsonl"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -369,12 +448,12 @@ func TestChatNewCommandCreatesPersistentSession(t *testing.T) {
 
 func TestChatRenameCommandRenamesCurrentSession(t *testing.T) {
 	root := t.TempDir()
-	store := conversation.NewStore(root)
+	store := session.NewStore(root)
 	current, err := store.Create("")
 	if err != nil {
 		t.Fatal(err)
 	}
-	audit, err := session.NewJSONLWriter(filepath.Join(root, "audit.jsonl"))
+	audit, err := audit.NewJSONLWriter(filepath.Join(root, "audit.jsonl"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -424,7 +503,7 @@ func TestChatResumeSendsPriorContext(t *testing.T) {
 	if code := RunWithInput(context.Background(), []string{"chat", "-w", root}, getenv, strings.NewReader("first\nexit\n"), &out, &stderr); code != 0 {
 		t.Fatalf("first code=%d out=%q stderr=%q", code, out.String(), stderr.String())
 	}
-	items, err := conversation.NewStore(root).List()
+	items, err := session.NewStore(root).List()
 	if err != nil || len(items) != 1 {
 		t.Fatalf("conversation list=%+v err=%v", items, err)
 	}
@@ -449,7 +528,7 @@ func TestChatNoSessionSkipsFullSnapshot(t *testing.T) {
 	if code := RunWithInput(context.Background(), []string{"chat", "--no-session", "-w", root}, getenv, strings.NewReader("hello\nexit\n"), &out, &stderr); code != 0 {
 		t.Fatalf("code=%d out=%q stderr=%q", code, out.String(), stderr.String())
 	}
-	if items, err := conversation.NewStore(root).List(); err != nil || len(items) != 0 {
+	if items, err := session.NewStore(root).List(); err != nil || len(items) != 0 {
 		t.Fatalf("full snapshots=%+v err=%v", items, err)
 	}
 	if !strings.Contains(stderr.String(), "--no-session") {
@@ -479,7 +558,7 @@ func TestChatPersistentClearSavesEmptySnapshot(t *testing.T) {
 	if code := RunWithInput(context.Background(), []string{"chat", "-w", root}, getenv, strings.NewReader("secret\n/clear\nexit\n"), &out, &stderr); code != 0 {
 		t.Fatalf("code=%d out=%q stderr=%q", code, out.String(), stderr.String())
 	}
-	items, err := conversation.NewStore(root).List()
+	items, err := session.NewStore(root).List()
 	if err != nil || len(items) != 1 || items[0].MessageCount != 0 {
 		t.Fatalf("metadata=%+v err=%v", items, err)
 	}
@@ -524,7 +603,7 @@ func TestChatCancelsCurrentTurnAndContinues(t *testing.T) {
 	client := &cancelThenAnswerClient{signals: signals}
 	root := t.TempDir()
 	runner := agent.NewRunner(client, root, "", tool.NewDefaultRegistry())
-	audit, err := session.NewJSONLWriter(filepath.Join(root, "audit.jsonl"))
+	audit, err := audit.NewJSONLWriter(filepath.Join(root, "audit.jsonl"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -644,7 +723,7 @@ func TestChatUserPromptLinePreservesSubmittedText(t *testing.T) {
 
 func TestChatSearchHistoryPrintsOnlyLocations(t *testing.T) {
 	root := t.TempDir()
-	store := conversation.NewStore(root)
+	store := session.NewStore(root)
 	snapshot, err := store.Create("")
 	if err != nil {
 		t.Fatal(err)
@@ -667,7 +746,7 @@ func TestChatSearchHistoryPrintsOnlyLocations(t *testing.T) {
 
 func TestChatAutomaticallyCompactsBeforeNearLimitTurn(t *testing.T) {
 	root := t.TempDir()
-	audit, err := session.NewJSONLWriter(filepath.Join(root, "audit.jsonl"))
+	audit, err := audit.NewJSONLWriter(filepath.Join(root, "audit.jsonl"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -738,7 +817,7 @@ func TestChatCompactUsesNoToolsAndPersistsResult(t *testing.T) {
 	if requests != 3 || compactHasTools || !strings.Contains(out.String(), "上下文已压缩") || !strings.Contains(thirdRequest, "summary") {
 		t.Fatalf("requests=%d tools=%v out=%q third=%q", requests, compactHasTools, out.String(), thirdRequest)
 	}
-	items, err := conversation.NewStore(root).List()
+	items, err := session.NewStore(root).List()
 	if err != nil || len(items) != 1 || items[0].MessageCount < 2 {
 		t.Fatalf("persisted=%+v err=%v", items, err)
 	}
@@ -830,7 +909,7 @@ func TestChatReportsEmptyProviderResponse(t *testing.T) {
 	if code != 1 || !strings.Contains(stderr.String(), "empty response") {
 		t.Fatalf("code=%d out=%q stderr=%q", code, out.String(), stderr.String())
 	}
-	files, err := session.ListFiles(filepath.Join(root, ".drift", "audits"))
+	files, err := audit.ListFiles(filepath.Join(root, ".drift", "audits"))
 	if err != nil || len(files) != 1 {
 		t.Fatalf("sessions=%v err=%v", files, err)
 	}

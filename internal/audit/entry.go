@@ -1,4 +1,4 @@
-package session
+package audit
 
 import (
 	"time"
@@ -6,7 +6,7 @@ import (
 	"github.com/IsLand1314/Drift/internal/agent"
 )
 
-// Entry 是 JSONL 会话审计文件中的单行记录。
+// Entry 是 JSONL 审计文件中的单行记录。
 type Entry struct {
 	Version           int       `json:"version"`
 	Type              string    `json:"type"`

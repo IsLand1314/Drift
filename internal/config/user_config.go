@@ -23,14 +23,20 @@ type UserConfig struct {
 }
 
 type Settings struct {
-	Version         int          `toml:"version"`
-	DefaultProvider string       `toml:"default_provider"`
-	PermissionMode  string       `toml:"permission_mode"`
-	SandboxMode     string       `toml:"sandbox_mode"`
-	ToolLoading     string       `toml:"tool_loading"`
-	TUIMode         string       `toml:"tui_mode"`
-	Chat            ChatSettings `toml:"chat"`
-	Hooks           []Hook       `toml:"hooks"`
+	Version         int            `toml:"version"`
+	DefaultProvider string         `toml:"default_provider"`
+	PermissionMode  string         `toml:"permission_mode"`
+	SandboxMode     string         `toml:"sandbox_mode"`
+	ToolLoading     string         `toml:"tool_loading"`
+	TUIMode         string         `toml:"tui_mode"`
+	Chat            ChatSettings   `toml:"chat"`
+	Memory          MemorySettings `toml:"memory"`
+	Hooks           []Hook         `toml:"hooks"`
+}
+
+type MemorySettings struct {
+	AutoExtract  bool `toml:"auto_extract"`
+	AutoRetrieve bool `toml:"auto_retrieve"`
 }
 
 type Hook struct {
@@ -48,11 +54,13 @@ type ChatSettings struct {
 }
 
 type Provider struct {
-	Name            string `toml:"name"`
-	Protocol        string `toml:"protocol"`
-	BaseURL         string `toml:"base_url"`
-	Model           string `toml:"model"`
-	APIKeyEnv       string `toml:"api_key_env"`
+	Name     string `toml:"name"`
+	Protocol string `toml:"protocol"`
+	BaseURL  string `toml:"base_url"`
+	Model    string `toml:"model"`
+	// APIKey is the OS environment variable name used as a fallback when
+	// auth.json has no credential. It is never a secret value.
+	APIKey          string `toml:"api_key"`
 	CodexHome       string `toml:"codex_home"`
 	ContextWindow   int    `toml:"context_window"`
 	MaxOutputTokens int    `toml:"max_output_tokens"`
@@ -154,8 +162,8 @@ func validateConfigFile(cf configFile) error {
 			return fmt.Errorf("config.toml: provider requires model")
 		}
 		if p.Protocol == "codex" {
-			if p.BaseURL != "" || p.APIKeyEnv != "" {
-				return fmt.Errorf("config.toml: codex provider must not configure base_url or api_key_env")
+			if p.BaseURL != "" || p.APIKey != "" {
+				return fmt.Errorf("config.toml: codex provider must not configure base_url or api_key")
 			}
 		} else if p.BaseURL == "" {
 			return fmt.Errorf("config.toml: provider requires base_url")
@@ -249,8 +257,8 @@ func (c UserConfig) APIKey(name string, getenv func(string) string) string {
 	if p, ok := c.Auth.Providers[name]; ok && p.Type == "api_key" {
 		return strings.TrimSpace(p.Key)
 	}
-	if p, ok := c.Provider(name); ok && p.APIKeyEnv != "" {
-		return strings.TrimSpace(getenv(p.APIKeyEnv))
+	if p, ok := c.Provider(name); ok && p.APIKey != "" {
+		return strings.TrimSpace(getenv(p.APIKey))
 	}
 	return ""
 }

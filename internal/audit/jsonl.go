@@ -1,4 +1,4 @@
-package session
+package audit
 
 import (
 	"bufio"
@@ -49,14 +49,14 @@ func NewJSONLWriterWithSecrets(path, root string, secrets ...string) (*JSONLWrit
 
 func newJSONLWriter(path, root string, secrets []string) (*JSONLWriter, error) {
 	if strings.TrimSpace(path) == "" {
-		return nil, fmt.Errorf("session: path is blank")
+		return nil, fmt.Errorf("audit: path is blank")
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return nil, fmt.Errorf("session: create directory: %w", err)
+		return nil, fmt.Errorf("audit: create directory: %w", err)
 	}
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
-		return nil, fmt.Errorf("session: open JSONL file: %w", err)
+		return nil, fmt.Errorf("audit: open JSONL file: %w", err)
 	}
 	return &JSONLWriter{
 		file:      file,
@@ -70,7 +70,7 @@ func (w *JSONLWriter) Append(event agent.Event) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.closed {
-		return fmt.Errorf("session: writer is closed")
+		return fmt.Errorf("audit: writer is closed")
 	}
 	return w.appendEntryLocked(entryFromEvent(event, w.sanitizer))
 }
@@ -86,10 +86,10 @@ func (w *JSONLWriter) Close() error {
 	finalFlushErr := w.writer.Flush()
 	closeErr := w.file.Close()
 	if finalFlushErr != nil {
-		return fmt.Errorf("session: flush on close: %w", finalFlushErr)
+		return fmt.Errorf("audit: flush on close: %w", finalFlushErr)
 	}
 	if closeErr != nil {
-		return fmt.Errorf("session: close file: %w", closeErr)
+		return fmt.Errorf("audit: close file: %w", closeErr)
 	}
 	return nil
 }
@@ -100,10 +100,10 @@ func (w *JSONLWriter) appendEntryLocked(entry Entry) error {
 	encoder := json.NewEncoder(w.writer)
 	encoder.SetEscapeHTML(false)
 	if err := encoder.Encode(entry); err != nil {
-		return fmt.Errorf("session: encode entry: %w", err)
+		return fmt.Errorf("audit: encode entry: %w", err)
 	}
 	if err := w.writer.Flush(); err != nil {
-		return fmt.Errorf("session: flush entry: %w", err)
+		return fmt.Errorf("audit: flush entry: %w", err)
 	}
 	return nil
 }

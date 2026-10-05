@@ -90,3 +90,60 @@ func TestRepositorySearchFiltersUnverifiedExperienceAndPrunes(t *testing.T) {
 		t.Fatalf("removed=%d err=%v", removed, err)
 	}
 }
+
+func TestRepositoryReplacesExperienceOnlyWithExplicitOldText(t *testing.T) {
+	repo, err := NewRepository(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Add(Item{Kind: KindExperience, Text: "默认使用英文", Status: "candidate"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.ReplaceExperience("默认使用英文", "默认使用中文"); err != nil {
+		t.Fatal(err)
+	}
+	hits, err := repo.Search("中文", 20)
+	if err != nil || len(hits) != 1 || hits[0].Status != "verified" {
+		t.Fatalf("hits=%+v err=%v", hits, err)
+	}
+	if _, err := repo.Search("英文", 20); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRepositoryKeepsConflictingPreferenceForExplicitReview(t *testing.T) {
+	repo, err := NewRepository(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Add(Item{Kind: KindExperience, Text: "默认使用英文", Status: "verified"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Add(Item{Kind: KindExperience, Text: "默认使用中文", Status: "candidate"}); err != nil {
+		t.Fatal(err)
+	}
+	hits, err := repo.SearchWithOptions("auto:user_turn", SearchOptions{Kind: KindExperience, Status: "conflict", Limit: 20})
+	if err != nil || len(hits) != 1 || hits[0].Text != "默认使用中文" {
+		t.Fatalf("conflicts=%+v err=%v", hits, err)
+	}
+	if hits, err := repo.Search("中文", 20); err != nil || len(hits) != 0 {
+		t.Fatalf("conflict leaked into retrieval: %+v err=%v", hits, err)
+	}
+}
+
+func TestRepositoryDetectsExtractedLanguagePreferenceConflict(t *testing.T) {
+	repo, err := NewRepository(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Add(Item{Kind: KindExperience, Text: "使用英文回答", Status: "verified"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Add(Item{Kind: KindExperience, Text: "使用中文回答", Status: "candidate"}); err != nil {
+		t.Fatal(err)
+	}
+	hits, err := repo.SearchWithOptions("auto:user_turn", SearchOptions{Kind: KindExperience, Status: "conflict", Limit: 20})
+	if err != nil || len(hits) != 1 {
+		t.Fatalf("conflicts=%+v err=%v", hits, err)
+	}
+}

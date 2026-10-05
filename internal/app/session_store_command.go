@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/IsLand1314/Drift/internal/conversation"
 	"github.com/IsLand1314/Drift/internal/layout"
+	"github.com/IsLand1314/Drift/internal/session"
 )
 
 func runSessionCommand(args []string, out, stderr io.Writer) int {
@@ -31,10 +31,10 @@ func runSessionCommand(args []string, out, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "错误：无法准备本地存储目录：", err)
 		return 1
 	}
-	store := conversation.NewStore(root)
+	store := session.NewStore(root)
 	switch args[0] {
 	case "list":
-		limit, ok := parseConversationLimit(args[1:])
+		limit, ok := parseSessionLimit(args[1:])
 		if !ok {
 			fmt.Fprintln(stderr, "用法：drift session list [--limit N]")
 			return 2
@@ -52,7 +52,7 @@ func runSessionCommand(args []string, out, stderr io.Writer) int {
 			metadata = metadata[:limit]
 		}
 		for _, item := range metadata {
-			writeConversationMetadata(out, item)
+			writeSessionMetadata(out, item)
 		}
 		return 0
 	case "show":
@@ -61,7 +61,7 @@ func runSessionCommand(args []string, out, stderr io.Writer) int {
 			return 2
 		}
 		snapshot, err := store.Load(args[1])
-		if errors.Is(err, conversation.ErrNotFound) {
+		if errors.Is(err, session.ErrNotFound) {
 			fmt.Fprintln(stderr, "错误：完整会话不存在")
 			return 2
 		}
@@ -77,7 +77,7 @@ func runSessionCommand(args []string, out, stderr io.Writer) int {
 			return 2
 		}
 		snapshot, err := store.Load(args[1])
-		if errors.Is(err, conversation.ErrNotFound) {
+		if errors.Is(err, session.ErrNotFound) {
 			fmt.Fprintln(stderr, "错误：完整会话不存在")
 			return 2
 		}
@@ -85,10 +85,10 @@ func runSessionCommand(args []string, out, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "错误：", err)
 			return 1
 		}
-		writeConversationTimeline(out, snapshot)
+		writeSessionTimeline(out, snapshot)
 		return 0
 	case "search":
-		query, limit, ok := parseConversationSearchArgs(args[1:])
+		query, limit, ok := parseSessionSearchArgs(args[1:])
 		if !ok {
 			fmt.Fprintln(stderr, "用法：drift session search <关键词> [--limit N]")
 			return 2
@@ -103,7 +103,7 @@ func runSessionCommand(args []string, out, stderr io.Writer) int {
 			return 0
 		}
 		for _, result := range results {
-			writeConversationSearchResult(out, result)
+			writeSessionSearchResult(out, result)
 		}
 		return 0
 	case "rename":
@@ -112,7 +112,7 @@ func runSessionCommand(args []string, out, stderr io.Writer) int {
 			return 2
 		}
 		if err := store.Rename(args[1], args[2]); err != nil {
-			if errors.Is(err, conversation.ErrNotFound) || errors.Is(err, conversation.ErrInvalidID) || errors.Is(err, conversation.ErrInvalidSnapshot) {
+			if errors.Is(err, session.ErrNotFound) || errors.Is(err, session.ErrInvalidID) || errors.Is(err, session.ErrInvalidSnapshot) {
 				fmt.Fprintln(stderr, "错误：会话标题或 ID 无效")
 				return 2
 			}
@@ -138,7 +138,7 @@ func runSessionCommand(args []string, out, stderr io.Writer) int {
 				return 0
 			}
 			for _, item := range metadata {
-				writeConversationMetadata(out, item)
+				writeSessionMetadata(out, item)
 			}
 			fmt.Fprintln(out, "预览完成：未删除任何会话；如需删除请加 --yes")
 			return 0
@@ -156,7 +156,7 @@ func runSessionCommand(args []string, out, stderr io.Writer) int {
 			return 2
 		}
 		err := store.Delete(args[1])
-		if errors.Is(err, conversation.ErrNotFound) {
+		if errors.Is(err, session.ErrNotFound) {
 			fmt.Fprintln(stderr, "错误：完整会话不存在")
 			return 2
 		}
@@ -176,7 +176,7 @@ const timeFormat = "2006-01-02T15:04:05.999999999Z07:00"
 
 const sessionUsage = "用法：drift session list [--limit N] | drift session show <id> | drift session timeline <id> | drift session search <关键词> [--limit N] | drift session rename <id> <title> | drift session delete <id> --yes | drift session prune --before <RFC3339> [--yes]"
 
-func parseConversationLimit(args []string) (int, bool) {
+func parseSessionLimit(args []string) (int, bool) {
 	if len(args) == 0 {
 		return 50, true
 	}
@@ -187,7 +187,7 @@ func parseConversationLimit(args []string) (int, bool) {
 	return limit, err == nil && limit > 0
 }
 
-func parseConversationSearchArgs(args []string) (string, int, bool) {
+func parseSessionSearchArgs(args []string) (string, int, bool) {
 	if len(args) == 0 {
 		return "", 0, false
 	}
@@ -229,7 +229,7 @@ func parsePruneArgs(args []string) (time.Time, bool, bool) {
 	return time.Time{}, false, false
 }
 
-func writeConversationMetadata(out io.Writer, item conversation.Metadata) {
+func writeSessionMetadata(out io.Writer, item session.Metadata) {
 	fmt.Fprintf(out, "%s", item.ID)
 	if item.Title != "" {
 		fmt.Fprintf(out, " title=%s", item.Title)
@@ -241,7 +241,7 @@ func writeConversationMetadata(out io.Writer, item conversation.Metadata) {
 	fmt.Fprintln(out)
 }
 
-func writeConversationSearchResult(out io.Writer, item conversation.SearchResult) {
+func writeSessionSearchResult(out io.Writer, item session.SearchResult) {
 	fmt.Fprintf(out, "%s", item.ID)
 	if item.Title != "" {
 		fmt.Fprintf(out, " title=%s", item.Title)
@@ -256,7 +256,7 @@ func writeConversationSearchResult(out io.Writer, item conversation.SearchResult
 	fmt.Fprintln(out)
 }
 
-func writeConversationTimeline(out io.Writer, snapshot conversation.Snapshot) {
+func writeSessionTimeline(out io.Writer, snapshot session.Snapshot) {
 	for index, message := range snapshot.Messages {
 		fmt.Fprintf(out, "%02d %s", index+1, message.Role)
 		if len(message.ToolCalls) > 0 {

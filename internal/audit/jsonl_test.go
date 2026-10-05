@@ -1,4 +1,4 @@
-package session
+package audit
 
 import (
 	"bufio"
@@ -230,10 +230,10 @@ func TestJSONLWriterRedactsSecretsAndAbsolutePaths(t *testing.T) {
 	}
 	text := string(content)
 	if strings.Contains(text, secret) {
-		t.Fatalf("session leaked secret: %s", text)
+		t.Fatalf("audit leaked secret: %s", text)
 	}
 	if strings.Contains(text, absolutePath) {
-		t.Fatalf("session leaked absolute path: %s", text)
+		t.Fatalf("audit leaked absolute path: %s", text)
 	}
 	if !strings.Contains(text, "<redacted>") || !strings.Contains(text, "argument_bytes") {
 		t.Fatalf("session missing audit redaction metadata: %s", text)
@@ -268,10 +268,10 @@ func TestJSONLWriterRedactsQuotedAndJSONSecrets(t *testing.T) {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(content), secret) {
-		t.Fatalf("session leaked quoted or JSON secret: %s", content)
+		t.Fatalf("audit leaked quoted or JSON secret: %s", content)
 	}
 	if strings.Contains(string(content), "demo-password") {
-		t.Fatalf("session leaked JSON password: %s", content)
+		t.Fatalf("audit leaked JSON password: %s", content)
 	}
 }
 
@@ -300,7 +300,7 @@ func TestJSONLWriterRedactsPathsInAllTextFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(content), serializedPath) {
-		t.Fatalf("session leaked path in text/result/error: %s", content)
+		t.Fatalf("audit leaked path in text/result/error: %s", content)
 	}
 }
 
@@ -327,7 +327,7 @@ func TestJSONLWriterRedactsSecretAcrossTextDeltas(t *testing.T) {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(content), "split-secret") {
-		t.Fatalf("session leaked cross-event secret: %s", content)
+		t.Fatalf("audit leaked cross-event secret: %s", content)
 	}
 }
 
@@ -360,7 +360,7 @@ func TestJSONLWriterRedactsConfiguredSecretAcrossTextDeltas(t *testing.T) {
 				t.Fatal(err)
 			}
 			if strings.Contains(string(content), tc.secret) {
-				t.Fatalf("session leaked configured cross-event secret: %s", content)
+				t.Fatalf("audit leaked configured cross-event secret: %s", content)
 			}
 		})
 	}
@@ -400,7 +400,7 @@ func TestJSONLWriterRedactsSplitCredentialAndPathAcrossTextDeltas(t *testing.T) 
 			}
 			for _, value := range tc.forbidden {
 				if strings.Contains(string(content), value) {
-					t.Fatalf("session leaked split credential or path %q: %s", value, content)
+					t.Fatalf("audit leaked split credential or path %q: %s", value, content)
 				}
 			}
 			scanner := bufio.NewScanner(strings.NewReader(string(content)))
@@ -488,17 +488,17 @@ func TestJSONLWriterRedactsQuotedJSONPathsAndCredentialsInTextFields(t *testing.
 	}
 	for _, value := range values {
 		if strings.Contains(string(content), value) {
-			t.Fatalf("session leaked free-text secret or path %q: %s", value, content)
+			t.Fatalf("audit leaked free-text secret or path %q: %s", value, content)
 		}
 	}
 	if strings.Contains(string(content), "a'b c") {
-		t.Fatalf("session leaked mismatched-quote credential value: %s", content)
+		t.Fatalf("audit leaked mismatched-quote credential value: %s", content)
 	}
 	if strings.Contains(string(content), "b tail-leak") {
-		t.Fatalf("session leaked escaped-quote credential tail: %s", content)
+		t.Fatalf("audit leaked escaped-quote credential tail: %s", content)
 	}
 	if strings.Contains(string(content), "dXNlcjpwYXNz") {
-		t.Fatalf("session leaked Basic authorization payload: %s", content)
+		t.Fatalf("audit leaked Basic authorization payload: %s", content)
 	}
 }
 

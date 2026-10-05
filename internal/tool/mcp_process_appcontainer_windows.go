@@ -141,6 +141,16 @@ func (p *appContainerMCPProcess) Start() error {
 		return err
 	}
 	command, commandArgs := resolveWindowsMCPCommand(p.command, p.args, os.Getenv("ComSpec"))
+	if runtimeRestore, err := grantExternalMCPRuntimeAccess(command, p.root, sid); err != nil {
+		_ = p.Close()
+		return err
+	} else if runtimeRestore != nil {
+		workspaceRestore := p.restoreACL
+		p.restoreACL = func() {
+			runtimeRestore()
+			workspaceRestore()
+		}
+	}
 	appName, err := windows.UTF16PtrFromString(command)
 	if err != nil {
 		return err
@@ -185,6 +195,22 @@ func (p *appContainerMCPProcess) Start() error {
 	started = true
 	go func() { _, _ = io.Copy(io.Discard, p.stderrR) }()
 	return nil
+}
+
+func grantExternalMCPRuntimeAccess(command, root string, sid *windows.SID) (func(), error) {
+	absoluteCommand, err := filepath.Abs(command)
+	if err != nil || !filepath.IsAbs(command) {
+		return nil, nil
+	}
+	absoluteRoot, err := filepath.Abs(root)
+	if err != nil {
+		return nil, err
+	}
+	relative, err := filepath.Rel(absoluteRoot, absoluteCommand)
+	if err != nil || (relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))) {
+		return nil, nil
+	}
+	return grantWindowsWorkspaceAccess(filepath.Dir(absoluteCommand), ".", sid)
 }
 
 func resolveWindowsMCPCommand(command string, args []string, comspec string) (string, []string) {

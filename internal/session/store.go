@@ -1,5 +1,5 @@
-// Package conversation stores local, resumable chat context separately from audit logs.
-package conversation
+// Package session stores local, resumable model context separately from audit logs.
+package session
 
 import (
 	"crypto/rand"
@@ -23,10 +23,10 @@ import (
 )
 
 var (
-	ErrNotFound        = errors.New("conversation: not found")
-	ErrInvalidID       = errors.New("conversation: invalid id")
-	ErrInvalidSnapshot = errors.New("conversation: invalid snapshot")
-	ErrInvalidQuery    = errors.New("conversation: invalid search query")
+	ErrNotFound        = errors.New("session: not found")
+	ErrInvalidID       = errors.New("session: invalid id")
+	ErrInvalidSnapshot = errors.New("session: invalid snapshot")
+	ErrInvalidQuery    = errors.New("session: invalid search query")
 	idPattern          = regexp.MustCompile(`^conv-[a-z0-9-]{8,128}$`)
 )
 
@@ -106,10 +106,13 @@ type persistedSnapshot struct {
 }
 
 type persistedMessage struct {
-	Role       string              `json:"role"`
-	Content    string              `json:"content,omitempty"`
-	ToolCalls  []persistedToolCall `json:"tool_calls,omitempty"`
-	ToolCallID string              `json:"tool_call_id,omitempty"`
+	Role               string              `json:"role"`
+	Content            string              `json:"content,omitempty"`
+	ReasoningContent   string              `json:"reasoning_content,omitempty"`
+	ToolCalls          []persistedToolCall `json:"tool_calls,omitempty"`
+	ToolCallID         string              `json:"tool_call_id,omitempty"`
+	ReasoningSignature string              `json:"reasoning_signature,omitempty"`
+	EncryptedReasoning string              `json:"encrypted_reasoning,omitempty"`
 }
 
 type persistedToolCall struct {
@@ -528,7 +531,7 @@ func validateTitle(title string) error {
 func toPersisted(snapshot Snapshot) persistedSnapshot {
 	result := persistedSnapshot{Version: snapshot.Version, ID: snapshot.ID, Title: snapshot.Title, CreatedAt: snapshot.CreatedAt, UpdatedAt: snapshot.UpdatedAt, Focus: snapshot.Focus, ContextBytes: snapshot.ContextBytes, Messages: make([]persistedMessage, len(snapshot.Messages)), InputTokens: snapshot.InputTokens, OutputTokens: snapshot.OutputTokens, ReportedRequests: snapshot.ReportedRequests, UnreportedRequests: snapshot.UnreportedRequests, Tasks: append([]tool.TaskState(nil), snapshot.Tasks...), PlanID: snapshot.PlanID, PlanPhase: snapshot.PlanPhase, Plan: snapshot.Plan, ShortTermMemory: append([]memory.Item(nil), snapshot.ShortTermMemory...)}
 	for i, message := range snapshot.Messages {
-		result.Messages[i] = persistedMessage{Role: message.Role, Content: message.Content, ToolCallID: message.ToolCallID, ToolCalls: make([]persistedToolCall, len(message.ToolCalls))}
+		result.Messages[i] = persistedMessage{Role: message.Role, Content: message.Content, ReasoningContent: message.ReasoningContent, ToolCallID: message.ToolCallID, ReasoningSignature: message.ReasoningSignature, EncryptedReasoning: message.EncryptedReasoning, ToolCalls: make([]persistedToolCall, len(message.ToolCalls))}
 		for j, call := range message.ToolCalls {
 			result.Messages[i].ToolCalls[j] = persistedToolCall{ID: call.ID, Type: call.Type, Name: call.Name, Arguments: call.Arguments}
 		}
@@ -539,7 +542,7 @@ func toPersisted(snapshot Snapshot) persistedSnapshot {
 func fromPersisted(snapshot persistedSnapshot) Snapshot {
 	result := Snapshot{Version: snapshot.Version, ID: snapshot.ID, Title: snapshot.Title, CreatedAt: snapshot.CreatedAt, UpdatedAt: snapshot.UpdatedAt, Focus: snapshot.Focus, ContextBytes: snapshot.ContextBytes, Messages: make([]llm.Message, len(snapshot.Messages)), InputTokens: snapshot.InputTokens, OutputTokens: snapshot.OutputTokens, ReportedRequests: snapshot.ReportedRequests, UnreportedRequests: snapshot.UnreportedRequests, Tasks: append([]tool.TaskState(nil), snapshot.Tasks...), PlanID: snapshot.PlanID, PlanPhase: snapshot.PlanPhase, Plan: snapshot.Plan, ShortTermMemory: append([]memory.Item(nil), snapshot.ShortTermMemory...)}
 	for i, message := range snapshot.Messages {
-		result.Messages[i] = llm.Message{Role: message.Role, Content: message.Content, ToolCallID: message.ToolCallID, ToolCalls: make([]llm.ToolCall, len(message.ToolCalls))}
+		result.Messages[i] = llm.Message{Role: message.Role, Content: message.Content, ReasoningContent: message.ReasoningContent, ToolCallID: message.ToolCallID, ReasoningSignature: message.ReasoningSignature, EncryptedReasoning: message.EncryptedReasoning, ToolCalls: make([]llm.ToolCall, len(message.ToolCalls))}
 		for j, call := range message.ToolCalls {
 			result.Messages[i].ToolCalls[j] = llm.ToolCall{ID: call.ID, Type: call.Type, Name: call.Name, Arguments: call.Arguments}
 		}

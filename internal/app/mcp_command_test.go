@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/IsLand1314/Drift/internal/session"
+	"github.com/IsLand1314/Drift/internal/audit"
 	"github.com/IsLand1314/Drift/internal/tool"
 )
 
@@ -128,7 +128,7 @@ func TestMCPManagerConnectsExplicitlyAndAuditsWithoutEnablingTool(t *testing.T) 
 		t.Fatal(err)
 	}
 	auditPath := filepath.Join(root, ".drift", "audit.jsonl")
-	audit, err := session.NewJSONLWriter(auditPath)
+	audit, err := audit.NewJSONLWriter(auditPath)
 	if err != nil {
 		t.Fatal(err)
 	}

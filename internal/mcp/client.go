@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -19,9 +20,14 @@ const maxMessageBytes = 64 << 10
 const maxResultBytes = 16 << 10
 
 type Tool struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	InputSchema json.RawMessage `json:"inputSchema"`
+	Name        string           `json:"name"`
+	Description string           `json:"description"`
+	InputSchema json.RawMessage  `json:"inputSchema"`
+	Annotations *ToolAnnotations `json:"annotations,omitempty"`
+}
+
+type ToolAnnotations struct {
+	ReadOnlyHint bool `json:"readOnlyHint,omitempty"`
 }
 
 type Result struct{ Text string }
@@ -106,7 +112,7 @@ func Start(ctx context.Context, server Server, env []string) (*Client, error) {
 		return nil, errors.New("mcp: invalid stdio server")
 	}
 	return startStdio(ctx, server, env, func(ctx context.Context, server Server, env []string) Process {
-		cmd := exec.CommandContext(ctx, server.Command, server.Args...)
+		cmd := exec.CommandContext(context.WithoutCancel(ctx), server.Command, server.Args...)
 		cmd.Env = mergeEnv(os.Environ(), env)
 		return cmd
 	})
@@ -122,7 +128,10 @@ func StartWithLauncher(ctx context.Context, server Server, env []string, launche
 }
 
 func startStdio(ctx context.Context, server Server, env []string, launcher ProcessLauncher) (*Client, error) {
-	cmd := launcher(ctx, server, env)
+	// The startup context bounds initialize; the client owns the process after
+	// startup and closes it explicitly, so an attempt timeout must not kill a
+	// successfully connected MCP server before tools/list runs.
+	cmd := launcher(context.WithoutCancel(ctx), server, env)
 	if cmd == nil {
 		return nil, errors.New("mcp: process launcher returned nil")
 	}
@@ -241,8 +250,27 @@ func (c *Client) ListTools(ctx context.Context) ([]Tool, error) {
 		if !identifier.MatchString(item.Name) || len(item.Description) > 1000 || len(item.InputSchema) == 0 || len(item.InputSchema) > maxMessageBytes || !json.Valid(item.InputSchema) {
 			return nil, fmt.Errorf("mcp: tool %d is invalid", index+1)
 		}
+		normalized, err := normalizeInputSchema(item.InputSchema)
+		if err != nil {
+			return nil, fmt.Errorf("mcp: tool %d input schema is invalid: %w", index+1, err)
+		}
+		item.InputSchema = normalized
 	}
 	return response.Tools, nil
+}
+
+func normalizeInputSchema(raw json.RawMessage) (json.RawMessage, error) {
+	var schema map[string]any
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		return nil, err
+	}
+	if schema == nil {
+		return nil, errors.New("schema must be an object")
+	}
+	if _, ok := schema["type"]; !ok {
+		schema["type"] = "object"
+	}
+	return json.Marshal(schema)
 }
 
 func (c *Client) CallTool(ctx context.Context, name string, args json.RawMessage) (Result, error) {
@@ -368,7 +396,7 @@ func (c *Client) request(ctx context.Context, method string, params any, result 
 	line := make(chan []byte, 1)
 	readErr := make(chan error, 1)
 	go func() {
-		value, err := readLine(c.stdout)
+		value, err := readMessage(c.stdout)
 		if err != nil {
 			readErr <- err
 			return
@@ -533,13 +561,46 @@ func (c *Client) write(message any) error {
 	return nil
 }
 
-func readLine(reader *bufio.Reader) ([]byte, error) {
-	line, err := reader.ReadBytes('\n')
+func writeMessage(writer io.Writer, payload []byte) error {
+	if _, err := fmt.Fprintf(writer, "Content-Length: %d\r\n\r\n", len(payload)); err != nil {
+		return err
+	}
+	_, err := writer.Write(payload)
+	return err
+}
+
+func readMessage(reader *bufio.Reader) ([]byte, error) {
+	first, err := reader.ReadString('\n')
 	if err != nil {
 		return nil, err
 	}
-	if len(line) > maxMessageBytes {
+	if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(first)), "content-length:") {
+		line := []byte(strings.TrimSpace(first))
+		if len(line) > maxMessageBytes {
+			return nil, errors.New("message exceeds limit")
+		}
+		return line, nil
+	}
+	lengthText := strings.TrimSpace(strings.TrimPrefix(strings.ToLower(strings.TrimSpace(first)), "content-length:"))
+	length, err := strconv.Atoi(lengthText)
+	if err != nil || length < 0 || length > maxMessageBytes {
+		return nil, errors.New("invalid content length")
+	}
+	for {
+		header, err := reader.ReadString('\n')
+		if err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(header) == "" {
+			break
+		}
+	}
+	payload := make([]byte, length)
+	if _, err := io.ReadFull(reader, payload); err != nil {
+		return nil, err
+	}
+	if len(payload) > maxMessageBytes {
 		return nil, errors.New("message exceeds limit")
 	}
-	return line, nil
+	return payload, nil
 }

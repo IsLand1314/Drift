@@ -140,18 +140,17 @@ func (t toolSearchTool) Execute(_ context.Context, _ string, raw string) (string
 		return "", fmt.Errorf("ToolSearch query is invalid")
 	}
 	matches := t.registry.search(query)
-	if len(matches) == 0 {
-		return "ToolSearch: no matching tools", nil
-	}
-	matchSet := make(map[string]struct{}, len(matches))
-	for _, match := range matches {
-		matchSet[match.Name] = struct{}{}
-	}
 	for _, name := range args.Load {
-		if _, ok := matchSet[name]; !ok {
-			return "", fmt.Errorf("ToolSearch cannot load unmatched tool %q", name)
+		if _, ok := t.registry.tools[name]; !ok {
+			return "", fmt.Errorf("ToolSearch cannot load unknown tool %q", name)
 		}
 		t.registry.enable(name)
+	}
+	if len(matches) == 0 {
+		if len(args.Load) == 0 {
+			return "ToolSearch: no matching tools", nil
+		}
+		return "ToolSearch: no matching tools\nLoaded schemas: " + strings.Join(append([]string(nil), args.Load...), ", "), nil
 	}
 	var out strings.Builder
 	out.WriteString("ToolSearch matches:\n")

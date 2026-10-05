@@ -4,16 +4,17 @@ package llm
 import (
 	"context"
 	"encoding/json"
-	"errors"
 )
 
 type ToolDefinition struct {
 	Type     string          `json:"type"`
 	Function json.RawMessage `json:"function"`
+	// Deferred asks providers with native tool search to load this schema on demand.
+	Deferred bool `json:"-"`
 }
 
-// ToolCall 是 Provider 聚合后的完整工具调用；Arguments 仍保持 JSON 字符串，
-// 由具体工具自行做严格解码。
+// ToolCall 是 Collector 写入对话上下文的完整工具调用；Arguments 仍保持 JSON 字符串，
+// 由具体工具自行做严格解码。Provider 只通过 ToolCall* 事件传输片段。
 type ToolCall struct {
 	ID        string
 	Type      string
@@ -28,31 +29,19 @@ type Message struct {
 	ToolCalls        []ToolCall
 	ToolCallID       string
 	ReasoningContent string
+	// ReasoningSignature and EncryptedReasoning are provider protocol metadata
+	// needed to replay reasoning-capable requests. ReasoningContent is kept with
+	// the completed assistant message so a resumed session has one consistent
+	// representation of the turn.
+	ReasoningSignature string
+	EncryptedReasoning string
 }
 
 type Request struct {
-	Model    string           `json:"model"`
-	Messages []Message        `json:"messages"`
-	Tools    []ToolDefinition `json:"tools,omitempty"`
-}
-
-type StreamEvent struct {
-	Text             string
-	ReasoningContent string
-	ToolCallDelta    *ToolCallDelta
-}
-
-type ToolCallDelta struct {
-	Index     int
-	ID        string
-	Name      string
-	Arguments string
-}
-
-type Completion struct {
-	Assistant    Message
-	FinishReason string
-	Usage        *Usage
+	Model                string           `json:"model"`
+	Messages             []Message        `json:"messages"`
+	Tools                []ToolDefinition `json:"tools,omitempty"`
+	NativeToolReferences bool             `json:"-"`
 }
 
 // Usage 是 Provider 报告的真实 token 用量；nil 表示响应没有提供 usage。
@@ -62,46 +51,10 @@ type Usage struct {
 	TotalTokens  int
 }
 
-// ErrorStage identifies the provider boundary that stopped a request.
-type ErrorStage string
-
-const (
-	ErrorStageTimeout          ErrorStage = "provider_timeout"
-	ErrorStageTransport        ErrorStage = "provider_transport"
-	ErrorStageHTTP             ErrorStage = "provider_http"
-	ErrorStageNonSSE           ErrorStage = "provider_non_sse"
-	ErrorStageSSEInvalidJSON   ErrorStage = "provider_sse_invalid_json"
-	ErrorStageSSEServerError   ErrorStage = "provider_sse_server_error"
-	ErrorStageSSEEventTooLarge ErrorStage = "provider_sse_event_too_large"
-	ErrorStageSSELineTooLarge  ErrorStage = "provider_sse_line_too_large"
-	ErrorStageSSERead          ErrorStage = "provider_sse_read"
-	ErrorStageSSEDisconnected  ErrorStage = "provider_sse_disconnected"
-)
-
-// ProviderError keeps a safe user-facing message separate from its cause.
-type ProviderError struct {
-	Stage   ErrorStage
-	Message string
-	Cause   error
-}
-
-func (e *ProviderError) Error() string { return e.Message }
-
-func (e *ProviderError) Unwrap() error { return e.Cause }
-
-// ErrorStageOf returns an empty string for errors that did not come from a provider.
-func ErrorStageOf(err error) string {
-	var providerErr *ProviderError
-	if errors.As(err, &providerErr) {
-		return string(providerErr.Stage)
-	}
-	return ""
-}
-
-// Client 同步发出文本、推理和工具调用增量事件。
-// emit 返回错误时，Provider 应立即停止读取流并把错误传回调用方。
+// Client 是唯一的 Provider 流接口。最终回合结果由 Agent Collector 从
+// StreamEvents 生成，Provider 不返回聚合回合对象。
 type Client interface {
-	Stream(context.Context, Request, func(StreamEvent) error) (Completion, error)
+	StreamEvents(context.Context, Request, func(Event) error) error
 }
 
 type Capabilities struct {

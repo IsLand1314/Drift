@@ -13,29 +13,20 @@ import (
 	"testing"
 	"time"
 
-	"github.com/IsLand1314/Drift/internal/session"
+	"github.com/IsLand1314/Drift/internal/audit"
 )
 
-func TestRunLoadsDotEnv(t *testing.T) {
+func TestRunUsesProcessEnvironment(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"dotenv answer\"}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
 	}))
 	defer server.Close()
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("OPENAI_API_KEY=dotenv-secret\nOPENAI_MODEL=dotenv-model\nOPENAI_BASE_URL="+server.URL+"\n"), 0600); err != nil {
-		t.Fatal(err)
+	getenv := func(key string) string {
+		return map[string]string{"OPENAI_API_KEY": "process-secret", "OPENAI_MODEL": "process-model", "OPENAI_BASE_URL": server.URL}[key]
 	}
-	old, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chdir(old) })
 	var out, stderr bytes.Buffer
-	if code := Run(context.Background(), []string{"-p", "hello"}, func(string) string { return "" }, &out, &stderr); code != 0 {
+	if code := Run(context.Background(), []string{"-p", "hello"}, getenv, &out, &stderr); code != 0 {
 		t.Fatalf("code = %d, stderr = %q", code, stderr.String())
 	}
 	if out.String() != "dotenv answer\n" || stderr.String() != "" {
@@ -388,7 +379,7 @@ func TestRunMultiTurnExplorationRoundTripAndSessionAudit(t *testing.T) {
 		t.Fatalf("out=%q stderr=%q requests=%d", out.String(), stderr.String(), requests)
 	}
 
-	files, err := session.ListFiles(filepath.Join(root, ".drift", "audits"))
+	files, err := audit.ListFiles(filepath.Join(root, ".drift", "audits"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -462,7 +453,7 @@ func TestRunWritesSessionAudit(t *testing.T) {
 		t.Fatalf("out=%q stderr=%q requests=%d", out.String(), stderr.String(), requests)
 	}
 
-	files, err := session.ListFiles(filepath.Join(root, ".drift", "audits"))
+	files, err := audit.ListFiles(filepath.Join(root, ".drift", "audits"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -489,7 +480,7 @@ func TestRunWritesSessionAudit(t *testing.T) {
 		}
 	}
 	if strings.Contains(string(content), "test-secret") || strings.Contains(string(content), root) || strings.Contains(string(content), "OPENAI_API_KEY") {
-		t.Fatalf("session leaked sensitive data: %s", content)
+		t.Fatalf("audit leaked sensitive data: %s", content)
 	}
 }
 
@@ -561,7 +552,7 @@ func TestRunWorkspaceDirectory(t *testing.T) {
 	if out.String() != "workspace answer\n" || stderr.String() != "" || requests != 2 {
 		t.Fatalf("out=%q stderr=%q requests=%d", out.String(), stderr.String(), requests)
 	}
-	files, err := session.ListFiles(filepath.Join(workspace, ".drift", "audits"))
+	files, err := audit.ListFiles(filepath.Join(workspace, ".drift", "audits"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -606,7 +597,7 @@ func TestRunWorkspaceFileFocusDoesNotAutoRead(t *testing.T) {
 	if out.String() != "direct file answer\n" || stderr.String() != "" || requests != 1 {
 		t.Fatalf("out=%q stderr=%q requests=%d", out.String(), stderr.String(), requests)
 	}
-	files, err := session.ListFiles(filepath.Join(workspace, ".drift", "audits"))
+	files, err := audit.ListFiles(filepath.Join(workspace, ".drift", "audits"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -651,7 +642,7 @@ func TestRunRecordsProviderErrorStage(t *testing.T) {
 	if code := Run(context.Background(), []string{"-p", "x"}, getenv, &out, &stderr); code != 1 {
 		t.Fatalf("code = %d, stderr = %q", code, stderr.String())
 	}
-	files, err := session.ListFiles(filepath.Join(root, ".drift", "audits"))
+	files, err := audit.ListFiles(filepath.Join(root, ".drift", "audits"))
 	if err != nil || len(files) != 1 {
 		t.Fatalf("session files = %#v, %v", files, err)
 	}
@@ -666,8 +657,8 @@ func TestRunRecordsProviderErrorStage(t *testing.T) {
 		}
 		if entry.Type == "error" {
 			foundError = true
-			if entry.Stage != "provider_sse_invalid_json" {
-				t.Fatalf("error stage = %q, want provider_sse_invalid_json", entry.Stage)
+			if entry.Stage != "provider_sse_disconnected" {
+				t.Fatalf("error stage = %q, want provider_sse_disconnected", entry.Stage)
 			}
 		}
 	}

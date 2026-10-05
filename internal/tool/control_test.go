@@ -40,6 +40,20 @@ func TestToolSearchLoadsOnlySelectedMatchingSchemas(t *testing.T) {
 	}
 }
 
+func TestToolSearchAllowsExplicitRegisteredLoadOutsideQueryMatch(t *testing.T) {
+	registry := NewChatRegistry()
+	search, ok := registry.Lookup("ToolSearch")
+	if !ok {
+		t.Fatal("ToolSearch unavailable")
+	}
+	if _, err := search.Execute(context.Background(), t.TempDir(), `{"query":"create file","load":["ReadFile"]}`); err != nil {
+		t.Fatalf("explicit registered load failed: %v", err)
+	}
+	if _, ok := registry.Lookup("ReadFile"); !ok {
+		t.Fatal("ReadFile was not enabled")
+	}
+}
+
 func TestToolSearchMatchesMeaningfulWordsInsteadOfOnlyTheWholeQuery(t *testing.T) {
 	registry := NewChatRegistry()
 	search, _ := registry.Lookup("ToolSearch")

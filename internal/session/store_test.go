@@ -1,4 +1,4 @@
-package conversation
+package session
 
 import (
 	"bytes"
@@ -117,19 +117,22 @@ func TestStoreSaveAndLoadPreservesToolMessages(t *testing.T) {
 	}
 }
 
-func TestStoreDoesNotPersistReasoningContent(t *testing.T) {
+func TestStorePreservesReasoningForProviderReplay(t *testing.T) {
 	store := NewStore(t.TempDir())
 	snapshot, err := store.Create("")
 	if err != nil {
 		t.Fatal(err)
 	}
-	snapshot.Messages = []llm.Message{{Role: "assistant", Content: "answer", ReasoningContent: "private reasoning"}}
+	snapshot.Messages = []llm.Message{{Role: "assistant", Content: "answer", ReasoningContent: "private reasoning", ReasoningSignature: "sig", EncryptedReasoning: "encrypted"}}
 	if err := store.Save(snapshot); err != nil {
 		t.Fatal(err)
 	}
 	loaded, err := store.Load(snapshot.ID)
-	if err != nil || loaded.Messages[0].ReasoningContent != "" {
-		t.Fatalf("loaded=%+v err=%v", loaded, err)
+	if err != nil || loaded.Messages[0].ReasoningContent != "private reasoning" {
+		t.Fatalf("reasoning content was not preserved: loaded=%+v err=%v", loaded, err)
+	}
+	if loaded.Messages[0].ReasoningSignature != "sig" || loaded.Messages[0].EncryptedReasoning != "encrypted" {
+		t.Fatalf("reasoning metadata was not preserved: %#v", loaded.Messages[0])
 	}
 }
 

@@ -12,16 +12,16 @@ import (
 	"time"
 
 	"github.com/IsLand1314/Drift/internal/agent"
+	"github.com/IsLand1314/Drift/internal/audit"
 	"github.com/IsLand1314/Drift/internal/changes"
 	"github.com/IsLand1314/Drift/internal/config"
-	"github.com/IsLand1314/Drift/internal/conversation"
 	"github.com/IsLand1314/Drift/internal/llm"
 	"github.com/IsLand1314/Drift/internal/memory"
 	"github.com/IsLand1314/Drift/internal/session"
 	"github.com/IsLand1314/Drift/internal/tool"
 )
 
-func runChatLoop(ctx context.Context, runner *agent.Runner, audit session.Writer, traceSink agent.EventSink, in io.Reader, out, stderr io.Writer) int {
+func runChatLoop(ctx context.Context, runner *agent.Runner, audit audit.Writer, traceSink agent.EventSink, in io.Reader, out, stderr io.Writer) int {
 	return runChatLoopWithPersistence(ctx, runner, audit, traceSink, nil, chatStatus{}, nil, in, out, stderr)
 }
 
@@ -33,11 +33,13 @@ type chatStatus struct {
 	PermissionMode permissionMode
 	SandboxMode    tool.SandboxMode
 	Hooks          []config.Hook
+	AutoMemory     bool
+	AutoRetrieve   bool
 }
 
 type chatPersistence struct {
-	store      *conversation.Store
-	snapshot   conversation.Snapshot
+	store      *session.Store
+	snapshot   session.Snapshot
 	persistent bool
 	usage      usageTotals
 	registry   tool.Registry
@@ -73,7 +75,7 @@ func switchChatSession(runner *agent.Runner, persistence *chatPersistence, targe
 			return fmt.Errorf("chat: restore plan: %w", err)
 		}
 	}
-	runner.RestoreMessages(target.Messages)
+	runner.RestoreMessages(session.NormalizeToolPairing(target.Messages))
 	runner.RestoreShortTermMemory(target.ShortTermMemory)
 	runner.RestorePlanState(target.PlanID, target.PlanPhase)
 	persistence.snapshot = target
@@ -190,13 +192,13 @@ func (p *chatPersistence) clearRunner(runner *agent.Runner) error {
 	return nil
 }
 
-func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit session.Writer, traceSink agent.EventSink, persistence *chatPersistence, status chatStatus, interrupt *interruptCoordinator, in io.Reader, out, stderr io.Writer) int {
+func runChatLoopWithPersistence(ctx context.Context, runner *agent.Runner, audit audit.Writer, traceSink agent.EventSink, persistence *chatPersistence, status chatStatus, interrupt *interruptCoordinator, in io.Reader, out, stderr io.Writer) int {
 	return runTuiMainScreenLoop(ctx, runner, audit, traceSink, persistence, status, interrupt, in, out, stderr)
 }
 
 // runTuiMainScreenLoop writes completed chat output directly to the terminal's
 // main buffer. It deliberately owns no transcript viewport or scroll region.
-func runTuiMainScreenLoop(ctx context.Context, runner *agent.Runner, audit session.Writer, traceSink agent.EventSink, persistence *chatPersistence, status chatStatus, interrupt *interruptCoordinator, in io.Reader, out, stderr io.Writer) int {
+func runTuiMainScreenLoop(ctx context.Context, runner *agent.Runner, audit audit.Writer, traceSink agent.EventSink, persistence *chatPersistence, status chatStatus, interrupt *interruptCoordinator, in io.Reader, out, stderr io.Writer) int {
 	permissionMemory := newPermissionMemory()
 	permissionMode := status.PermissionMode
 	if permissionMode == "" {
@@ -492,7 +494,7 @@ func runTuiMainScreenLoop(ctx context.Context, runner *agent.Runner, audit sessi
 		}
 		if prompt == "/compact" {
 			oldMessages := runner.Messages()
-			oldSnapshot := conversation.Snapshot{}
+			oldSnapshot := session.Snapshot{}
 			if persistence != nil && persistence.persistent {
 				oldSnapshot = persistence.snapshot
 				oldSnapshot.Messages = append([]llm.Message(nil), oldMessages...)
@@ -589,7 +591,7 @@ func runTuiMainScreenLoop(ctx context.Context, runner *agent.Runner, audit sessi
 				continue
 			}
 			for _, result := range results {
-				writeConversationSearchResult(out, result)
+				writeSessionSearchResult(out, result)
 			}
 			continue
 		}
@@ -627,6 +629,15 @@ func runTuiMainScreenLoop(ctx context.Context, runner *agent.Runner, audit sessi
 			}
 			currentActivity = newChatActivity(out)
 			currentActivity.Start()
+		}
+		if status.AutoRetrieve && persistence != nil && persistence.memoryRepo != nil {
+			runner.SetLongTermMemory(nil)
+			items, searchErr := persistence.memoryRepo.Search(prompt, 5)
+			if searchErr == nil {
+				runner.SetLongTermMemory(items)
+			}
+		} else {
+			runner.SetLongTermMemory(nil)
 		}
 		toolStarted := make(map[string]toolProgress)
 		if err := runner.EmitHookEvent(turnCtx, "turn_start", agent.Event{Type: agent.EventRunStarted, Text: prompt}); err != nil {
@@ -761,7 +772,25 @@ func runTuiMainScreenLoop(ctx context.Context, runner *agent.Runner, audit sessi
 				fmt.Fprintln(stderr, "错误：会话保存失败，本次上下文只保留在当前进程")
 			}
 		}
+		if status.AutoMemory && persistence != nil && persistence.memoryRepo != nil {
+			for _, candidate := range saveAutomaticMemoryCandidates(persistence.memoryRepo, prompt) {
+				fmt.Fprintf(out, "%s自动记忆候选：%s（candidate，需审核后才会检索）%s\n", chatMuted(out), candidate.Text, chatReset(out))
+			}
+		}
 	}
+}
+
+func saveAutomaticMemoryCandidates(repo *memory.Repository, prompt string) []memory.Item {
+	if repo == nil {
+		return nil
+	}
+	var saved []memory.Item
+	for _, candidate := range memory.ExtractCandidates(prompt) {
+		if err := repo.Add(candidate); err == nil {
+			saved = append(saved, candidate)
+		}
+	}
+	return saved
 }
 
 func handleMemoryCommand(prompt string, runner *agent.Runner, persistence *chatPersistence, out io.Writer) bool {
@@ -828,13 +857,53 @@ func handleMemoryCommand(prompt string, runner *agent.Runner, persistence *chatP
 		for _, item := range items {
 			fmt.Fprintf(out, "%s [%s]: %s\n", item.Kind, item.Status, item.Text)
 		}
+	case "candidates":
+		if persistence == nil || persistence.memoryRepo == nil {
+			fmt.Fprintln(out, "长期记忆不可用")
+			return true
+		}
+		items, err := persistence.memoryRepo.SearchWithOptions("auto:user_turn", memory.SearchOptions{Kind: memory.KindExperience, Status: "candidate", Limit: 20})
+		if err != nil || len(items) == 0 {
+			fmt.Fprintln(out, "没有待审核的自动记忆候选")
+			return true
+		}
+		for _, item := range items {
+			fmt.Fprintf(out, "%s [candidate]: %s\n", item.Kind, item.Text)
+		}
+	case "approve", "reject", "deprecate":
+		if persistence == nil || persistence.memoryRepo == nil || len(parts) < 2 {
+			fmt.Fprintln(out, "用法：/memory approve|reject|deprecate <候选文本>")
+			return true
+		}
+		status := map[string]string{"approve": "verified", "reject": "rejected", "deprecate": "deprecated"}[parts[0]]
+		if err := persistence.memoryRepo.ReviewExperience(strings.Join(parts[1:], " "), status); err != nil {
+			fmt.Fprintln(out, "记忆审核失败：", err)
+			return true
+		}
+		fmt.Fprintf(out, "已将记忆标记为 %s\n", status)
+	case "replace":
+		if persistence == nil || persistence.memoryRepo == nil || len(parts) < 4 {
+			fmt.Fprintln(out, "用法：/memory replace <旧文本> => <新文本>")
+			return true
+		}
+		replacement := strings.Join(parts[1:], " ")
+		pair := strings.SplitN(replacement, "=>", 2)
+		if len(pair) != 2 {
+			fmt.Fprintln(out, "用法：/memory replace <旧文本> => <新文本>")
+			return true
+		}
+		if err := persistence.memoryRepo.ReplaceExperience(pair[0], pair[1]); err != nil {
+			fmt.Fprintln(out, "记忆替换失败：", err)
+			return true
+		}
+		fmt.Fprintln(out, "已替换并验证记忆")
 	default:
-		fmt.Fprintln(out, "用法：/memory | /memory clear | /memory remember <kind> <text> | /memory delete <kind> <text> | /memory search <query>")
+		fmt.Fprintln(out, "用法：/memory | /memory clear | /memory remember <kind> <text> | /memory delete <kind> <text> | /memory search <query> | /memory candidates | /memory approve|reject|deprecate <文本> | /memory replace <旧文本> => <新文本>")
 	}
 	return true
 }
 
-func compactChatContext(ctx context.Context, runner *agent.Runner, audit session.Writer, traceSink agent.EventSink, persistence *chatPersistence) (agent.CompactResult, error) {
+func compactChatContext(ctx context.Context, runner *agent.Runner, audit audit.Writer, traceSink agent.EventSink, persistence *chatPersistence) (agent.CompactResult, error) {
 	oldMessages := runner.Messages()
 	beforeBytes := runner.ContextBytes()
 	if err := appendChatEvent(audit, traceSink, agent.Event{Type: agent.EventCompactionStarted, BeforeBytes: beforeBytes, MessageCount: len(oldMessages)}); err != nil {
@@ -1176,7 +1245,7 @@ func chatUsesColor(out io.Writer) bool {
 	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }
 
-func appendChatEvent(audit session.Writer, traceSink agent.EventSink, event agent.Event) error {
+func appendChatEvent(audit audit.Writer, traceSink agent.EventSink, event agent.Event) error {
 	if err := audit.Append(event); err != nil {
 		return err
 	}

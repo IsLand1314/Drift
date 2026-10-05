@@ -25,6 +25,23 @@ type Client struct {
 	nextID    atomic.Int64
 }
 
+func (c *Client) StreamEvents(ctx context.Context, request llm.Request, emit func(llm.Event) error) error {
+	return llm.WithTerminal(ctx, emit, func(emit func(llm.Event) error) error {
+		emitted := false
+		forward := func(event llm.Event) error {
+			emitted = true
+			return emit(event)
+		}
+		err := c.streamEvents(ctx, request, forward)
+		if err != nil && !emitted && isCodexAuthFailure(err) {
+			// Restarting app-server gives the Codex CLI one opportunity to reload
+			// its refreshed login state. Never retry after model output began.
+			return c.streamEvents(ctx, request, emit)
+		}
+		return err
+	})
+}
+
 func (c *Client) Capabilities() llm.Capabilities { return llm.Capabilities{} }
 
 func New(codexHome string) (*Client, error) {
@@ -50,28 +67,28 @@ type wireMessage struct {
 	Error  json.RawMessage `json:"error,omitempty"`
 }
 
-func (c *Client) Stream(ctx context.Context, request llm.Request, emit func(llm.StreamEvent) error) (llm.Completion, error) {
+func (c *Client) streamEvents(ctx context.Context, request llm.Request, emit func(llm.Event) error) error {
 	if len(request.Tools) != 0 {
-		return llm.Completion{}, errors.New("Codex Provider 当前仅支持 text-only 请求，暂不接管 Drift 工具")
+		return errors.New("Codex Provider 当前仅支持 text-only 请求，暂不接管 Drift 工具")
 	}
 	cmd := exec.Command(c.command, c.args...)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		return llm.Completion{}, err
+		return err
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return llm.Completion{}, err
+		return err
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		return llm.Completion{}, err
+		return err
 	}
 	if c.codexHome != "" {
 		cmd.Env = append(os.Environ(), "CODEX_HOME="+filepath.Clean(c.codexHome))
 	}
 	if err := cmd.Start(); err != nil {
-		return llm.Completion{}, &llm.ProviderError{Stage: llm.ErrorStageTransport, Message: "Codex app-server 启动失败", Cause: err}
+		return &llm.ProviderError{Stage: llm.ErrorStageTransport, Message: "Codex app-server 启动失败", Cause: err}
 	}
 	go func() { _, _ = io.Copy(io.Discard, stderr) }()
 	stop := func() { _ = stdin.Close(); _ = cmd.Process.Kill(); _ = cmd.Wait() }
@@ -91,25 +108,26 @@ func (c *Client) Stream(ctx context.Context, request llm.Request, emit func(llm.
 		}
 		readErr <- scanner.Err()
 	}()
-	send := func(method string, params any) error {
+	send := func(method string, params any) (int64, error) {
 		id := c.nextID.Add(1)
 		payload, err := json.Marshal(map[string]any{"method": method, "id": id, "params": params})
 		if err != nil {
-			return err
+			return 0, err
 		}
 		if _, err := io.WriteString(stdin, string(payload)+"\n"); err != nil {
-			return err
+			return 0, err
 		}
-		return nil
+		return id, nil
 	}
-	if err := send("initialize", map[string]any{"clientInfo": map[string]string{"name": "drift", "title": "Drift", "version": "m5.2"}}); err != nil {
-		return llm.Completion{}, err
+	initializeID, err := send("initialize", map[string]any{"clientInfo": map[string]string{"name": "drift", "title": "Drift", "version": "m5.2"}})
+	if err != nil {
+		return err
 	}
-	if _, err := waitResponse(ctx, lines, 1); err != nil {
-		return llm.Completion{}, err
+	if _, err := waitResponse(ctx, lines, initializeID); err != nil {
+		return err
 	}
 	if _, err := io.WriteString(stdin, `{"method":"initialized","params":{}}`+"\n"); err != nil {
-		return llm.Completion{}, err
+		return err
 	}
 	system, input := splitMessages(request.Messages)
 	if system != "" {
@@ -119,12 +137,13 @@ func (c *Client) Stream(ctx context.Context, request llm.Request, emit func(llm.
 	if system != "" {
 		threadParams["developerInstructions"] = system
 	}
-	if err := send("thread/start", threadParams); err != nil {
-		return llm.Completion{}, err
-	}
-	threadResp, err := waitResponse(ctx, lines, 2)
+	threadStartID, err := send("thread/start", threadParams)
 	if err != nil {
-		return llm.Completion{}, err
+		return err
+	}
+	threadResp, err := waitResponse(ctx, lines, threadStartID)
+	if err != nil {
+		return err
 	}
 	var thread struct {
 		Thread struct {
@@ -132,14 +151,15 @@ func (c *Client) Stream(ctx context.Context, request llm.Request, emit func(llm.
 		} `json:"thread"`
 	}
 	if err := json.Unmarshal(threadResp.Result, &thread); err != nil || thread.Thread.ID == "" {
-		return llm.Completion{}, errors.New("Codex app-server 未返回 thread id")
+		return errors.New("Codex app-server 未返回 thread id")
 	}
-	if err := send("turn/start", map[string]any{"threadId": thread.Thread.ID, "input": []map[string]string{{"type": "text", "text": input}}}); err != nil {
-		return llm.Completion{}, err
-	}
-	turnResp, err := waitResponse(ctx, lines, 3)
+	turnStartID, err := send("turn/start", map[string]any{"threadId": thread.Thread.ID, "input": []map[string]string{{"type": "text", "text": input}}})
 	if err != nil {
-		return llm.Completion{}, err
+		return err
+	}
+	turnResp, err := waitResponse(ctx, lines, turnStartID)
+	if err != nil {
+		return err
 	}
 	var turn struct {
 		Turn struct {
@@ -147,30 +167,28 @@ func (c *Client) Stream(ctx context.Context, request llm.Request, emit func(llm.
 		} `json:"turn"`
 	}
 	_ = json.Unmarshal(turnResp.Result, &turn)
-	completion := llm.Completion{Assistant: llm.Message{Role: "assistant"}, FinishReason: "stop"}
 	for {
 		select {
 		case <-ctx.Done():
-			return llm.Completion{}, ctx.Err()
+			return ctx.Err()
 		case msg := <-lines:
 			if msg.Method == "item/agentMessage/delta" {
 				var p struct {
 					Delta string `json:"delta"`
 				}
 				if json.Unmarshal(msg.Params, &p) == nil {
-					completion.Assistant.Content += p.Delta
-					if err := emit(llm.StreamEvent{Text: p.Delta}); err != nil {
-						return llm.Completion{}, err
+					if err := emit(llm.TextDelta{Text: p.Delta}); err != nil {
+						return err
 					}
 				}
 			} else if msg.Method == "turn/completed" {
-				return completion, nil
+				return emit(llm.StreamEnd{Status: llm.StreamCompleted, FinishReason: "stop"})
 			}
 		case err := <-readErr:
 			if err != nil {
-				return llm.Completion{}, fmt.Errorf("Codex app-server 连接失败: %w", err)
+				return fmt.Errorf("Codex app-server 连接失败: %w", err)
 			}
-			return llm.Completion{}, errors.New("Codex app-server 提前退出")
+			return errors.New("Codex app-server 提前退出")
 		}
 	}
 }
@@ -183,12 +201,29 @@ func waitResponse(ctx context.Context, lines <-chan wireMessage, id int64) (wire
 		case msg := <-lines:
 			if msg.ID != nil && *msg.ID == id {
 				if len(msg.Error) > 0 && string(msg.Error) != "null" {
+					var failure struct {
+						Code    json.RawMessage `json:"code"`
+						Message string          `json:"message"`
+					}
+					_ = json.Unmarshal(msg.Error, &failure)
+					message := strings.ToLower(failure.Message)
+					if strings.Contains(message, "401") || strings.Contains(message, "unauthoriz") || strings.Contains(message, "token") {
+						return wireMessage{}, &llm.ProviderError{Stage: llm.ErrorStageHTTP, Message: "Codex 登录态无效"}
+					}
 					return wireMessage{}, errors.New("Codex app-server 请求失败")
 				}
 				return msg, nil
 			}
 		}
 	}
+}
+
+func isCodexAuthFailure(err error) bool {
+	var providerErr *llm.ProviderError
+	if errors.As(err, &providerErr) {
+		return providerErr.Stage == llm.ErrorStageHTTP && providerErr.Message == "Codex 登录态无效"
+	}
+	return false
 }
 
 func splitMessages(messages []llm.Message) (string, string) {

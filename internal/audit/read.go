@@ -1,4 +1,4 @@
-package session
+package audit
 
 import (
 	"bufio"
@@ -11,30 +11,30 @@ import (
 	"strings"
 )
 
-const maxSessionEntryBytes = 2 << 20
+const maxAuditEntryBytes = 2 << 20
 
 // ReadEntries 读取 JSONL 审计记录；它只解析结构，不把正文打印到任何输出。
 func ReadEntries(path string) ([]Entry, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, fmt.Errorf("session: open %s: %w", filepath.Base(path), err)
+		return nil, fmt.Errorf("audit: open %s: %w", filepath.Base(path), err)
 	}
 	defer file.Close()
 	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 4096), maxSessionEntryBytes)
+	scanner.Buffer(make([]byte, 4096), maxAuditEntryBytes)
 	entries := make([]Entry, 0)
 	lineNumber := 0
 	for scanner.Scan() {
 		lineNumber++
 		var entry Entry
 		if err := json.Unmarshal(scanner.Bytes(), &entry); err != nil {
-			return nil, fmt.Errorf("session: decode line %d: %w", lineNumber, err)
+			return nil, fmt.Errorf("audit: decode line %d: %w", lineNumber, err)
 		}
 		entry.FinishReason = sanitizeFinishReason(entry.FinishReason)
 		entries = append(entries, entry)
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("session: read %s: %w", filepath.Base(path), err)
+		return nil, fmt.Errorf("audit: read %s: %w", filepath.Base(path), err)
 	}
 	return entries, nil
 }
@@ -101,7 +101,7 @@ func listFiles(root string) ([]string, error) {
 		return nil, os.ErrNotExist
 	}
 	if err != nil {
-		return nil, fmt.Errorf("session: list directory: %w", err)
+		return nil, fmt.Errorf("audit: list directory: %w", err)
 	}
 	sort.Slice(files, func(i, j int) bool {
 		if files[i].modTime != files[j].modTime {

@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/IsLand1314/Drift/internal/memory"
 )
 
 func TestRunSelectsAnthropicProvider(t *testing.T) {
@@ -39,6 +41,25 @@ func TestRunSelectsAnthropicProvider(t *testing.T) {
 	}
 }
 
+func TestSkillDraftUsesOnlyVerifiedMemoryAndDoesNotInstall(t *testing.T) {
+	workspace := t.TempDir()
+	repo, err := memory.NewRepository(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Add(memory.Item{Kind: memory.KindExperience, Text: "默认使用 gofmt", Status: "verified"}); err != nil {
+		t.Fatal(err)
+	}
+	var out, stderr strings.Builder
+	code := RunWithInput(context.Background(), []string{"skill", "draft", "go-style", "--memory", "gofmt", "-w", workspace}, func(string) string { return "" }, strings.NewReader(""), &out, &stderr)
+	if code != 0 || !strings.Contains(out.String(), "Verified experience") || stderr.Len() != 0 {
+		t.Fatalf("code=%d out=%q stderr=%q", code, out.String(), stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(workspace, ".drift", "skills", "go-style")); !os.IsNotExist(err) {
+		t.Fatalf("draft unexpectedly installed: %v", err)
+	}
+}
+
 func TestRunUsesUserConfigTOMLAndAuthJSON(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer config-secret" {
@@ -64,6 +85,34 @@ func TestRunUsesUserConfigTOMLAndAuthJSON(t *testing.T) {
 	code := RunWithInput(context.Background(), []string{"-provider", "deepseek", "-w", workspace, "-p", "hello"}, func(string) string { return "" }, strings.NewReader(""), &out, &stderr)
 	if code != 0 || out.String() != "config answer\n" {
 		t.Fatalf("code=%d out=%q stderr=%q", code, out.String(), stderr.String())
+	}
+}
+
+func TestRunUsesOpenAIResponsesForConfiguredOpenAIProvider(t *testing.T) {
+	var path string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path = r.URL.Path
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"responses answer\"}\n\n")
+		_, _ = fmt.Fprint(w, "data: {\"type\":\"response.completed\",\"response\":{}}\n\n")
+	}))
+	defer server.Close()
+	workspace := t.TempDir()
+	driftDir := filepath.Join(workspace, ".drift")
+	if err := os.MkdirAll(driftDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	config := fmt.Sprintf("version = 1\n[[providers]]\nname = \"openai\"\nprotocol = \"openai\"\nbase_url = \"%s\"\nmodel = \"gpt-test\"\n", server.URL)
+	if err := os.WriteFile(filepath.Join(driftDir, "config.toml"), []byte(config), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(driftDir, "auth.json"), []byte(`{"version":1,"providers":{"openai":{"type":"api_key","key":"responses-key"}}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var out, stderr strings.Builder
+	code := RunWithInput(context.Background(), []string{"-provider", "openai", "-w", workspace, "-p", "hello"}, func(string) string { return "" }, strings.NewReader(""), &out, &stderr)
+	if code != 0 || out.String() != "responses answer\n" || path != "/responses" {
+		t.Fatalf("code=%d path=%q out=%q stderr=%q", code, path, out.String(), stderr.String())
 	}
 }
 

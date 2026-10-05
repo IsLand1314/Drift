@@ -39,7 +39,11 @@ const (
 const (
 	EventRunStarted         EventType = "run_started"
 	EventTextDelta          EventType = "text_delta"
+	EventThinkingDelta      EventType = "thinking_delta"
+	EventThinkingComplete   EventType = "thinking_complete"
+	EventToolCallStarted    EventType = "tool_call_started"
 	EventToolCall           EventType = "tool_call"
+	EventStreamEnded        EventType = "stream_ended"
 	EventToolResult         EventType = "tool_result"
 	EventPermissionRequest  EventType = "permission_request"
 	EventPermissionDecision EventType = "permission_decision"
@@ -57,6 +61,9 @@ const (
 type Event struct {
 	Type              EventType
 	Text              string
+	Thinking          string
+	ThinkingSignature string
+	EncryptedThinking string
 	SkillName         string
 	ToolCallID        string
 	TaskID            string
@@ -68,6 +75,9 @@ type Event struct {
 	Error             string
 	Stage             string
 	FinishReason      string
+	StreamStatus      string
+	StreamErrorKind   string
+	StreamRetryable   bool
 	BeforeBytes       int
 	AfterBytes        int
 	MessageCount      int

@@ -74,6 +74,26 @@ func TestAttachMCPAddsSearchableButDisabledTool(t *testing.T) {
 	}
 }
 
+func TestAttachMCPPreservesExplicitReadOnlyHint(t *testing.T) {
+	registry := NewChatRegistry()
+	client := fakeMCPClient{tools: []mcp.Tool{{Name: "inspect", Description: "Inspect", InputSchema: json.RawMessage(`{"type":"object"}`), Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true}}}}
+	if err := AttachMCP(context.Background(), registry, "demo", client); err != nil {
+		t.Fatal(err)
+	}
+	search, _ := registry.Lookup("ToolSearch")
+	if _, err := search.Execute(context.Background(), t.TempDir(), `{"query":"inspect","load":["mcp__demo__inspect"]}`); err != nil {
+		t.Fatal(err)
+	}
+	value, ok := registry.Lookup("mcp__demo__inspect")
+	if !ok {
+		t.Fatal("MCP tool was not registered")
+	}
+	declared, ok := value.(ReadOnlyMCPTool)
+	if !ok || !declared.ReadOnly() {
+		t.Fatalf("read-only capability = %#v, %v", value, ok)
+	}
+}
+
 func TestAttachMCPRejectsUnsafeOrDuplicateNames(t *testing.T) {
 	registry := NewChatRegistry()
 	valid := fakeMCPClient{tools: []mcp.Tool{{Name: "echo", Description: "Echo", InputSchema: json.RawMessage(`{"type":"object"}`)}}}

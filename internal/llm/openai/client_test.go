@@ -8,12 +8,69 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/IsLand1314/Drift/internal/llm"
 )
+
+// Test-only access to the protocol parser; production callers use StreamEvents.
+func (c *Client) Stream(ctx context.Context, request llm.Request, emit func(llm.StreamEvent) error) (testCompletion, error) {
+	return collectStream(func(out func(llm.Event) error) error { return c.StreamEvents(ctx, request, out) }, emit)
+}
+
+func readStream(r io.Reader, emit func(llm.StreamEvent) error) (testCompletion, error) {
+	return collectStream(func(out func(llm.Event) error) error { return readStreamEvents(r, out) }, emit)
+}
+
+func collectStream(run func(func(llm.Event) error) error, emit func(llm.StreamEvent) error) (testCompletion, error) {
+	completion := testCompletion{Assistant: llm.Message{Role: "assistant"}}
+	calls := map[int]*llm.ToolCall{}
+	err := run(func(event llm.Event) error {
+		switch e := event.(type) {
+		case llm.TextDelta:
+			completion.Assistant.Content += e.Text
+			return emit(llm.StreamEvent{Text: e.Text})
+		case llm.ThinkingDelta:
+			completion.Assistant.ReasoningContent += e.Text
+			return emit(llm.StreamEvent{ReasoningContent: e.Text})
+		case llm.ToolCallStart:
+			calls[e.Index] = &llm.ToolCall{ID: e.ID, Type: "function", Name: e.Name}
+		case llm.ToolCallDelta:
+			call := calls[e.Index]
+			if call == nil {
+				call = &llm.ToolCall{ID: e.ID, Type: "function", Name: e.Name}
+				calls[e.Index] = call
+			}
+			call.Arguments += e.Arguments
+			return emit(llm.StreamEvent{ToolCallDelta: &llm.ToolCallDelta{Index: e.Index, ID: e.ID, Name: e.Name, Arguments: e.Arguments}})
+		case llm.ToolCallComplete:
+			call := calls[e.Index]
+			if call == nil {
+				call = &llm.ToolCall{}
+			}
+			call.ID, call.Name, call.Arguments, call.Type = e.ID, e.Name, e.Arguments, "function"
+			calls[e.Index] = call
+		case llm.StreamEnd:
+			completion.FinishReason, completion.Usage = e.FinishReason, e.Usage
+		}
+		return nil
+	})
+	if err != nil {
+		return testCompletion{}, err
+	}
+	indexes := make([]int, 0, len(calls))
+	for index := range calls {
+		indexes = append(indexes, index)
+	}
+	sort.Ints(indexes)
+	for _, index := range indexes {
+		completion.Assistant.ToolCalls = append(completion.Assistant.ToolCalls, *calls[index])
+	}
+	return completion, nil
+}
 
 func TestStreamIsIncremental(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -141,6 +198,58 @@ func TestHTTPErrorAndCancellation(t *testing.T) {
 	}
 }
 
+func TestStreamEventsEmitsCancelledTerminal(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\n")
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+	client, err := New(server.URL, "key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var end llm.StreamEnd
+	err = client.StreamEvents(ctx, llm.Request{}, func(event llm.Event) error {
+		if _, ok := event.(llm.TextDelta); ok {
+			cancel()
+		}
+		if value, ok := event.(llm.StreamEnd); ok {
+			end = value
+		}
+		return nil
+	})
+	if !errors.Is(err, context.Canceled) || end.Status != llm.StreamCancelled || end.Error == nil {
+		t.Fatalf("err=%v terminal=%#v", err, end)
+	}
+}
+
+func TestStreamEventsEmitsFailedTerminalOnDisconnect(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\n")
+		w.(http.Flusher).Flush()
+	}))
+	defer server.Close()
+	client, err := New(server.URL, "key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var end llm.StreamEnd
+	err = client.StreamEvents(context.Background(), llm.Request{}, func(event llm.Event) error {
+		if value, ok := event.(llm.StreamEnd); ok {
+			end = value
+		}
+		return nil
+	})
+	if err == nil || end.Status != llm.StreamFailed || end.Error == nil || end.Error.Kind == llm.StreamErrorCancelled {
+		t.Fatalf("err=%v terminal=%#v", err, end)
+	}
+}
+
 func TestStreamAggregatesToolCall(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
@@ -197,6 +306,20 @@ func TestStreamAggregatesToolCall(t *testing.T) {
 }
 
 func TestReadStreamProtocolRegressions(t *testing.T) {
+	t.Run("reasoning emits complete event", func(t *testing.T) {
+		body := "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"part one\"}}]}\n\ndata: {\"choices\":[{\"delta\":{\"reasoning_content\":\"part two\"}}]}\n\ndata: [DONE]\n\n"
+		var complete llm.ThinkingComplete
+		err := readStreamEvents(strings.NewReader(body), func(event llm.Event) error {
+			if value, ok := event.(llm.ThinkingComplete); ok {
+				complete = value
+			}
+			return nil
+		})
+		if err != nil || complete.Thinking != "part onepart two" {
+			t.Fatalf("complete=%+v err=%v", complete, err)
+		}
+	})
+
 	t.Run("usage-only chunk", func(t *testing.T) {
 		body := "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: {\"choices\":[],\"usage\":{\"prompt_tokens\":17,\"completion_tokens\":9,\"total_tokens\":26}}\n\ndata: [DONE]\n\n"
 		completion, err := readStream(strings.NewReader(body), func(llm.StreamEvent) error { return nil })

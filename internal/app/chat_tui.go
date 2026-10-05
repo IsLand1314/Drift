@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/IsLand1314/Drift/internal/agent"
+	"github.com/IsLand1314/Drift/internal/audit"
 	"github.com/IsLand1314/Drift/internal/changes"
-	"github.com/IsLand1314/Drift/internal/conversation"
 	"github.com/IsLand1314/Drift/internal/llm"
 	"github.com/IsLand1314/Drift/internal/session"
 	"github.com/charmbracelet/bubbles/textarea"
@@ -25,7 +25,7 @@ import (
 type tuiFullScreen struct {
 	ctx                context.Context
 	runner             *agent.Runner
-	audit              session.Writer
+	audit              audit.Writer
 	trace              agent.EventSink
 	persistence        *chatPersistence
 	status             chatStatus
@@ -65,7 +65,7 @@ type tuiApproval struct {
 	selected int
 }
 type tuiResume struct {
-	items  []conversation.Metadata
+	items  []session.Metadata
 	cursor int
 }
 type permissionPicker struct {
@@ -78,7 +78,7 @@ type toolProgressTUI struct {
 	lineIdx int
 }
 
-func runTuiFullScreen(ctx context.Context, runner *agent.Runner, audit session.Writer, trace agent.EventSink, persistence *chatPersistence, status chatStatus, interrupt *interruptCoordinator, in io.Reader, out io.Writer) int {
+func runTuiFullScreen(ctx context.Context, runner *agent.Runner, audit audit.Writer, trace agent.EventSink, persistence *chatPersistence, status chatStatus, interrupt *interruptCoordinator, in io.Reader, out io.Writer) int {
 	m := newTuiFullScreen(ctx, runner, audit, trace, persistence, status, interrupt)
 	// The fullscreen renderer owns the frame in the alternate screen. Mouse
 	// reporting remains disabled so terminal selection and paste stay available.
@@ -92,7 +92,7 @@ func runTuiFullScreen(ctx context.Context, runner *agent.Runner, audit session.W
 	return m.exitCode
 }
 
-func newTuiFullScreen(ctx context.Context, runner *agent.Runner, audit session.Writer, trace agent.EventSink, persistence *chatPersistence, status chatStatus, interrupt *interruptCoordinator) tuiFullScreen {
+func newTuiFullScreen(ctx context.Context, runner *agent.Runner, audit audit.Writer, trace agent.EventSink, persistence *chatPersistence, status chatStatus, interrupt *interruptCoordinator) tuiFullScreen {
 	ta := textarea.New()
 	ta.Prompt = "❯ "
 	ta.Placeholder = "Send a message..."
@@ -319,7 +319,7 @@ func (m *tuiFullScreen) handleCommand(text string) bool {
 			m.lines = append(m.lines, "✖ "+err.Error())
 			return true
 		}
-		non := make([]conversation.Metadata, 0, len(items))
+		non := make([]session.Metadata, 0, len(items))
 		for _, x := range items {
 			if x.MessageCount > 0 {
 				non = append(non, x)

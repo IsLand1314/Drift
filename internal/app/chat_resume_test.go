@@ -4,12 +4,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/IsLand1314/Drift/internal/conversation"
+	"github.com/IsLand1314/Drift/internal/session"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestResumePickerFiltersAndSelects(t *testing.T) {
-	model := newResumePickerModel([]conversation.Metadata{
+	model := newResumePickerModel([]session.Metadata{
 		{ID: "conv-other12345678", MessageCount: 1, Preview: "README 项目说明"},
 		{ID: "conv-fox12345678", MessageCount: 1, Preview: "FoxCode 项目分析"},
 	}, 40, 12)
@@ -26,7 +26,7 @@ func TestResumePickerFiltersAndSelects(t *testing.T) {
 }
 
 func TestResumePickerHidesEmptySessions(t *testing.T) {
-	model := newResumePickerModel([]conversation.Metadata{
+	model := newResumePickerModel([]session.Metadata{
 		{ID: "conv-empty12345678", MessageCount: 0},
 		{ID: "conv-recorded12345678", MessageCount: 2, Preview: "已有记录"},
 	}, 40, 12)
@@ -39,7 +39,7 @@ func TestResumePickerHidesEmptySessions(t *testing.T) {
 }
 
 func TestResumePickerEscapeCancels(t *testing.T) {
-	model := newResumePickerModel([]conversation.Metadata{{ID: "conv-foo12345678", MessageCount: 1, Preview: "foo"}}, 40, 12)
+	model := newResumePickerModel([]session.Metadata{{ID: "conv-foo12345678", MessageCount: 1, Preview: "foo"}}, 40, 12)
 	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	model = updated.(resumePickerModel)
 	if model.selected || !model.cancelled {
@@ -48,7 +48,7 @@ func TestResumePickerEscapeCancels(t *testing.T) {
 }
 
 func TestResumePickerViewHandlesNarrowUnicode(t *testing.T) {
-	model := newResumePickerModel([]conversation.Metadata{{ID: "conv-foo12345678", MessageCount: 1, Preview: "中文标题 👍🏼"}}, 10, 6)
+	model := newResumePickerModel([]session.Metadata{{ID: "conv-foo12345678", MessageCount: 1, Preview: "中文标题 👍🏼"}}, 10, 6)
 	view := model.View()
 	if !strings.Contains(view, "Resume") {
 		t.Fatalf("view = %q", view)

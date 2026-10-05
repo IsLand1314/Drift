@@ -7,13 +7,17 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/IsLand1314/Drift/internal/memory"
 	"github.com/IsLand1314/Drift/internal/skill"
 )
 
 func runSkillCommand(args []string, out, stderr io.Writer) int {
-	if len(args) == 0 || (args[0] != "list" && args[0] != "show" && args[0] != "install" && args[0] != "remove" && args[0] != "enable" && args[0] != "disable") {
-		fmt.Fprintln(stderr, "用法：drift skill list|show|install|remove|enable|disable [-w 路径]")
+	if len(args) == 0 || (args[0] != "list" && args[0] != "show" && args[0] != "draft" && args[0] != "install" && args[0] != "remove" && args[0] != "enable" && args[0] != "disable") {
+		fmt.Fprintln(stderr, "用法：drift skill list|show|draft|install|remove|enable|disable [-w 路径]")
 		return 2
+	}
+	if args[0] == "draft" {
+		return runSkillDraft(args[1:], out, stderr)
 	}
 	if args[0] == "install" {
 		return runSkillInstall(args[1:], out, stderr)
@@ -56,6 +60,64 @@ func runSkillCommand(args []string, out, stderr io.Writer) int {
 		return 2
 	}
 	_, _ = io.WriteString(out, loaded.Content)
+	return 0
+}
+
+func runSkillDraft(args []string, out, stderr io.Writer) int {
+	if len(args) == 0 || strings.TrimSpace(args[0]) == "" {
+		fmt.Fprintln(stderr, "用法：drift skill draft <名称> --memory <关键词> [-w 路径]")
+		return 2
+	}
+	name := args[0]
+	var workspace, query string
+	for i := 1; i < len(args); i++ {
+		switch args[i] {
+		case "-w":
+			if i+1 >= len(args) {
+				fmt.Fprintln(stderr, "错误：-w 需要路径")
+				return 2
+			}
+			workspace, i = args[i+1], i+1
+		case "--memory":
+			if i+1 >= len(args) {
+				fmt.Fprintln(stderr, "错误：--memory 需要关键词")
+				return 2
+			}
+			query, i = args[i+1], i+1
+		default:
+			fmt.Fprintln(stderr, "错误：未知参数", args[i])
+			return 2
+		}
+	}
+	if strings.TrimSpace(query) == "" {
+		fmt.Fprintln(stderr, "错误：--memory 需要关键词")
+		return 2
+	}
+	launchDir, err := os.Getwd()
+	if err != nil {
+		return 1
+	}
+	selection, err := resolveWorkspace(launchDir, workspace)
+	if err != nil {
+		fmt.Fprintln(stderr, "错误：workspace 目标无效")
+		return 2
+	}
+	repo, err := memory.NewRepository(selection.Root)
+	if err != nil {
+		fmt.Fprintln(stderr, "错误：长期记忆不可用")
+		return 1
+	}
+	items, err := repo.SearchWithOptions(query, memory.SearchOptions{Kind: memory.KindExperience, Status: "verified", Limit: 1})
+	if err != nil || len(items) == 0 {
+		fmt.Fprintln(stderr, "错误：没有匹配的已验证经验")
+		return 2
+	}
+	draft, err := skill.DraftFromMemory(name, items[0].Text)
+	if err != nil {
+		fmt.Fprintln(stderr, "错误：Skill 草稿生成失败")
+		return 2
+	}
+	fmt.Fprint(out, draft)
 	return 0
 }
 

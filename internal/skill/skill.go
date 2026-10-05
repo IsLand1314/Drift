@@ -33,6 +33,15 @@ type Skill struct {
 	Content string
 }
 
+// DraftFromMemory renders a verified experience as a reviewable Skill draft.
+// It does not write, install, enable, or execute anything.
+func DraftFromMemory(name, text string) (string, error) {
+	if !ValidateName(name) || strings.TrimSpace(text) == "" || len([]byte(text)) > maxSkillBytes-128 {
+		return "", fmt.Errorf("skill: invalid memory draft")
+	}
+	return fmt.Sprintf("# %s\n\n## Verified experience\n\n- %s\n\n> Draft only: review before installing or enabling this Skill.\n", name, strings.TrimSpace(text)), nil
+}
+
 type Manifest struct {
 	Name        string `json:"name"`
 	Version     string `json:"version"`

@@ -34,13 +34,19 @@ type MCPTool interface {
 	MCPServer() string
 }
 
+type ReadOnlyMCPTool interface {
+	MCPTool
+	ReadOnly() bool
+}
+
 type mcpTool struct {
-	server string
-	remote string
-	name   string
-	desc   string
-	schema json.RawMessage
-	client MCPClient
+	server   string
+	remote   string
+	name     string
+	desc     string
+	schema   json.RawMessage
+	client   MCPClient
+	readOnly bool
 }
 
 func AttachMCP(ctx context.Context, value Registry, server string, client MCPClient) error {
@@ -76,7 +82,7 @@ func AttachMCP(ctx context.Context, value Registry, server string, client MCPCli
 			return fmt.Errorf("tool: duplicate MCP tool %q", name)
 		}
 		seen[name] = struct{}{}
-		pending = append(pending, mcpTool{server: server, remote: remote.Name, name: name, desc: remote.Description, schema: append(json.RawMessage(nil), remote.InputSchema...), client: client})
+		pending = append(pending, mcpTool{server: server, remote: remote.Name, name: name, desc: remote.Description, schema: append(json.RawMessage(nil), remote.InputSchema...), client: client, readOnly: remote.Annotations != nil && remote.Annotations.ReadOnlyHint})
 	}
 	for _, current := range pending {
 		registry.add(current, false)
@@ -90,6 +96,7 @@ func AttachMCP(ctx context.Context, value Registry, server string, client MCPCli
 
 func (t mcpTool) Name() string      { return t.name }
 func (t mcpTool) MCPServer() string { return t.server }
+func (t mcpTool) ReadOnly() bool    { return t.readOnly }
 func (t mcpTool) Definition() llm.ToolDefinition {
 	function := map[string]any{"name": t.name, "description": t.desc, "parameters": json.RawMessage(t.schema)}
 	raw, err := json.Marshal(function)

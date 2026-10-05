@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/IsLand1314/Drift/internal/session"
+	"github.com/IsLand1314/Drift/internal/audit"
 	"github.com/IsLand1314/Drift/internal/tool"
 )
 
@@ -52,7 +52,7 @@ func TestGitRevertCreatesCommitAndAudit(t *testing.T) {
 	if err != nil || strings.TrimSpace(string(data)) != "one" {
 		t.Fatalf("one.txt = %q, err=%v", data, err)
 	}
-	audits, err := session.ListFiles(filepath.Join(root, ".drift", "audits"))
+	audits, err := audit.ListFiles(filepath.Join(root, ".drift", "audits"))
 	if err != nil || len(audits) == 0 {
 		t.Fatalf("audit files = %v, err=%v", audits, err)
 	}

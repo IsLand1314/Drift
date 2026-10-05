@@ -57,6 +57,19 @@ func (r *Repository) Add(item Item) error {
 			return r.writeIndexLocked()
 		}
 	}
+	// Automatic preference candidates with the same subject are kept for
+	// explicit review instead of silently replacing a verified memory.
+	if item.Kind == KindExperience && item.Status == "candidate" {
+		if key := experienceConflictKey(item.Text); key != "" {
+			for _, existing := range items {
+				if existing.Kind == KindExperience && existing.Status != "rejected" && experienceConflictKey(existing.Text) == key {
+					item.Status = "conflict"
+					item.Source = "auto:user_turn:conflict"
+					break
+				}
+			}
+		}
+	}
 	if item.UpdatedAt.IsZero() {
 		item.UpdatedAt = time.Now().UTC()
 	}
@@ -165,7 +178,7 @@ func (r *Repository) Delete(kind Kind, text string) error {
 
 func (r *Repository) ReviewExperience(text, status string) error {
 	status = strings.TrimSpace(status)
-	if status != "candidate" && status != "verified" && status != "deprecated" && status != "rejected" {
+	if status != "candidate" && status != "conflict" && status != "verified" && status != "deprecated" && status != "rejected" {
 		return ErrInvalidItem
 	}
 	r.mu.Lock()
@@ -189,6 +202,71 @@ func (r *Repository) ReviewExperience(text, status string) error {
 		return err
 	}
 	return r.writeIndexLocked()
+}
+
+// experienceConflictKey is deliberately conservative: only explicit preference
+// phrases get a subject key. Free-form memories remain untouched until the user
+// explicitly resolves them.
+func experienceConflictKey(text string) string {
+	text = strings.ToLower(strings.TrimSpace(text))
+	for _, prefix := range []string{"默认", "以后", "今后", "请始终", "我偏好", "我喜欢", "更正", "纠正", "不要再", "请不要"} {
+		if strings.HasPrefix(text, prefix) {
+			text = strings.TrimSpace(strings.TrimPrefix(text, prefix))
+			for _, word := range []string{"使用", "采用", "回答", "设置为", "改为"} {
+				text = strings.TrimSpace(strings.TrimPrefix(text, word))
+			}
+			if text != "" {
+				return prefix
+			}
+		}
+	}
+	// ExtractCandidates stores the value after the explicit prefix. Recognize
+	// the small, high-confidence language preference family without guessing at
+	// arbitrary free-form semantics.
+	if strings.HasPrefix(text, "使用") {
+		key := text
+		for _, value := range []string{"中文", "英文", "英语", "chinese", "english"} {
+			key = strings.ReplaceAll(key, value, "")
+		}
+		key = strings.TrimSpace(key)
+		if key != text && key != "" {
+			return key
+		}
+	}
+	return ""
+}
+
+// ReplaceExperience explicitly retires one exact experience and verifies its
+// replacement. It never guesses that two free-form memories conflict.
+func (r *Repository) ReplaceExperience(oldText, newText string) error {
+	oldText, newText = strings.TrimSpace(oldText), strings.TrimSpace(newText)
+	if oldText == "" || (&Store{}).Remember(KindExperience, newText, "manual:replace") != nil {
+		return ErrInvalidItem
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	items, err := r.readKindLocked(KindExperience)
+	if err != nil {
+		return err
+	}
+	for _, item := range items {
+		if strings.EqualFold(item.Text, newText) && !strings.EqualFold(item.Text, oldText) {
+			return ErrInvalidItem
+		}
+	}
+	for index := range items {
+		if strings.EqualFold(items[index].Text, oldText) {
+			items[index].Text = newText
+			items[index].Source = "manual:replace"
+			items[index].Status = "verified"
+			items[index].UpdatedAt = time.Now().UTC()
+			if err := r.replaceKindLocked(KindExperience, items); err != nil {
+				return err
+			}
+			return r.writeIndexLocked()
+		}
+	}
+	return os.ErrNotExist
 }
 
 func (r *Repository) readKindLocked(kind Kind) ([]Item, error) {

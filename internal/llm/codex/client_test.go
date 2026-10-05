@@ -5,12 +5,33 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/IsLand1314/Drift/internal/llm"
 )
+
+// Test-only access to the protocol parser; production callers use StreamEvents.
+func (c *Client) Stream(ctx context.Context, request llm.Request, emit func(llm.StreamEvent) error) (testCompletion, error) {
+	return collectStream(func(out func(llm.Event) error) error { return c.StreamEvents(ctx, request, out) }, emit)
+}
+
+func collectStream(run func(func(llm.Event) error) error, emit func(llm.StreamEvent) error) (testCompletion, error) {
+	completion := testCompletion{Assistant: llm.Message{Role: "assistant"}}
+	err := run(func(event llm.Event) error {
+		switch e := event.(type) {
+		case llm.TextDelta:
+			completion.Assistant.Content += e.Text
+			return emit(llm.StreamEvent{Text: e.Text})
+		case llm.StreamEnd:
+			completion.FinishReason, completion.Usage = e.FinishReason, e.Usage
+		}
+		return nil
+	})
+	return completion, err
+}
 
 func TestStreamUsesAppServerTextProtocol(t *testing.T) {
 	t.Setenv("DRIFT_CODEX_TEST_HELPER", "1")
@@ -52,6 +73,33 @@ func TestCodexReportsMissingAppServer(t *testing.T) {
 	}
 }
 
+func TestCodexAuthFailureIsRetryableBeforeOutput(t *testing.T) {
+	if !isCodexAuthFailure(&llm.ProviderError{Stage: llm.ErrorStageHTTP, Message: "Codex 登录态无效"}) {
+		t.Fatal("Codex auth failure was not recognized")
+	}
+	if isCodexAuthFailure(&llm.ProviderError{Stage: llm.ErrorStageHTTP, Message: "模型请求失败"}) {
+		t.Fatal("generic HTTP failure was classified as auth failure")
+	}
+}
+
+func TestCodexReloadsAppServerOnceAfterAuthFailure(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "auth-retry.marker")
+	t.Setenv("DRIFT_CODEX_TEST_HELPER", "1")
+	t.Setenv("DRIFT_CODEX_AUTH_ONCE_FILE", marker)
+	c, err := NewWithCommand(os.Args[0], []string{"-test.run=TestCodexHelperProcess"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got string
+	_, err = c.Stream(context.Background(), llm.Request{Model: "m", Messages: []llm.Message{{Role: "user", Content: "hello"}}}, func(event llm.StreamEvent) error {
+		got += event.Text
+		return nil
+	})
+	if err != nil || got != "hello from codex" {
+		t.Fatalf("err=%v output=%q", err, got)
+	}
+}
+
 func TestCodexKeepsSystemInstructionsOutOfUserInput(t *testing.T) {
 	t.Setenv("DRIFT_CODEX_TEST_HELPER", "1")
 	t.Setenv("DRIFT_CODEX_ASSERT_PROMPT", "1")
@@ -89,6 +137,13 @@ func TestCodexHelperProcess(t *testing.T) {
 		var out any
 		switch req.Method {
 		case "initialize":
+			if marker := os.Getenv("DRIFT_CODEX_AUTH_ONCE_FILE"); marker != "" {
+				if _, err := os.Stat(marker); os.IsNotExist(err) {
+					_ = os.WriteFile(marker, []byte("failed once"), 0o600)
+					out = map[string]any{"id": req.ID, "error": map[string]any{"code": 401, "message": "401 unauthorized"}}
+					break
+				}
+			}
 			out = map[string]any{"id": req.ID, "result": map[string]any{}}
 		case "thread/start":
 			if assertPrompt {

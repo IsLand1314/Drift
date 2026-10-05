@@ -14,9 +14,13 @@ import (
 
 type childModelProbe struct{ model chan string }
 
-func (p childModelProbe) Stream(_ context.Context, request llm.Request, _ func(llm.StreamEvent) error) (llm.Completion, error) {
+func (p childModelProbe) StreamEvents(ctx context.Context, request llm.Request, emit func(llm.Event) error) error {
+	return collectLegacyEvents(ctx, p, request, emit)
+}
+
+func (p childModelProbe) Stream(_ context.Context, request llm.Request, _ func(llm.StreamEvent) error) (testCompletion, error) {
 	p.model <- request.Model
-	return llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "done"}, FinishReason: "stop"}, nil
+	return testCompletion{Assistant: llm.Message{Role: "assistant", Content: "done"}, FinishReason: "stop"}, nil
 }
 
 func TestChildTaskRunnerPassesConfiguredModelToChild(t *testing.T) {

@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/IsLand1314/Drift/internal/agent"
+	"github.com/IsLand1314/Drift/internal/audit"
 	"github.com/IsLand1314/Drift/internal/mcp"
-	"github.com/IsLand1314/Drift/internal/session"
 	"github.com/IsLand1314/Drift/internal/tool"
 )
 
@@ -19,7 +19,7 @@ type mcpManager struct {
 	registry     tool.Registry
 	config       mcp.Config
 	clients      map[string]*mcp.Client
-	audit        session.Writer
+	audit        audit.Writer
 	sandboxMode  tool.SandboxMode
 	states       map[string]string
 	capabilities map[string]json.RawMessage
@@ -37,7 +37,7 @@ func newMCPManager(root string, registry tool.Registry, modes ...tool.SandboxMod
 	return &mcpManager{root: root, registry: registry, config: config, clients: make(map[string]*mcp.Client), sandboxMode: mode, states: make(map[string]string), capabilities: make(map[string]json.RawMessage)}, nil
 }
 
-func (m *mcpManager) SetAudit(audit session.Writer) { m.audit = audit }
+func (m *mcpManager) SetAudit(audit audit.Writer) { m.audit = audit }
 
 func (m *mcpManager) Connected(name string) bool {
 	_, ok := m.clients[name]

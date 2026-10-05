@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/IsLand1314/Drift/internal/conversation"
 	"github.com/IsLand1314/Drift/internal/llm"
+	"github.com/IsLand1314/Drift/internal/session"
 )
 
 func TestConversationShowDoesNotPrintMessageBodies(t *testing.T) {
@@ -22,7 +22,7 @@ func TestConversationShowDoesNotPrintMessageBodies(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chdir(old) })
-	store := conversation.NewStore(root)
+	store := session.NewStore(root)
 	snapshot, err := store.Create("")
 	if err != nil {
 		t.Fatal(err)
@@ -47,7 +47,7 @@ func TestConversationTimelineShowsStructureWithoutBodies(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chdir(old) })
-	store := conversation.NewStore(root)
+	store := session.NewStore(root)
 	snapshot, err := store.Create("")
 	if err != nil {
 		t.Fatal(err)
@@ -82,7 +82,7 @@ func TestConversationSearchPrintsLocationsWithoutBodies(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chdir(old) })
-	store := conversation.NewStore(root)
+	store := session.NewStore(root)
 	snapshot, err := store.Create("")
 	if err != nil {
 		t.Fatal(err)
@@ -120,7 +120,7 @@ func TestConversationDeleteRequiresConfirmation(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chdir(old) })
-	store := conversation.NewStore(root)
+	store := session.NewStore(root)
 	snapshot, err := store.Create("")
 	if err != nil {
 		t.Fatal(err)
@@ -144,7 +144,7 @@ func TestConversationRenameAndListLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chdir(old) })
-	store := conversation.NewStore(root)
+	store := session.NewStore(root)
 	first, err := store.Create("")
 	if err != nil {
 		t.Fatal(err)
@@ -180,7 +180,7 @@ func TestConversationPruneWithoutYesDoesNotDelete(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chdir(old) })
-	store := conversation.NewStore(root)
+	store := session.NewStore(root)
 	snapshot, err := store.Create("")
 	if err != nil {
 		t.Fatal(err)

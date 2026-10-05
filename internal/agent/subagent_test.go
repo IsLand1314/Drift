@@ -12,18 +12,22 @@ import (
 
 type childClient struct{ wait, fail bool }
 
-func (c childClient) Stream(ctx context.Context, _ llm.Request, emit func(llm.StreamEvent) error) (llm.Completion, error) {
+func (c childClient) StreamEvents(ctx context.Context, request llm.Request, emit func(llm.Event) error) error {
+	return collectLegacyEvents(ctx, c, request, emit)
+}
+
+func (c childClient) Stream(ctx context.Context, _ llm.Request, emit func(llm.StreamEvent) error) (testCompletion, error) {
 	if c.wait {
 		<-ctx.Done()
-		return llm.Completion{}, ctx.Err()
+		return testCompletion{}, ctx.Err()
 	}
 	if c.fail {
-		return llm.Completion{}, errors.New("child failed")
+		return testCompletion{}, errors.New("child failed")
 	}
 	if err := emit(llm.StreamEvent{Text: "child complete"}); err != nil {
-		return llm.Completion{}, err
+		return testCompletion{}, err
 	}
-	return llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "child complete"}, FinishReason: "stop"}, nil
+	return testCompletion{Assistant: llm.Message{Role: "assistant", Content: "child complete"}, FinishReason: "stop"}, nil
 }
 
 type parallelChildClient struct {
@@ -32,24 +36,28 @@ type parallelChildClient struct {
 	fail    bool
 }
 
-func (c parallelChildClient) Stream(ctx context.Context, _ llm.Request, emit func(llm.StreamEvent) error) (llm.Completion, error) {
+func (c parallelChildClient) StreamEvents(ctx context.Context, request llm.Request, emit func(llm.Event) error) error {
+	return collectLegacyEvents(ctx, c, request, emit)
+}
+
+func (c parallelChildClient) Stream(ctx context.Context, _ llm.Request, emit func(llm.StreamEvent) error) (testCompletion, error) {
 	if c.started != nil {
 		c.started <- struct{}{}
 	}
 	if c.fail {
-		return llm.Completion{}, errors.New("parallel child failed")
+		return testCompletion{}, errors.New("parallel child failed")
 	}
 	if c.release != nil {
 		select {
 		case <-c.release:
 		case <-ctx.Done():
-			return llm.Completion{}, ctx.Err()
+			return testCompletion{}, ctx.Err()
 		}
 	}
 	if err := emit(llm.StreamEvent{Text: "parallel child complete"}); err != nil {
-		return llm.Completion{}, err
+		return testCompletion{}, err
 	}
-	return llm.Completion{Assistant: llm.Message{Role: "assistant", Content: "parallel child complete"}, FinishReason: "stop"}, nil
+	return testCompletion{Assistant: llm.Message{Role: "assistant", Content: "parallel child complete"}, FinishReason: "stop"}, nil
 }
 
 func TestChildManagerRunsUpToLimitInParallelAndRejectsOverflow(t *testing.T) {

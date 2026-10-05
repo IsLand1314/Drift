@@ -7,14 +7,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/IsLand1314/Drift/internal/conversation"
+	"github.com/IsLand1314/Drift/internal/session"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
 type resumePickerModel struct {
-	items      []conversation.Metadata
-	filtered   []conversation.Metadata
+	items      []session.Metadata
+	filtered   []session.Metadata
 	cursor     int
 	search     string
 	scrollTop  int
@@ -25,8 +25,8 @@ type resumePickerModel struct {
 	selectedID string
 }
 
-func newResumePickerModel(items []conversation.Metadata, width, height int) resumePickerModel {
-	nonEmpty := make([]conversation.Metadata, 0, len(items))
+func newResumePickerModel(items []session.Metadata, width, height int) resumePickerModel {
+	nonEmpty := make([]session.Metadata, 0, len(items))
 	for _, item := range items {
 		if item.MessageCount > 0 {
 			nonEmpty = append(nonEmpty, item)
@@ -37,7 +37,7 @@ func newResumePickerModel(items []conversation.Metadata, width, height int) resu
 	return m
 }
 
-func runChatResumePicker(ctx context.Context, in io.Reader, out io.Writer, items []conversation.Metadata) (string, bool, error) {
+func runChatResumePicker(ctx context.Context, in io.Reader, out io.Writer, items []session.Metadata) (string, bool, error) {
 	model := newResumePickerModel(items, 80, 24)
 	result, err := tea.NewProgram(&model, tea.WithContext(ctx), tea.WithInput(in), tea.WithOutput(out), tea.WithoutSignalHandler(), tea.WithoutSignals()).Run()
 	if err != nil {

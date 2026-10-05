@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/IsLand1314/Drift/internal/layout"
-	"github.com/IsLand1314/Drift/internal/session"
+	"github.com/IsLand1314/Drift/internal/audit"
 )
 
 func runAuditCommand(args []string, out, stderr io.Writer) int {
@@ -47,7 +47,7 @@ func listAudits(out, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "错误：无法准备本地存储目录：", err)
 		return 1
 	}
-	files, err := session.ListFiles(storageLayout.Audits)
+	files, err := audit.ListFiles(storageLayout.Audits)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			fmt.Fprintln(out, "暂无会话记录")
@@ -61,7 +61,7 @@ func listAudits(out, stderr io.Writer) int {
 		return 0
 	}
 	for _, path := range files {
-		entries, err := session.ReadEntries(path)
+		entries, err := audit.ReadEntries(path)
 		if err != nil {
 			fmt.Fprintln(stderr, "错误：", err)
 			return 1
@@ -72,7 +72,7 @@ func listAudits(out, stderr io.Writer) int {
 }
 
 func showAudit(path string, out, stderr io.Writer) int {
-	entries, err := session.ReadEntries(path)
+	entries, err := audit.ReadEntries(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			fmt.Fprintln(stderr, "错误：审计文件不存在")
@@ -108,7 +108,7 @@ func showAudit(path string, out, stderr io.Writer) int {
 	return 0
 }
 
-func formatSessionEntry(entry session.Entry) string {
+func formatSessionEntry(entry audit.Entry) string {
 	line := entry.Time.UTC().Format("2006-01-02T15:04:05Z07:00") + " " + entry.Type
 	if entry.Tool != "" {
 		line += " tool=" + entry.Tool
