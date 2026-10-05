@@ -554,13 +554,7 @@ func (m *tuiFullScreen) handleResume(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func tuiSessionHeader(persistence *chatPersistence) []string {
-	if persistence == nil {
-		return nil
-	}
-	if persistence.persistent {
-		return []string{"Session ID: " + persistence.snapshot.ID, "注意：此会话会保存完整本地上下文，可能包含用户输入和读取结果；使用 --no-session 可关闭"}
-	}
-	return []string{"已禁用完整会话保存；仍保留脱敏审计"}
+	return nil
 }
 
 func transcriptFromLLMMessages(messages []llm.Message) []string {

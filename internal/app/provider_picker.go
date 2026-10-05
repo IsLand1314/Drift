@@ -17,10 +17,11 @@ type providerPickerModel struct {
 	selected  string
 	cancelled bool
 	width     int
+	workspace string
 }
 
-func runProviderPicker(ctx context.Context, in io.Reader, out io.Writer, providers []config.Provider, current string) (string, bool, error) {
-	m := providerPickerModel{providers: providers, width: 80}
+func runProviderPicker(ctx context.Context, in io.Reader, out io.Writer, providers []config.Provider, current, workspace string) (string, bool, error) {
+	m := providerPickerModel{providers: providers, width: 80, workspace: workspace}
 	for i, p := range providers {
 		if p.Name == current {
 			m.cursor = i
@@ -75,7 +76,7 @@ func (m providerPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m providerPickerModel) View() string {
-	lines := []string{"Select a Provider", ""}
+	lines := []string{renderDriftLogo(m.workspace), "Select a Provider", ""}
 	for i, p := range m.providers {
 		prefix := "  "
 		style := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))

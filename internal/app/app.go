@@ -184,7 +184,7 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 		}
 	}
 	if userConfig.ConfigPresent && len(userConfig.Providers) > 1 && chat && !flagWasSet(flags, "provider") {
-		selected, ok, pickerErr := runProviderPicker(runCtx, in, out, userConfig.Providers, *provider)
+		selected, ok, pickerErr := runProviderPicker(runCtx, in, out, userConfig.Providers, *provider, selection.Root)
 		if pickerErr != nil {
 			fmt.Fprintln(stderr, "错误：Provider 选择器失败：", pickerErr)
 			return 1

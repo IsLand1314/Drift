@@ -204,7 +204,7 @@ func runTuiMainScreenLoop(ctx context.Context, runner *agent.Runner, audit audit
 	if permissionMode == "" {
 		permissionMode = permissionModeDefault
 	}
-	input := newTuiMainScreenInput(in, out, status.Model, permissionMode)
+	input := newTuiMainScreenInputWithFooter(in, out, status.Model, permissionMode, chatRuntimeFooter(status, persistence))
 	pendingPermissions := make(map[string]agent.PermissionRequest)
 	var permissionPolicyStore *permissionPolicy
 	if status.Workspace != "" {
@@ -333,12 +333,6 @@ func runTuiMainScreenLoop(ctx context.Context, runner *agent.Runner, audit audit
 	interactiveInput := false
 	if _, ok := input.(*tuiMainScreenInput); ok {
 		interactiveInput = true
-		for _, line := range tuiSessionHeader(persistence) {
-			if _, err := fmt.Fprintln(out, line); err != nil {
-				fmt.Fprintln(stderr, "错误：", err)
-				return 1
-			}
-		}
 		if persistence != nil && persistence.persistent {
 			for _, line := range transcriptFromLLMMessages(persistence.snapshot.Messages) {
 				if _, err := fmt.Fprintln(out, line); err != nil {
@@ -778,6 +772,19 @@ func runTuiMainScreenLoop(ctx context.Context, runner *agent.Runner, audit audit
 			}
 		}
 	}
+}
+
+func chatRuntimeFooter(status chatStatus, persistence *chatPersistence) string {
+	parts := []string{status.Workspace}
+	if status.Model != "" {
+		parts = append(parts, status.Model)
+	}
+	if persistence != nil && persistence.persistent {
+		parts = append(parts, "session "+persistence.snapshot.ID)
+	} else {
+		parts = append(parts, "temporary session")
+	}
+	return strings.Join(parts, " · ")
 }
 
 func saveAutomaticMemoryCandidates(repo *memory.Repository, prompt string) []memory.Item {

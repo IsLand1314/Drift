@@ -544,6 +544,13 @@ func TestChatRejectsPersistenceFlagConflictsBeforeProvider(t *testing.T) {
 	}
 }
 
+func TestTuiSessionHeaderDoesNotRenderSessionMetadata(t *testing.T) {
+	p := &chatPersistence{persistent: true, snapshot: session.Snapshot{ID: "conv-123"}}
+	if lines := tuiSessionHeader(p); len(lines) != 0 {
+		t.Fatalf("startup metadata=%q", lines)
+	}
+}
+
 func TestParseChatPersistenceArgsAcceptsShortResumeAliases(t *testing.T) {
 	args, options, err := parseChatPersistenceArgs([]string{"-c", "-w", "workspace"})
 	if err != nil || !options.resume || options.resumeID != "" || strings.Join(args, " ") != "-w workspace" {

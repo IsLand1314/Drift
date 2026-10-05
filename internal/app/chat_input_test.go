@@ -90,6 +90,27 @@ func TestChatInputModelFooterShowsModel(t *testing.T) {
 	}
 }
 
+func TestChatInputModelFooterShowsRuntimeStatus(t *testing.T) {
+	model := newChatInputModelWithFooter("test-model", "separator", permissionModeDefault, "F:/work · api/test-model · session conv-123")
+	if view := model.View(); !strings.Contains(view, "F:/work") || !strings.Contains(view, "session conv-123") {
+		t.Fatalf("footer missing runtime status: %q", view)
+	}
+}
+
+func TestTTYChatInputHistoryNavigatesWithoutSubmitting(t *testing.T) {
+	model := newChatInputModelWithHistory("test", "", permissionModeDefault, "", []string{"first", "second"})
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyUp, Alt: true})
+	model = updated.(chatInputModel)
+	if got := model.editor.Value(); got != "second" || model.submitted {
+		t.Fatalf("up value=%q submitted=%v", got, model.submitted)
+	}
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown, Alt: true})
+	model = updated.(chatInputModel)
+	if got := model.editor.Value(); got != "" || model.submitted {
+		t.Fatalf("down value=%q submitted=%v", got, model.submitted)
+	}
+}
+
 func TestChatInputModelSubmittedViewDoesNotLeaveFooter(t *testing.T) {
 	model := newChatInputModel("test-model", "separator", permissionModeDefault)
 	model.editor.SetValue("create file")
