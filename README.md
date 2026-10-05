@@ -1,6 +1,6 @@
 # Drift
 
-使用 Go 构建的本地受控 Coding Agent Runtime。当前版本为 M5.26：除单次 `-p` 请求外，还支持 `drift chat` 多轮交互、默认本地完整会话保存、`--resume` 启动恢复、chat 内 `/resume` 会话切换、`/new` 新建会话、`--no-session` 临时模式、`/status` 状态面板、`/compact` 手动压缩、活动轮次 Ctrl+C 取消、workspace Skills、确认式文件创建/编辑/删除、受控命令执行和终端审批选择器。模型可以在选定 workspace 内按模式查找文件、搜索文本、分页读取大文件，并根据每轮结果继续探索后给出解释；可选 `--trace` 会把安全运行摘要写到 stderr。`session` 管理可恢复会话，`audit` 查看脱敏审计。Provider 支持 OpenAI Compatible、Anthropic Messages 和 Codex 登录态；MCP Client 支持 stdio、HTTP、Streamable HTTP、Resource、Prompt 和按需工具加载；可选开启用户明确偏好/纠正的长期记忆候选提取和已验证记忆自动检索，也可将已验证经验生成 review-only Skill 草稿。M5.26 提供 Anthropic native、外部 MCP 和 Windows MCP 沙箱回归证据。
+使用 Go 构建的本地受控 Coding Agent Runtime。当前版本为 M5.26：除单次 `-p` 请求外，裸命令 `drift` 即进入多轮交互；支持 `-c` 恢复最近会话、`-r` 选择历史会话、`drift login --provider <name>` 保存 API Key、默认本地完整会话保存、chat 内 `/resume` 会话切换、`/new` 新建会话、`--no-session` 临时模式、`/status` 状态面板、`/compact` 手动压缩、活动轮次 Ctrl+C 取消、workspace Skills、确认式文件创建/编辑/删除、受控命令执行和终端审批选择器。模型可以在选定 workspace 内按模式查找文件、搜索文本、分页读取大文件，并根据每轮结果继续探索后给出解释；可选 `--trace` 会把安全运行摘要写到 stderr。`session` 管理可恢复会话，`audit` 查看脱敏审计。Provider 支持 OpenAI Compatible、Anthropic Messages 和 Codex 登录态；MCP Client 支持 stdio、HTTP、Streamable HTTP、Resource、Prompt 和按需工具加载；可选开启用户明确偏好/纠正的长期记忆候选提取和已验证记忆自动检索，也可将已验证经验生成 review-only Skill 草稿。M5.26 提供 Anthropic native、外部 MCP 和 Windows MCP 沙箱回归证据。
 
 `-p` 只注册三个只读工具：`Glob`、`Grep`、`ReadFile`。`chat` 额外注册 `WriteFile`、`EditFile`、`DeleteFile` 和 `Bash`；文件变更与命令执行前必须由用户通过审批选择器确认；一轮多文件操作聚合到一个 `.drift/changes` change set。写入预览会保存目标文件状态，提交前检测外部修改，避免覆盖用户的新内容。单次运行最多 6 次模型请求、12 次工具调用；成功工具结果累计最多 512 KiB，单文件最多 128 KiB。`Glob` 最多返回 200 个文件，`Grep` 最多扫描 200 个文件、返回 100 个匹配，输出最多 32 KiB。命令默认 30 秒超时，最长 60 秒，stdout/stderr 各自限流并只把结果摘要写入审计。
 
@@ -66,10 +66,13 @@ go run ./cmd/drift -w F:\code\foxcode -p "分析这个项目"
 go run ./cmd/drift -w .\README.md -p "解释这个文件"
 ```
 
-需要连续追问时使用交互模式；上下文只在当前进程内存中保留，输入 `exit`、`/exit` 或 `quit` 退出：
+需要连续追问时直接启动 `drift`；首次选择 Provider 时会显示 Drift 启动画面，主界面底栏显示 Workspace、Provider/Model、Session 与权限状态。输入 `exit`、`/exit` 或 `quit` 退出；`Alt+↑` / `Alt+↓` 可浏览当前进程的非命令输入历史：
 
 ```powershell
-go run ./cmd/drift chat -w .
+go run ./cmd/drift -w .
+go run ./cmd/drift -c -w .
+go run ./cmd/drift -r -w .
+go run ./cmd/drift login --provider deepseek
 ```
 
 可以在当前 workspace 中创建一个显式 Skill，并在一次运行或 chat 中选择它：
@@ -87,7 +90,7 @@ go run ./cmd/drift chat -skill project-overview -w .
 
 Skill 只提供额外的只读分析说明；一次运行最多加载一个，不能新增工具、执行命令、写文件或越出 workspace。Skill 正文不会写入脱敏审计或会话元数据。
 
-默认 chat 会显示 Session ID，并把完整上下文保存到当前 workspace 的 `.drift/sessions/`。脱敏运行审计保存到 `.drift/audits/`；下次可恢复最近或指定会话；不希望保存完整上下文时使用：
+默认 chat 把完整上下文保存到当前 workspace 的 `.drift/sessions/`，Session 状态显示在终端底栏。脱敏运行审计保存到 `.drift/audits/`；下次可恢复最近或指定会话；不希望保存完整上下文时使用：
 
 ```powershell
 go run ./cmd/drift chat --resume -w .
