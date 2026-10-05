@@ -6,9 +6,10 @@ import (
 )
 
 type chatPersistenceOptions struct {
-	noSession bool
-	resumeID  string
-	resume    bool
+	noSession    bool
+	resumeID     string
+	resume       bool
+	resumePicker bool
 }
 
 func parseChatPersistenceArgs(args []string) ([]string, chatPersistenceOptions, error) {
@@ -31,6 +32,17 @@ func parseChatPersistenceArgs(args []string) ([]string, chatPersistenceOptions, 
 				i++
 				options.resumeID = args[i]
 			}
+		case arg == "-c":
+			if options.resume {
+				return nil, options, fmt.Errorf("--resume 重复")
+			}
+			options.resume = true
+		case arg == "-r":
+			if options.resume {
+				return nil, options, fmt.Errorf("--resume 重复")
+			}
+			options.resume = true
+			options.resumePicker = true
 		case strings.HasPrefix(arg, "--resume="):
 			if options.resume {
 				return nil, options, fmt.Errorf("--resume 重复")

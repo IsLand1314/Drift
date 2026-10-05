@@ -686,7 +686,7 @@ func TestRunValidation(t *testing.T) {
 	}{
 		{"help", []string{"-h"}, false, 0, ""},
 		{"missing config", []string{"-p", "hello"}, false, 2, ""},
-		{"missing prompt", nil, true, 2, ""},
+		{"default chat", nil, true, 0, "> "},
 		{"unknown flag", []string{"-unknown"}, true, 2, ""},
 		{"extra argument", []string{"-p", "hello", "extra"}, true, 2, ""},
 		{"bad URL", []string{"-p", "hello", "-base-url", "file:///tmp"}, true, 2, ""},

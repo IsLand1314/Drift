@@ -85,10 +85,12 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 	if len(args) > 0 && args[0] == "login" {
 		return runLoginCommand(args[1:], in, out, stderr)
 	}
-	chat := len(args) > 0 && args[0] == "chat"
+	chat := len(args) == 0 || args[0] == "chat"
 	var persistenceOptions chatPersistenceOptions
 	if chat {
-		args = args[1:]
+		if len(args) > 0 {
+			args = args[1:]
+		}
 		var parseErr error
 		args, persistenceOptions, parseErr = parseChatPersistenceArgs(args)
 		if parseErr != nil {
@@ -192,6 +194,22 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 			return 130
 		}
 		*provider = selected
+	}
+	if chat && persistenceOptions.resumePicker {
+		items, listErr := session.NewStore(selection.Root).List()
+		if listErr != nil {
+			fmt.Fprintln(stderr, "错误：无法列出完整会话：", listErr)
+			return 1
+		}
+		selectedID, selected, pickerErr := runChatResumePicker(runCtx, in, out, items)
+		if pickerErr != nil {
+			fmt.Fprintln(stderr, "错误：会话选择器失败：", pickerErr)
+			return 1
+		}
+		if !selected {
+			return 130
+		}
+		persistenceOptions.resumeID = selectedID
 	}
 	permissionMode, err := parsePermissionMode(*permissionModeFlag)
 	if err != nil {

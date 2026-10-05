@@ -544,6 +544,27 @@ func TestChatRejectsPersistenceFlagConflictsBeforeProvider(t *testing.T) {
 	}
 }
 
+func TestParseChatPersistenceArgsAcceptsShortResumeAliases(t *testing.T) {
+	args, options, err := parseChatPersistenceArgs([]string{"-c", "-w", "workspace"})
+	if err != nil || !options.resume || options.resumeID != "" || strings.Join(args, " ") != "-w workspace" {
+		t.Fatalf("args=%q options=%+v err=%v", args, options, err)
+	}
+	_, options, err = parseChatPersistenceArgs([]string{"-c", "-r"})
+	if err == nil || !options.resume {
+		t.Fatalf("options=%+v err=%v", options, err)
+	}
+}
+
+func TestRunDefaultsToChat(t *testing.T) {
+	var out, stderr strings.Builder
+	code := RunWithInput(context.Background(), nil, func(key string) string {
+		return map[string]string{"OPENAI_API_KEY": "test-key", "OPENAI_MODEL": "test-model"}[key]
+	}, strings.NewReader("exit\n"), &out, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d out=%q stderr=%q", code, out.String(), stderr.String())
+	}
+}
+
 func TestChatPersistentClearSavesEmptySnapshot(t *testing.T) {
 	root := t.TempDir()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
