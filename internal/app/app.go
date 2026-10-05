@@ -82,6 +82,9 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 	if len(args) > 0 && args[0] == "doctor" {
 		return runDoctorCommand(args[1:], getenv, out, stderr)
 	}
+	if len(args) > 0 && args[0] == "login" {
+		return runLoginCommand(args[1:], in, out, stderr)
+	}
 	chat := len(args) > 0 && args[0] == "chat"
 	var persistenceOptions chatPersistenceOptions
 	if chat {

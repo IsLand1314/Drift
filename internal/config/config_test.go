@@ -71,6 +71,36 @@ func TestUserConfigAPIKeyPrefersAuthThenEnvironment(t *testing.T) {
 	}
 }
 
+func TestSaveAPIKeyReplacesOnlyRequestedProviderCredential(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "auth.json"), []byte(`{"version":1,"providers":{"other":{"type":"api_key","key":"keep"},"target":{"type":"api_key","key":"old"}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveAPIKey(dir, "target", "new-key"); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "auth.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var auth AuthFile
+	if err := json.Unmarshal(data, &auth); err != nil {
+		t.Fatal(err)
+	}
+	if got := auth.Providers["target"].Key; got != "new-key" {
+		t.Fatalf("target key = %q", got)
+	}
+	if got := auth.Providers["other"].Key; got != "keep" {
+		t.Fatalf("other key = %q", got)
+	}
+}
+
+func TestSaveAPIKeyRejectsBlankValues(t *testing.T) {
+	if err := SaveAPIKey(t.TempDir(), "target", " \t "); err == nil {
+		t.Fatal("SaveAPIKey accepted a blank key")
+	}
+}
+
 func TestLoadUserConfigAcceptsCodexProviderWithoutAPIKey(t *testing.T) {
 	dir := t.TempDir()
 	data := []byte("version = 1\n[[providers]]\nname = \"codex\"\nprotocol = \"codex\"\ncodex_home = \"C:/Users/test/.codex\"\nmodel = \"gpt-5.6-luna\"\n")
