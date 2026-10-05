@@ -262,3 +262,60 @@ func (c UserConfig) APIKey(name string, getenv func(string) string) string {
 	}
 	return ""
 }
+
+// SaveAPIKey replaces one configured provider's API-key credential without
+// exposing it through command output.
+func SaveAPIKey(dir, provider, key string) error {
+	provider = strings.TrimSpace(provider)
+	key = strings.TrimSpace(key)
+	if provider == "" || key == "" {
+		return fmt.Errorf("provider and API key are required")
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("create config directory: %w", err)
+	}
+	path := filepath.Join(dir, "auth.json")
+	auth := AuthFile{Version: 1, Providers: map[string]AuthProvider{}}
+	if data, err := os.ReadFile(path); err == nil {
+		if err := validateAuthFileMode(path); err != nil {
+			return err
+		}
+		if err := json.Unmarshal(data, &auth); err != nil {
+			return fmt.Errorf("parse auth.json: %w", err)
+		}
+		if err := validateAuth(auth); err != nil {
+			return err
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("read auth.json: %w", err)
+	}
+	if auth.Providers == nil {
+		auth.Providers = map[string]AuthProvider{}
+	}
+	auth.Providers[provider] = AuthProvider{Type: "api_key", Key: key}
+	data, err := json.Marshal(auth)
+	if err != nil {
+		return fmt.Errorf("encode auth.json: %w", err)
+	}
+	tmp, err := os.CreateTemp(dir, "auth-*.json")
+	if err != nil {
+		return fmt.Errorf("create auth.json temporary file: %w", err)
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("protect auth.json temporary file: %w", err)
+	}
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("write auth.json: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close auth.json: %w", err)
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		return fmt.Errorf("replace auth.json: %w", err)
+	}
+	return nil
+}

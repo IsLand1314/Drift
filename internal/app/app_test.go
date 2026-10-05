@@ -686,7 +686,7 @@ func TestRunValidation(t *testing.T) {
 	}{
 		{"help", []string{"-h"}, false, 0, ""},
 		{"missing config", []string{"-p", "hello"}, false, 2, ""},
-		{"missing prompt", nil, true, 2, ""},
+		{"default chat", nil, true, 0, "> "},
 		{"unknown flag", []string{"-unknown"}, true, 2, ""},
 		{"extra argument", []string{"-p", "hello", "extra"}, true, 2, ""},
 		{"bad URL", []string{"-p", "hello", "-base-url", "file:///tmp"}, true, 2, ""},
@@ -707,5 +707,15 @@ func TestRunValidation(t *testing.T) {
 				t.Fatal("secret leaked")
 			}
 		})
+	}
+}
+
+func TestRunShortResumeAliasUsesChatRouter(t *testing.T) {
+	var out, stderr bytes.Buffer
+	code := RunWithInput(context.Background(), []string{"-c", "--no-session"}, func(key string) string {
+		return map[string]string{"OPENAI_API_KEY": "test-key", "OPENAI_MODEL": "test"}[key]
+	}, strings.NewReader(""), &out, &stderr)
+	if code != 2 || strings.Contains(stderr.String(), "flag provided but not defined") || !strings.Contains(stderr.String(), "不能同时使用") {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
 	}
 }

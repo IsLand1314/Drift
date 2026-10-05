@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"github.com/IsLand1314/Drift/internal/config"
@@ -17,10 +18,11 @@ type providerPickerModel struct {
 	selected  string
 	cancelled bool
 	width     int
+	workspace string
 }
 
-func runProviderPicker(ctx context.Context, in io.Reader, out io.Writer, providers []config.Provider, current string) (string, bool, error) {
-	m := providerPickerModel{providers: providers, width: 80}
+func runProviderPicker(ctx context.Context, in io.Reader, out io.Writer, providers []config.Provider, current, workspace string) (string, bool, error) {
+	m := providerPickerModel{providers: providers, width: 80, workspace: workspace}
 	for i, p := range providers {
 		if p.Name == current {
 			m.cursor = i
@@ -39,8 +41,13 @@ func runProviderPicker(ctx context.Context, in io.Reader, out io.Writer, provide
 			return "", false, fmt.Errorf("provider picker returned invalid model")
 		}
 	}
+	if file, ok := out.(*os.File); ok && isTTY(file) {
+		_, _ = io.WriteString(out, startupPickerCleanupSequence())
+	}
 	return picked.selected, !picked.cancelled && picked.selected != "", nil
 }
+
+func startupPickerCleanupSequence() string { return "\x1b[2J\x1b[H" }
 
 func (m providerPickerModel) Init() tea.Cmd { return nil }
 
@@ -75,7 +82,7 @@ func (m providerPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m providerPickerModel) View() string {
-	lines := []string{"Select a Provider", ""}
+	lines := []string{renderDriftLogo(m.workspace), "Select a Provider", ""}
 	for i, p := range m.providers {
 		prefix := "  "
 		style := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))

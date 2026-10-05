@@ -86,8 +86,12 @@ func parseQuestionAnswer(question tool.Question, raw string) (tool.QuestionAnswe
 }
 
 func newTuiMainScreenInput(in io.Reader, out io.Writer, modelName string, mode permissionMode) chatInput {
+	return newTuiMainScreenInputWithFooter(in, out, modelName, mode, "")
+}
+
+func newTuiMainScreenInputWithFooter(in io.Reader, out io.Writer, modelName string, mode permissionMode, footer string) chatInput {
 	if ttyInput, ttyOutput, ok := tuiMainScreenFiles(in, out); ok {
-		return &tuiMainScreenInput{in: ttyInput, out: ttyOutput, modelName: modelName, permissionMode: mode}
+		return &tuiMainScreenInput{in: ttyInput, out: ttyOutput, modelName: modelName, permissionMode: mode, footer: footer}
 	}
 	return newScannerChatInput(in)
 }
@@ -135,10 +139,12 @@ type tuiMainScreenInput struct {
 	permissionMode permissionMode
 	width          int
 	height         int
+	footer         string
+	history        []string
 }
 
 func (t *tuiMainScreenInput) Read(ctx context.Context) (string, error) {
-	model := newChatInputModel(t.modelName, chatSeparator(t.out), t.permissionMode)
+	model := newChatInputModelWithHistory(t.modelName, chatSeparator(t.out), t.permissionMode, t.footer, t.history)
 	program := tea.NewProgram(
 		&model,
 		tea.WithContext(ctx),
@@ -176,7 +182,11 @@ func (t *tuiMainScreenInput) Read(ctx context.Context) (string, error) {
 		}
 		return "", runErr
 	}
-	return finalModel.editor.Value(), nil
+	value := finalModel.editor.Value()
+	if value = strings.TrimSpace(value); value != "" && !strings.HasPrefix(value, "/") {
+		t.history = append(t.history, value)
+	}
+	return value, nil
 }
 
 type chatInputModel struct {
@@ -188,6 +198,10 @@ type chatInputModel struct {
 	height         int
 	submitted      bool
 	cancelled      bool
+	footer         string
+	history        []string
+	historyCursor  int
+	historyDraft   string
 }
 
 type permissionModeInputModel struct {
@@ -267,6 +281,14 @@ func readPermissionModeChoice(ctx context.Context, input chatInput, current perm
 }
 
 func newChatInputModel(modelName, separator string, mode permissionMode) chatInputModel {
+	return newChatInputModelWithFooter(modelName, separator, mode, "")
+}
+
+func newChatInputModelWithFooter(modelName, separator string, mode permissionMode, footer string) chatInputModel {
+	return newChatInputModelWithHistory(modelName, separator, mode, footer, nil)
+}
+
+func newChatInputModelWithHistory(modelName, separator string, mode permissionMode, footer string, history []string) chatInputModel {
 	editor := textarea.New()
 	editor.Placeholder = "Send a message..."
 	editor.Prompt = "❯ "
@@ -279,7 +301,7 @@ func newChatInputModel(modelName, separator string, mode permissionMode) chatInp
 	editor.FocusedStyle.Placeholder = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	editor.BlurredStyle = editor.FocusedStyle
 	editor.Focus()
-	return chatInputModel{editor: editor, modelName: modelName, separator: separator, permissionMode: mode, width: 80, height: 24}
+	return chatInputModel{editor: editor, modelName: modelName, separator: separator, permissionMode: mode, footer: footer, history: history, historyCursor: len(history), width: 80, height: 24}
 }
 
 func (m chatInputModel) Init() tea.Cmd {
@@ -294,6 +316,10 @@ func (m chatInputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if key, ok := msg.(tea.KeyMsg); ok {
+		if key.Alt && (key.Type == tea.KeyUp || key.Type == tea.KeyDown) {
+			m.moveHistory(key.Type == tea.KeyUp)
+			return m, nil
+		}
 		switch key.Type {
 		case tea.KeyEnter:
 			m.submitted = true
@@ -308,6 +334,29 @@ func (m chatInputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+func (m *chatInputModel) moveHistory(up bool) {
+	if len(m.history) == 0 {
+		return
+	}
+	if up {
+		if m.historyCursor == len(m.history) {
+			m.historyDraft = m.editor.Value()
+		}
+		if m.historyCursor > 0 {
+			m.historyCursor--
+		}
+		m.editor.SetValue(m.history[m.historyCursor])
+		return
+	}
+	if m.historyCursor+1 < len(m.history) {
+		m.historyCursor++
+		m.editor.SetValue(m.history[m.historyCursor])
+		return
+	}
+	m.historyCursor = len(m.history)
+	m.editor.SetValue(m.historyDraft)
+}
+
 func (m chatInputModel) View() string {
 	if m.submitted {
 		return m.editor.View()
@@ -317,6 +366,9 @@ func (m chatInputModel) View() string {
 		mode = string(permissionModeDefault)
 	}
 	left := "  权限：" + mode
+	if m.footer != "" {
+		left = "  " + m.footer + " · " + strings.TrimSpace(left)
+	}
 	right := m.modelName
 	spaces := m.width - lipgloss.Width(left) - lipgloss.Width(right)
 	if right == "" || spaces < 1 {
