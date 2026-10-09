@@ -23,15 +23,25 @@ type UserConfig struct {
 }
 
 type Settings struct {
-	Version         int            `toml:"version"`
-	DefaultProvider string         `toml:"default_provider"`
-	PermissionMode  string         `toml:"permission_mode"`
-	SandboxMode     string         `toml:"sandbox_mode"`
-	ToolLoading     string         `toml:"tool_loading"`
-	TUIMode         string         `toml:"tui_mode"`
-	Chat            ChatSettings   `toml:"chat"`
-	Memory          MemorySettings `toml:"memory"`
-	Hooks           []Hook         `toml:"hooks"`
+	Version         int                   `toml:"version"`
+	DefaultProvider string                `toml:"default_provider"`
+	PermissionMode  string                `toml:"permission_mode"`
+	SandboxMode     string                `toml:"sandbox_mode"`
+	ToolLoading     string                `toml:"tool_loading"`
+	TUIMode         string                `toml:"tui_mode"`
+	Chat            ChatSettings          `toml:"chat"`
+	Memory          MemorySettings        `toml:"memory"`
+	Observability   ObservabilitySettings `toml:"observability"`
+	Hooks           []Hook                `toml:"hooks"`
+}
+
+// ObservabilitySettings is deliberately local-only in the first release. This
+// prevents a normal CLI run from silently exporting operational metadata to a
+// remote endpoint.
+type ObservabilitySettings struct {
+	Enabled        bool   `toml:"enabled"`
+	PushgatewayURL string `toml:"pushgateway_url"`
+	Instance       string `toml:"instance"`
 }
 
 type MemorySettings struct {
@@ -199,6 +209,12 @@ func validateSettings(s Settings, providers []Provider) error {
 	}
 	if s.TUIMode != "main" {
 		return fmt.Errorf("settings.toml: invalid tui_mode")
+	}
+	if s.Observability.Enabled {
+		u, err := url.Parse(strings.TrimSpace(s.Observability.PushgatewayURL))
+		if err != nil || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Scheme != "http" && u.Scheme != "https") || (u.Hostname() != "127.0.0.1" && u.Hostname() != "localhost" && u.Hostname() != "::1") {
+			return fmt.Errorf("settings.toml: observability pushgateway_url must be a local HTTP endpoint")
+		}
 	}
 	if len(s.Hooks) > 32 {
 		return fmt.Errorf("settings.toml: too many hooks")

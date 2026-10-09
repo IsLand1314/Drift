@@ -24,6 +24,7 @@ import (
 	"github.com/IsLand1314/Drift/internal/llm/codex"
 	"github.com/IsLand1314/Drift/internal/llm/openai"
 	"github.com/IsLand1314/Drift/internal/memory"
+	"github.com/IsLand1314/Drift/internal/observability"
 	"github.com/IsLand1314/Drift/internal/session"
 	"github.com/IsLand1314/Drift/internal/skill"
 	"github.com/IsLand1314/Drift/internal/tool"
@@ -345,6 +346,24 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 		fmt.Fprintln(stderr, "错误：", err)
 		return 1
 	}
+	var recorder *observability.Recorder
+	var eventWriter audit.Writer = sessionWriter
+	if userConfig.Settings.Observability.Enabled {
+		publisher, publishErr := observability.NewPushgatewayPublisher(userConfig.Settings.Observability.PushgatewayURL, userConfig.Settings.Observability.Instance)
+		if publishErr != nil {
+			_ = sessionWriter.Close()
+			fmt.Fprintln(stderr, "错误：", publishErr)
+			return 2
+		}
+		mode := "prompt"
+		if chat {
+			mode = "chat"
+		}
+		recorder = observability.NewRecorder(observability.Options{
+			Enabled: true, Mode: mode, Provider: providerName, Protocol: protocol, Publisher: publisher,
+		})
+		eventWriter = observability.WrapAuditWriter(sessionWriter, recorder)
+	}
 	var traceSink agent.EventSink
 	if *trace {
 		traceSink = newTraceSink(stderr)
@@ -376,7 +395,7 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 		if tasks, ok := registry.(tool.TaskRegistry); ok {
 			mergeQueue := gitops.NewMergeQueue()
 			childSink := func(event agent.Event) error {
-				if err := sessionWriter.Append(event); err != nil {
+				if err := eventWriter.Append(event); err != nil {
 					return err
 				}
 				if traceSink != nil {
@@ -460,13 +479,14 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 	}
 	if chat {
 		status := chatStatus{Model: *model, Provider: providerName, Workspace: selection.Root, ToolCount: len(registry.Definitions()), Registry: registry, PermissionMode: permissionMode, SandboxMode: sandboxMode, Hooks: userConfig.Settings.Hooks, AutoMemory: userConfig.Settings.Memory.AutoExtract, AutoRetrieve: userConfig.Settings.Memory.AutoRetrieve}
-		code := runChatLoopWithPersistence(runCtx, runner, sessionWriter, traceSink, persistence, status, coordinator, in, out, stderr)
+		code := runChatLoopWithPersistence(runCtx, runner, eventWriter, traceSink, persistence, status, coordinator, in, out, stderr)
 		if childManager != nil {
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			_ = childManager.Shutdown(shutdownCtx)
 			cancel()
 		}
-		if closeErr := sessionWriter.Close(); closeErr != nil && code == 0 {
+		_ = recorder.Finish(context.Background(), telemetryOutcome(code))
+		if closeErr := eventWriter.Close(); closeErr != nil && code == 0 {
 			fmt.Fprintln(stderr, "错误：", closeErr)
 			return 1
 		}
@@ -475,7 +495,7 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 	var lastText string
 	// Event Sink 先追加脱敏审计记录，再把最终文本事件写到 stdout。
 	err = runner.RunEvents(runCtx, *prompt, func(event agent.Event) error {
-		if err := sessionWriter.Append(event); err != nil {
+		if err := eventWriter.Append(event); err != nil {
 			return err
 		}
 		if traceSink != nil {
@@ -488,7 +508,8 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 		_, err := io.WriteString(out, event.Text)
 		return err
 	})
-	closeErr := sessionWriter.Close()
+	_ = recorder.Finish(context.Background(), telemetryOutcomeFromError(err))
+	closeErr := eventWriter.Close()
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			fmt.Fprintln(stderr, "已取消")
@@ -509,6 +530,26 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 		}
 	}
 	return 0
+}
+
+func telemetryOutcome(code int) observability.Outcome {
+	if code == 0 {
+		return observability.OutcomeSuccess
+	}
+	if code == 130 {
+		return observability.OutcomeCancelled
+	}
+	return observability.OutcomeFailed
+}
+
+func telemetryOutcomeFromError(err error) observability.Outcome {
+	if err == nil {
+		return observability.OutcomeSuccess
+	}
+	if errors.Is(err, context.Canceled) {
+		return observability.OutcomeCancelled
+	}
+	return observability.OutcomeFailed
 }
 
 func providerRuntimeDiagnostic(providerName, protocol, key, model, apiKeyEnv string, configured bool) string {

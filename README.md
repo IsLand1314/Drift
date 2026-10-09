@@ -41,6 +41,33 @@ api_key = "DEEPSEEK_API_KEY"
 
 `api_key` 的值是环境变量名，不是密钥本身；真实密钥应放在 `.drift/auth.json` 或对应 OS 环境变量中。
 
+## 本地运行监控（可选）
+
+Drift 默认**不发送任何运行指标**。需要在本机查看每次 Drift 运行的成功率、耗时、模型请求、工具执行、审批和沙箱结果时，先启动本地 Prometheus、Pushgateway 与 Grafana：
+
+```powershell
+docker compose -p drift-observability -f ops/observability/docker-compose.yml up -d
+```
+
+三个服务只监听本机：Pushgateway 是 `http://127.0.0.1:9091`，Prometheus 是 `http://127.0.0.1:9090`，Grafana 是 `http://127.0.0.1:3000/d/drift-local-runs/drift-local-runs`。Grafana 首次登录为 `admin` / `admin`，登录后应立即按其提示修改密码。
+
+在目标 workspace 的 `.drift/settings.toml` 加入以下配置，下一次 `-p` 或 `chat` 运行才会推送指标：
+
+```toml
+[observability]
+enabled = true
+pushgateway_url = "http://127.0.0.1:9091"
+instance = "local"
+```
+
+第一版只接受回环地址的 Pushgateway，防止运行元数据被意外发送到远程端点。指标仅包含固定、低基数的 Provider/协议/模式/结果/工具类别/审批结果/沙箱后端；绝不包含提示词、回答、会话 ID、工作区或文件路径、命令、工具参数、原始错误和 API Key。Pushgateway 不可用时，Drift 继续正常运行，不会因监控失败而失败。
+
+停止本地栈：
+
+```powershell
+docker compose -p drift-observability -f ops/observability/docker-compose.yml down
+```
+
 ```powershell
 $env:OPENAI_API_KEY = "你的 API Key"
 $env:OPENAI_BASE_URL = "https://你的服务地址/v1"

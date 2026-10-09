@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -31,6 +32,80 @@ func TestRunUsesProcessEnvironment(t *testing.T) {
 	}
 	if out.String() != "dotenv answer\n" || stderr.String() != "" {
 		t.Fatalf("out=%q stderr=%q", out.String(), stderr.String())
+	}
+}
+
+func TestRunPublishesLocalObservabilityWithoutPromptContent(t *testing.T) {
+	llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"answer\"}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	defer llmServer.Close()
+	metricBody := make(chan string, 1)
+	metricsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		data, _ := io.ReadAll(r.Body)
+		metricBody <- string(data)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer metricsServer.Close()
+
+	root := t.TempDir()
+	configDir := filepath.Join(root, ".drift")
+	if err := os.MkdirAll(configDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	configTOML := "version = 1\n[[providers]]\nname = \"test\"\nprotocol = \"openai-compat\"\nbase_url = \"" + llmServer.URL + "\"\nmodel = \"test-model\"\n"
+	pushgatewayURL := metricsServer.URL
+	livePushgateway := os.Getenv("DRIFT_TEST_PUSHGATEWAY_URL")
+	if livePushgateway != "" {
+		pushgatewayURL = livePushgateway
+	}
+	settingsTOML := "version = 1\ndefault_provider = \"test\"\n[observability]\nenabled = true\npushgateway_url = \"" + pushgatewayURL + "\"\ninstance = \"test\"\n"
+	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte(configTOML), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "settings.toml"), []byte(settingsTOML), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "auth.json"), []byte(`{"version":1,"providers":{"test":{"type":"api_key","key":"test-key"}}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, stderr bytes.Buffer
+	prompt := "do not export this private prompt"
+	if code := Run(context.Background(), []string{"-w", root, "-p", prompt}, func(string) string { return "" }, &out, &stderr); code != 0 {
+		t.Fatalf("code = %d, stderr = %q", code, stderr.String())
+	}
+	if livePushgateway != "" {
+		prometheusURL := os.Getenv("DRIFT_TEST_PROMETHEUS_URL")
+		if prometheusURL == "" {
+			prometheusURL = "http://127.0.0.1:9090"
+		}
+		client := &http.Client{Transport: &http.Transport{Proxy: nil}}
+		deadline := time.Now().Add(12 * time.Second)
+		for time.Now().Before(deadline) {
+			response, requestErr := client.Get(prometheusURL + "/api/v1/query?query=drift_runs_total%7Binstance%3D%22test%22%7D")
+			if requestErr == nil {
+				data, _ := io.ReadAll(response.Body)
+				response.Body.Close()
+				if response.StatusCode == http.StatusOK && strings.Contains(string(data), "drift_runs_total") {
+					return
+				}
+			}
+			time.Sleep(250 * time.Millisecond)
+		}
+		t.Fatal("Prometheus did not scrape the Drift run metric")
+	}
+	select {
+	case body := <-metricBody:
+		if !strings.Contains(body, "drift_runs_total") || !strings.Contains(body, "drift_model_requests_total") {
+			t.Fatalf("metrics body = %q", body)
+		}
+		if strings.Contains(body, prompt) || strings.Contains(body, "test-key") || strings.Contains(body, root) {
+			t.Fatalf("metrics leaked private data: %q", body)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected Pushgateway metric request")
 	}
 }
 

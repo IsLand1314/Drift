@@ -158,3 +158,35 @@ func TestLoadUserConfigAcceptsAutomaticMemorySetting(t *testing.T) {
 		t.Fatalf("settings=%+v err=%v", cfg.Settings, err)
 	}
 }
+
+func TestLoadUserConfigAcceptsLocalObservabilitySettings(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte("version = 1\n[[providers]]\nname = \"p\"\nprotocol = \"openai\"\nbase_url = \"https://api.openai.com/v1\"\nmodel = \"m\"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	settings := "version = 1\n[observability]\nenabled = true\npushgateway_url = \"http://127.0.0.1:9091\"\ninstance = \"local\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "settings.toml"), []byte(settings), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadUserConfig(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Settings.Observability.Enabled || cfg.Settings.Observability.PushgatewayURL != "http://127.0.0.1:9091" {
+		t.Fatalf("observability = %#v", cfg.Settings.Observability)
+	}
+}
+
+func TestLoadUserConfigRejectsNonLocalObservabilityEndpoint(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte("version = 1\n[[providers]]\nname = \"p\"\nprotocol = \"openai\"\nbase_url = \"https://api.openai.com/v1\"\nmodel = \"m\"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	settings := "version = 1\n[observability]\nenabled = true\npushgateway_url = \"https://metrics.example.com\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "settings.toml"), []byte(settings), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadUserConfig(dir); err == nil || !strings.Contains(err.Error(), "observability") {
+		t.Fatalf("err = %v, want local endpoint validation", err)
+	}
+}
