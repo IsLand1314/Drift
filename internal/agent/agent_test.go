@@ -82,6 +82,13 @@ type scriptedClient struct {
 	requests []llm.Request
 }
 
+func requestConversation(request llm.Request) []llm.Message {
+	if len(request.Messages) > 0 && request.Messages[0].Role == "system" {
+		return request.Messages[1:]
+	}
+	return request.Messages
+}
+
 type realtimeEventsClient struct {
 	beforeEnd func()
 }
@@ -848,11 +855,11 @@ func TestRunFocusOnlyAppearsInFirstSystemMessage(t *testing.T) {
 		t.Fatalf("first system message = %#v, want quoted focus", first.Messages)
 	}
 	second := client.requests[1]
-	if len(second.Messages) == 0 || second.Messages[0].Role == "system" {
-		t.Fatalf("second request unexpectedly contains system focus: %#v", second.Messages)
+	if len(second.Messages) == 0 || second.Messages[0].Role != "system" || !strings.Contains(second.Messages[0].Content, `"README.md"`) {
+		t.Fatalf("second request missing stable system focus: %#v", second.Messages)
 	}
-	if second.Messages[1].Role != "assistant" || second.Messages[1].ToolCalls[0].Arguments != `{"path":"README.md"}` {
-		t.Fatalf("second request tool call = %#v", second.Messages[1])
+	if second.Messages[2].Role != "assistant" || second.Messages[2].ToolCalls[0].Arguments != `{"path":"README.md"}` {
+		t.Fatalf("second request tool call = %#v", second.Messages[2])
 	}
 }
 
@@ -899,7 +906,7 @@ func TestRunMultiTurnExplorationPreservesContextAndTools(t *testing.T) {
 		{Role: "assistant", Content: "reading", ToolCalls: calls[2:]},
 		{Role: "tool", Content: "needle in readme\n", ToolCallID: "call-read"},
 	}
-	if !reflect.DeepEqual(client.requests[3].Messages, wantMessages) {
+	if !reflect.DeepEqual(requestConversation(client.requests[3]), wantMessages) {
 		t.Fatalf("fourth request messages = %#v, want %#v", client.requests[3].Messages, wantMessages)
 	}
 }
@@ -1054,7 +1061,7 @@ func TestRunIncludesSystemContextOnEveryRequest(t *testing.T) {
 	if len(client.requests) != MaxModelRequests-finalResponseReserve+1 {
 		t.Fatalf("requests = %d, want %d", len(client.requests), MaxModelRequests-finalResponseReserve+1)
 	}
-	for _, i := range []int{0, MaxModelRequests - finalResponseReserve} {
+	for i := range client.requests {
 		request := client.requests[i]
 		if len(request.Messages) == 0 || request.Messages[0].Role != "system" || !strings.Contains(request.Messages[0].Content, "Follow the selected project guidance.") {
 			t.Fatalf("request %d missing system context: %#v", i, request.Messages)
@@ -1142,7 +1149,7 @@ func TestRunReadRoundTrip(t *testing.T) {
 		{Role: "assistant", Content: "I will inspect it.", ToolCalls: []llm.ToolCall{readCall}},
 		{Role: "tool", Content: "hello from readme\n", ToolCallID: "call-1"},
 	}
-	if !reflect.DeepEqual(second.Messages, wantMessages) {
+	if !reflect.DeepEqual(requestConversation(second), wantMessages) {
 		t.Fatalf("second request messages = %#v, want %#v", second.Messages, wantMessages)
 	}
 }
@@ -1196,7 +1203,7 @@ func TestRunMultipleReadRoundTrip(t *testing.T) {
 		{Role: "tool", Content: "module example.com/drift\n", ToolCallID: "call-module"},
 		{Role: "tool", Content: "current spec\n", ToolCallID: "call-spec"},
 	}
-	if !reflect.DeepEqual(second.Messages, wantMessages) {
+	if !reflect.DeepEqual(requestConversation(second), wantMessages) {
 		t.Fatalf("second request messages = %#v, want %#v", second.Messages, wantMessages)
 	}
 }
@@ -1310,7 +1317,7 @@ func TestRunReadFailuresStillReachSecondTurn(t *testing.T) {
 			if len(client.requests) != 2 {
 				t.Fatalf("requests = %d, want 2", len(client.requests))
 			}
-			result := client.requests[1].Messages[2]
+			result := requestConversation(client.requests[1])[2]
 			if result.Role != "tool" || result.ToolCallID != "call-1" || len(result.Content) <= len("ReadFile failed: ") || result.Content[:len("ReadFile failed: ")] != "ReadFile failed: " {
 				t.Fatalf("tool result = %#v, want read error result", result)
 			}
@@ -1336,7 +1343,7 @@ func TestRunSanitizesDotEnvReadFailureForSecondTurn(t *testing.T) {
 	if len(client.requests) != 2 {
 		t.Fatalf("requests = %d, want 2", len(client.requests))
 	}
-	result := client.requests[1].Messages[2]
+	result := requestConversation(client.requests[1])[2]
 	if result.Content != "ReadFile failed: unable to read requested file" {
 		t.Fatalf("second-turn tool result = %q, want sanitized failure", result.Content)
 	}
@@ -1522,7 +1529,7 @@ func TestRunPreservesReasoningContentForSecondRequest(t *testing.T) {
 	if err := Run(context.Background(), client, t.TempDir(), "test", func(string) error { return nil }); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
-	if got := client.requests[1].Messages[1].ReasoningContent; got != "I need the readme" {
+	if got := requestConversation(client.requests[1])[1].ReasoningContent; got != "I need the readme" {
 		t.Fatalf("second request reasoning content = %q, want preserved value", got)
 	}
 }
@@ -1641,7 +1648,7 @@ func TestRunWithRegistryUsesRegisteredTool(t *testing.T) {
 	if strings.Contains(client.requests[0].Messages[0].Content, "ReadFile") {
 		t.Fatalf("custom registry system instruction hardcodes ReadFile: %q", client.requests[0].Messages[0].Content)
 	}
-	if got := client.requests[1].Messages[2].Content; got != "fake result" {
+	if got := requestConversation(client.requests[1])[2].Content; got != "fake result" {
 		t.Fatalf("tool result = %q, want fake result", got)
 	}
 }
