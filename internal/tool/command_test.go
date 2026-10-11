@@ -66,6 +66,32 @@ func TestRunCommandRejectsUnsafeCWD(t *testing.T) {
 	}
 }
 
+func TestRunCommandPreviewRejectsDangerousCommandBeforeApproval(t *testing.T) {
+	root := t.TempDir()
+	_, err := RunCommandPreview(root, `{"command":"git reset --hard HEAD"}`)
+	var dangerous *DangerousCommandError
+	if !errors.As(err, &dangerous) {
+		t.Fatalf("error=%T %v, want DangerousCommandError", err, err)
+	}
+	if dangerous.Assessment.RuleID != "git_reset_hard" {
+		t.Fatalf("assessment=%+v, want git_reset_hard", dangerous.Assessment)
+	}
+}
+
+func TestExecuteCommandRejectsDangerousPreviewWithoutStartingProcess(t *testing.T) {
+	root := t.TempDir()
+	_, err := ExecuteCommand(context.Background(), root, Preview{
+		Command:     "git clean -fdx",
+		CWD:         ".",
+		Timeout:     time.Second,
+		SandboxMode: SandboxOff,
+	})
+	var dangerous *DangerousCommandError
+	if !errors.As(err, &dangerous) || dangerous.Assessment.RuleID != "git_clean_force" {
+		t.Fatalf("error=%T %v, want git_clean_force", err, err)
+	}
+}
+
 func TestRunCommandTimesOut(t *testing.T) {
 	root, err := os.Getwd()
 	if err != nil {

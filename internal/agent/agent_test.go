@@ -1758,6 +1758,45 @@ func TestRunEventsRecordsRequiredSandboxRefusal(t *testing.T) {
 	t.Fatal("sandbox refusal did not emit a tool result event")
 }
 
+func TestRunEventsHardDeniesDangerousBashWithoutApproval(t *testing.T) {
+	call := llm.ToolCall{ID: "call-danger", Type: "function", Name: "Bash", Arguments: `{"command":"git reset --hard HEAD"}`}
+	client := &scriptedClient{steps: []scriptedStep{
+		{completion: testCompletion{Assistant: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{call}}, FinishReason: "tool_calls"}},
+		{events: []llm.StreamEvent{{Text: "blocked"}}, completion: testCompletion{Assistant: llm.Message{Role: "assistant", Content: "blocked"}, FinishReason: "stop"}},
+	}}
+	root := t.TempDir()
+	registry := tool.NewChatRegistryWithSandbox(tool.SandboxOff)
+	search, _ := registry.Lookup("ToolSearch")
+	if _, err := search.Execute(context.Background(), root, `{"query":"command","load":["Bash"]}`); err != nil {
+		t.Fatal(err)
+	}
+	runner := NewRunner(client, root, "", registry)
+	prompted := false
+	runner.SetPermissionPrompt(func(context.Context, PermissionRequest) (PermissionDecision, error) {
+		prompted = true
+		return PermissionDecision{Allow: true, Approval: ApprovalAllowOnce, Source: PermissionSourceUser}, nil
+	})
+	var events []Event
+	if err := runner.RunEvents(context.Background(), "destroy changes", func(event Event) error {
+		events = append(events, event)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if prompted {
+		t.Fatal("dangerous Bash command reached approval prompt")
+	}
+	for _, event := range events {
+		if event.Type == EventToolResult {
+			if event.ExecutionStatus != "denied" || event.FailureReason != "dangerous_command" || event.CommandRuleID != "git_reset_hard" {
+				t.Fatalf("dangerous result=%+v", event)
+			}
+			return
+		}
+	}
+	t.Fatal("dangerous command did not emit a tool result")
+}
+
 type registryTestTool struct {
 	called bool
 }

@@ -116,6 +116,7 @@ version = 1
 default_provider = "deepseek"
 permission_mode = "default"
 sandbox_mode = "auto"
+sandbox_auto_allow = false
 tool_loading = "dispatch"
 tui_mode = "main"
 
@@ -128,6 +129,8 @@ enabled = false
 pushgateway_url = "http://127.0.0.1:9091"
 instance = "local"
 ```
+
+`sandbox_auto_allow` 默认关闭。开启后也只会自动放行经过 OS 沙箱验证的内建低风险只读命令；普通变更命令、未知命令、显式 `ask/deny` 规则和危险命令仍分别进入审批或直接拒绝。
 
 Hook 事件包括 `session_start`、`session_end`、`turn_start`、`turn_end`、`pre_tool_use`、`post_tool_use` 和 `plan_state_changed`。Hook 只加载可信配置，外部命令仍受超时和错误策略约束。
 

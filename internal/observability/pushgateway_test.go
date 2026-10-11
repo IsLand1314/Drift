@@ -26,9 +26,10 @@ func TestPushgatewayPublisherWritesOnlyMetricExposition(t *testing.T) {
 	}
 	snapshot := Snapshot{
 		Mode: "prompt", Provider: "deepseek", Protocol: "openai-compat", Outcome: OutcomeSuccess,
-		Duration:      3 * time.Second,
-		ModelRequests: map[string]uint64{"success": 1},
-		ToolCalls:     map[ToolKey]uint64{{Tool: "mcp", Category: "mcp", Outcome: "failed"}: 1},
+		Duration:               3 * time.Second,
+		ModelRequests:          map[string]uint64{"success": 1},
+		ToolCalls:              map[ToolKey]uint64{{Tool: "mcp", Category: "mcp", Outcome: "failed"}: 1},
+		CommandPolicyDecisions: map[CommandPolicyKey]uint64{{Risk: "dangerous", Outcome: "denied", RuleID: "git_reset_hard"}: 1},
 	}
 	if err := publisher.Publish(context.Background(), snapshot); err != nil {
 		t.Fatal(err)
@@ -36,12 +37,12 @@ func TestPushgatewayPublisherWritesOnlyMetricExposition(t *testing.T) {
 	if method != http.MethodPost || path != "/metrics/job/drift/instance/local" {
 		t.Fatalf("request = %s %s", method, path)
 	}
-	for _, required := range []string{"drift_runs_total", "drift_run_duration_seconds", "drift_model_requests_total", "drift_tool_calls_total"} {
+	for _, required := range []string{"drift_runs_total", "drift_run_duration_seconds", "drift_model_requests_total", "drift_tool_calls_total", "drift_command_policy_decisions_total"} {
 		if !strings.Contains(body, required) {
 			t.Fatalf("metric exposition missing %q:\n%s", required, body)
 		}
 	}
-	for _, forbidden := range []string{"private", "token", "command", "path="} {
+	for _, forbidden := range []string{"private", "token", "command=", "path="} {
 		if strings.Contains(body, forbidden) {
 			t.Fatalf("metric exposition leaked %q:\n%s", forbidden, body)
 		}

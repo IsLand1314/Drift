@@ -481,6 +481,8 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) (
 			var operation, path, command, cwd string
 			var mcpServer string
 			var sandboxMode, sandboxBackend, sandboxProbe string
+			var commandRisk, commandRuleID, decisionLayer string
+			var autoAllowed, sandboxFallback bool
 			var sandboxAvailable bool
 			var sandboxDenied bool
 			var permissionDenied bool
@@ -519,6 +521,18 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) (
 					preview, previewErr := previewable.Preview(ctx, r.root, call.Arguments)
 					if previewErr != nil {
 						toolErr = previewErr
+						var dangerous *tool.DangerousCommandError
+						if errors.As(previewErr, &dangerous) {
+							command = dangerous.Command
+							commandRisk = string(dangerous.Assessment.Risk)
+							commandRuleID = dangerous.Assessment.RuleID
+							decisionLayer = "command_policy"
+							permissionDenied = true
+							permissionFailure = "dangerous_command"
+							if err := emit(Event{Type: EventPermissionDecision, ToolCallID: call.ID, ToolName: call.Name, Command: command, CommandRisk: commandRisk, CommandRuleID: commandRuleID, DecisionLayer: decisionLayer, Allowed: false, DecisionReason: "dangerous_command", PermissionSource: PermissionSourceSystem, PermissionOutcome: ApprovalDeny, Policy: PolicyDeny}); err != nil {
+								return err
+							}
+						}
 						var denied *tool.SandboxDeniedError
 						if errors.As(previewErr, &denied) {
 							sandboxDenied = true
@@ -530,13 +544,16 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) (
 					} else {
 						operation, path = preview.Operation, preview.Path
 						command, cwd = preview.Command, preview.CWD
+						commandRisk = string(preview.CommandSafety.Risk)
+						commandRuleID = preview.CommandSafety.RuleID
 						sandboxMode = string(preview.SandboxMode)
 						sandboxBackend = preview.Sandbox.Backend
 						sandboxAvailable = preview.Sandbox.Available
 						sandboxProbe = preview.Sandbox.Probe
+						sandboxFallback = preview.SandboxMode == tool.SandboxAuto && !preview.Sandbox.Available
 						oldBytes, newBytes = preview.OldBytes, preview.NewBytes
-						request := PermissionRequest{ToolName: call.Name, Operation: preview.Operation, Path: preview.Path, Command: preview.Command, CWD: preview.CWD, OldBytes: preview.OldBytes, NewBytes: preview.NewBytes, Diff: preview.Diff}
-						if err := emit(Event{Type: EventPermissionRequest, ToolCallID: call.ID, ToolName: call.Name, MCPServer: mcpServer, Operation: preview.Operation, Path: preview.Path, Command: preview.Command, CWD: preview.CWD, OldBytes: preview.OldBytes, NewBytes: preview.NewBytes}); err != nil {
+						request := PermissionRequest{ToolName: call.Name, Operation: preview.Operation, Path: preview.Path, Command: preview.Command, CWD: preview.CWD, OldBytes: preview.OldBytes, NewBytes: preview.NewBytes, Diff: preview.Diff, CommandRisk: commandRisk, CommandRuleID: commandRuleID, SandboxMode: string(preview.SandboxMode), SandboxAvailable: preview.Sandbox.Available}
+						if err := emit(Event{Type: EventPermissionRequest, ToolCallID: call.ID, ToolName: call.Name, MCPServer: mcpServer, Operation: preview.Operation, Path: preview.Path, Command: preview.Command, CWD: preview.CWD, OldBytes: preview.OldBytes, NewBytes: preview.NewBytes, CommandRisk: commandRisk, CommandRuleID: commandRuleID}); err != nil {
 							return err
 						}
 						decision := PermissionDecision{Reason: "permission denied", Policy: PolicyAsk, Approval: ApprovalDeny, Source: PermissionSourceSystem}
@@ -549,7 +566,11 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) (
 							permissionFailure = decision.Reason
 							toolErr = errors.New("permission denied")
 						}
-						if err := emit(Event{Type: EventPermissionDecision, ToolCallID: call.ID, ToolName: call.Name, MCPServer: mcpServer, Operation: preview.Operation, Path: preview.Path, Command: preview.Command, CWD: preview.CWD, OldBytes: preview.OldBytes, NewBytes: preview.NewBytes, Allowed: decision.Allow, DecisionReason: decision.Reason, PermissionSource: decision.Source, PermissionOutcome: decision.Approval, Policy: decision.Policy}); err != nil {
+						autoAllowed = decision.Reason == "builtin_safe_command"
+						if autoAllowed {
+							decisionLayer = "builtin_safe_command"
+						}
+						if err := emit(Event{Type: EventPermissionDecision, ToolCallID: call.ID, ToolName: call.Name, MCPServer: mcpServer, Operation: preview.Operation, Path: preview.Path, Command: preview.Command, CWD: preview.CWD, OldBytes: preview.OldBytes, NewBytes: preview.NewBytes, CommandRisk: commandRisk, CommandRuleID: commandRuleID, DecisionLayer: decisionLayer, AutoAllowed: autoAllowed, SandboxFallback: sandboxFallback, Allowed: decision.Allow, DecisionReason: decision.Reason, PermissionSource: decision.Source, PermissionOutcome: decision.Approval, Policy: decision.Policy}); err != nil {
 							return err
 						}
 						if toolErr == nil {
@@ -664,7 +685,7 @@ func (r *Runner) RunEvents(ctx context.Context, prompt string, sink EventSink) (
 				}
 			}
 			r.appendMessage(llm.Message{Role: "tool", Content: content, ToolCallID: call.ID})
-			toolEvent := Event{Type: EventToolResult, ToolCallID: call.ID, ToolName: call.Name, MCPServer: mcpServer, Result: content, ErrorSummary: errorSummary, Operation: operation, Path: path, Command: command, CWD: cwd, OldBytes: oldBytes, NewBytes: newBytes, SandboxMode: sandboxMode, SandboxBackend: sandboxBackend, SandboxAvailable: sandboxAvailable, SandboxProbe: sandboxProbe, ExecutionStatus: executionStatus, FailureReason: failureReason}
+			toolEvent := Event{Type: EventToolResult, ToolCallID: call.ID, ToolName: call.Name, MCPServer: mcpServer, Result: content, ErrorSummary: errorSummary, Operation: operation, Path: path, Command: command, CWD: cwd, OldBytes: oldBytes, NewBytes: newBytes, CommandRisk: commandRisk, CommandRuleID: commandRuleID, DecisionLayer: decisionLayer, AutoAllowed: autoAllowed, SandboxFallback: sandboxFallback, SandboxMode: sandboxMode, SandboxBackend: sandboxBackend, SandboxAvailable: sandboxAvailable, SandboxProbe: sandboxProbe, ExecutionStatus: executionStatus, FailureReason: failureReason}
 			if err := emit(toolEvent); err != nil {
 				return err
 			}

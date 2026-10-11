@@ -28,6 +28,23 @@ func TestLoadUserConfigReadsTOMLAndAuth(t *testing.T) {
 	}
 }
 
+func TestLoadUserConfigReadsSandboxAutoAllow(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "settings.toml"), []byte("version = 1\nsandbox_mode = \"auto\"\nsandbox_auto_allow = true\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte("version = 1\n[[providers]]\nname = \"test\"\nprotocol = \"openai-compat\"\nbase_url = \"https://example.invalid\"\nmodel = \"test\"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadUserConfig(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Settings.SandboxAutoAllow {
+		t.Fatalf("settings=%+v", cfg.Settings)
+	}
+}
+
 func TestLoadUserConfigRejectsInvalidProviderAndDoesNotEchoSecret(t *testing.T) {
 	dir := t.TempDir()
 	secret := "super-secret-value"

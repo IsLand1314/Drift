@@ -31,6 +31,8 @@ type PermissionKey struct{ Tool, Decision string }
 
 type SandboxKey struct{ Backend, Sandboxed, Outcome string }
 
+type CommandPolicyKey struct{ Risk, Outcome, RuleID string }
+
 // Snapshot is an immutable-at-publish summary of one invocation.
 type Snapshot struct {
 	Mode, Provider, Protocol string
@@ -40,6 +42,7 @@ type Snapshot struct {
 	ToolCalls                map[ToolKey]uint64
 	PermissionDecisions      map[PermissionKey]uint64
 	SandboxExecutions        map[SandboxKey]uint64
+	CommandPolicyDecisions   map[CommandPolicyKey]uint64
 }
 
 // Publisher delivers a snapshot. Recorder treats delivery errors as
@@ -72,6 +75,7 @@ type Recorder struct {
 	toolCalls                map[ToolKey]uint64
 	permissionDecisions      map[PermissionKey]uint64
 	sandboxExecutions        map[SandboxKey]uint64
+	commandPolicyDecisions   map[CommandPolicyKey]uint64
 }
 
 func NewRecorder(options Options) *Recorder {
@@ -84,18 +88,19 @@ func NewRecorder(options Options) *Recorder {
 		timeout = 2 * time.Second
 	}
 	return &Recorder{
-		enabled:             options.Enabled && options.Publisher != nil,
-		mode:                boundedLabel(options.Mode, "prompt"),
-		provider:            boundedLabel(options.Provider, "unknown"),
-		protocol:            boundedLabel(options.Protocol, "unknown"),
-		publisher:           options.Publisher,
-		now:                 now,
-		started:             now(),
-		timeout:             timeout,
-		modelRequests:       map[string]uint64{},
-		toolCalls:           map[ToolKey]uint64{},
-		permissionDecisions: map[PermissionKey]uint64{},
-		sandboxExecutions:   map[SandboxKey]uint64{},
+		enabled:                options.Enabled && options.Publisher != nil,
+		mode:                   boundedLabel(options.Mode, "prompt"),
+		provider:               boundedLabel(options.Provider, "unknown"),
+		protocol:               boundedLabel(options.Protocol, "unknown"),
+		publisher:              options.Publisher,
+		now:                    now,
+		started:                now(),
+		timeout:                timeout,
+		modelRequests:          map[string]uint64{},
+		toolCalls:              map[ToolKey]uint64{},
+		permissionDecisions:    map[PermissionKey]uint64{},
+		sandboxExecutions:      map[SandboxKey]uint64{},
+		commandPolicyDecisions: map[CommandPolicyKey]uint64{},
 	}
 }
 
@@ -123,6 +128,15 @@ func (r *Recorder) Observe(event agent.Event) {
 	case agent.EventPermissionDecision:
 		tool, _ := toolDimension(event.ToolName)
 		r.permissionDecisions[PermissionKey{Tool: tool, Decision: permissionDecision(event.PermissionOutcome)}]++
+		if event.CommandRisk != "" {
+			outcome := "asked"
+			if !event.Allowed {
+				outcome = "denied"
+			} else if event.AutoAllowed {
+				outcome = "allowed"
+			}
+			r.commandPolicyDecisions[CommandPolicyKey{Risk: boundedLabel(event.CommandRisk, "unknown"), Outcome: outcome, RuleID: boundedLabel(event.CommandRuleID, "none")}]++
+		}
 	}
 }
 
@@ -140,11 +154,12 @@ func (r *Recorder) Finish(parent context.Context, outcome Outcome) error {
 	r.finished = true
 	snapshot := Snapshot{
 		Mode: r.mode, Provider: r.provider, Protocol: r.protocol, Outcome: normalizeOutcome(outcome),
-		Duration:            r.now().Sub(r.started),
-		ModelRequests:       copyStringCounts(r.modelRequests),
-		ToolCalls:           copyToolCounts(r.toolCalls),
-		PermissionDecisions: copyPermissionCounts(r.permissionDecisions),
-		SandboxExecutions:   copySandboxCounts(r.sandboxExecutions),
+		Duration:               r.now().Sub(r.started),
+		ModelRequests:          copyStringCounts(r.modelRequests),
+		ToolCalls:              copyToolCounts(r.toolCalls),
+		PermissionDecisions:    copyPermissionCounts(r.permissionDecisions),
+		SandboxExecutions:      copySandboxCounts(r.sandboxExecutions),
+		CommandPolicyDecisions: copyCommandPolicyCounts(r.commandPolicyDecisions),
 	}
 	publisher, timeout := r.publisher, r.timeout
 	r.mu.Unlock()
@@ -270,6 +285,13 @@ func copyPermissionCounts(in map[PermissionKey]uint64) map[PermissionKey]uint64 
 }
 func copySandboxCounts(in map[SandboxKey]uint64) map[SandboxKey]uint64 {
 	out := make(map[SandboxKey]uint64, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+func copyCommandPolicyCounts(in map[CommandPolicyKey]uint64) map[CommandPolicyKey]uint64 {
+	out := make(map[CommandPolicyKey]uint64, len(in))
 	for k, v := range in {
 		out[k] = v
 	}

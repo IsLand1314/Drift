@@ -98,6 +98,40 @@ func TestJSONLWriterRecordsStructuredPermissionAndSandboxOutcome(t *testing.T) {
 	}
 }
 
+func TestJSONLWriterRecordsCommandPolicyDecisionWithoutCommandBody(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "run.jsonl")
+	writer, err := NewJSONLWriter(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Append(agent.Event{
+		Type:          agent.EventPermissionDecision,
+		ToolName:      "Bash",
+		Command:       "git reset --hard HEAD",
+		CommandRisk:   "dangerous",
+		CommandRuleID: "git_reset_hard",
+		DecisionLayer: "command_policy",
+		Allowed:       false,
+		FailureReason: "dangerous_command",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := ReadEntries(path)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("entries=%+v err=%v", entries, err)
+	}
+	entry := entries[0]
+	if entry.CommandRisk != "dangerous" || entry.CommandRuleID != "git_reset_hard" || entry.DecisionLayer != "command_policy" || entry.FailureReason != "dangerous_command" {
+		t.Fatalf("entry=%+v", entry)
+	}
+	if strings.Contains(string(mustReadFile(t, path)), "git reset --hard HEAD") {
+		t.Fatal("audit leaked command body")
+	}
+}
+
 func TestJSONLWriterRecordsChildLifecycleMetadata(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "run.jsonl")
 	writer, err := NewJSONLWriter(path)
