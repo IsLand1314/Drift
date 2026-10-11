@@ -124,6 +124,15 @@ func TestPermissionCommandsShowAndClearPolicy(t *testing.T) {
 	}
 }
 
+func TestPermissionCommandsShowRuleEffect(t *testing.T) {
+	policy := newPermissionPolicy(t.TempDir())
+	policy.rules = []permissionRule{{Tool: "Bash", Operation: "run_command", Command: "git status", CWD: ".", Effect: string(permissionEffectAsk), CreatedAt: "2026-01-01T00:00:00Z"}}
+	message, handled := handlePermissionCommand(policy, "/permissions")
+	if !handled || !strings.Contains(message, "ask") || !strings.Contains(message, "git status") {
+		t.Fatalf("summary handled=%t message=%q", handled, message)
+	}
+}
+
 func TestPermissionApprovalChecksPersistentPolicyAfterSessionMemory(t *testing.T) {
 	root := t.TempDir()
 	request := agent.PermissionRequest{ToolName: "WriteFile", Operation: "create_file", Path: "tmp/hello.txt"}
@@ -151,5 +160,57 @@ func TestResolvePermissionPersistentAllowCannotOverridePlanDeny(t *testing.T) {
 	}
 	if got := resolvePermission(permissionModeDefault, newPermissionMemory(), policy, request); !got.Allow || got.Approval != agent.ApprovalAllowPersistent || got.Source != agent.PermissionSourcePersistent {
 		t.Fatalf("persistent decision=%+v", got)
+	}
+}
+
+func TestPermissionPolicyLoadsV1RulesAsAllowAndSavesV2(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".drift"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, ".drift", "permissions.json")
+	if err := os.WriteFile(path, []byte(`{"version":1,"rules":[{"tool":"Bash","operation":"run_command","command":"git status","cwd":".","created_at":"2026-01-01T00:00:00Z"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	policy, err := loadPermissionPolicy(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := agent.PermissionRequest{ToolName: "Bash", Operation: "run_command", Command: "git status", CWD: "."}
+	if got := policy.effectFor(request); got != permissionEffectAllow {
+		t.Fatalf("v1 effect=%q, want allow", got)
+	}
+	if err := policy.remember(agent.PermissionRequest{ToolName: "WriteFile", Operation: "create_file", Path: "new.txt"}); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"version": 2`) || !strings.Contains(string(raw), `"effect": "allow"`) {
+		t.Fatalf("migrated policy=%s", raw)
+	}
+}
+
+func TestResolvePermissionExplicitDenyAndAskOverrideBypass(t *testing.T) {
+	root := t.TempDir()
+	request := agent.PermissionRequest{ToolName: "Bash", Operation: "run_command", Command: "git status", CWD: "."}
+	for _, test := range []struct {
+		name   string
+		effect permissionEffect
+		policy agent.PolicyDecision
+		allow  bool
+	}{
+		{"deny", permissionEffectDeny, agent.PolicyDeny, false},
+		{"ask", permissionEffectAsk, agent.PolicyAsk, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			policy := newPermissionPolicy(root)
+			policy.rules = []permissionRule{{Tool: "Bash", Operation: "run_command", Command: "git status", CWD: ".", Effect: string(test.effect), CreatedAt: "2026-01-01T00:00:00Z"}}
+			got := resolvePermission(permissionModeBypass, newPermissionMemory(), policy, request)
+			if got.Allow != test.allow || got.Policy != test.policy {
+				t.Fatalf("decision=%+v, want allow=%v policy=%q", got, test.allow, test.policy)
+			}
+		})
 	}
 }

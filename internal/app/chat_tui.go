@@ -128,7 +128,7 @@ func newTuiFullScreen(ctx context.Context, runner *agent.Runner, audit audit.Wri
 	}
 	if runner != nil {
 		runner.SetPermissionPrompt(func(promptCtx context.Context, request agent.PermissionRequest) (agent.PermissionDecision, error) {
-			if decision := resolvePermission(*m.permissionMode, m.permissionMemory, m.permissionPolicy, request); decision.Policy != agent.PolicyAsk {
+			if decision := resolvePermissionWithSettings(*m.permissionMode, m.permissionMemory, m.permissionPolicy, request, m.status.SandboxAutoAllow); decision.Policy != agent.PolicyAsk {
 				return decision, nil
 			}
 			reply := make(chan agent.PermissionDecision, 1)

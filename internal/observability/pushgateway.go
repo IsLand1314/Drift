@@ -83,6 +83,12 @@ func exposition(snapshot Snapshot) string {
 			fmt.Fprintf(&b, "drift_sandbox_executions_total%s %d\n", mergeLabels(base, "backend", key.Backend, "sandboxed", key.Sandboxed, "outcome", key.Outcome), snapshot.SandboxExecutions[key])
 		}
 	}
+	if len(snapshot.CommandPolicyDecisions) > 0 {
+		b.WriteString("# TYPE drift_command_policy_decisions_total counter\n")
+		for _, key := range sortedCommandPolicyKeys(snapshot.CommandPolicyDecisions) {
+			fmt.Fprintf(&b, "drift_command_policy_decisions_total%s %d\n", mergeLabels(base, "risk", key.Risk, "outcome", key.Outcome, "rule_id", key.RuleID), snapshot.CommandPolicyDecisions[key])
+		}
+	}
 	return b.String()
 }
 
@@ -163,6 +169,16 @@ func sortedSandboxKeys(values map[SandboxKey]uint64) []SandboxKey {
 	}
 	sort.Slice(keys, func(i, j int) bool {
 		return keys[i].Backend+keys[i].Sandboxed+keys[i].Outcome < keys[j].Backend+keys[j].Sandboxed+keys[j].Outcome
+	})
+	return keys
+}
+func sortedCommandPolicyKeys(values map[CommandPolicyKey]uint64) []CommandPolicyKey {
+	keys := make([]CommandPolicyKey, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		return keys[i].Risk+keys[i].Outcome+keys[i].RuleID < keys[j].Risk+keys[j].Outcome+keys[j].RuleID
 	})
 	return keys
 }

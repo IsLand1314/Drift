@@ -100,6 +100,11 @@ type Event struct {
 	SandboxProbe      string
 	ExecutionStatus   string
 	FailureReason     string
+	CommandRisk       string
+	CommandRuleID     string
+	DecisionLayer     string
+	AutoAllowed       bool
+	SandboxFallback   bool
 	ChildState        string
 	InputTokens       int
 	OutputTokens      int
@@ -111,14 +116,18 @@ type Event struct {
 
 // PermissionRequest describes a side effect before it is executed.
 type PermissionRequest struct {
-	ToolName  string
-	Operation string
-	Path      string
-	Command   string
-	CWD       string
-	OldBytes  int
-	NewBytes  int
-	Diff      string
+	ToolName         string
+	Operation        string
+	Path             string
+	Command          string
+	CWD              string
+	OldBytes         int
+	NewBytes         int
+	Diff             string
+	CommandRisk      string
+	CommandRuleID    string
+	SandboxMode      string
+	SandboxAvailable bool
 }
 
 // PermissionDecision is returned by the interactive approval callback.

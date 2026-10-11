@@ -23,16 +23,17 @@ type UserConfig struct {
 }
 
 type Settings struct {
-	Version         int                   `toml:"version"`
-	DefaultProvider string                `toml:"default_provider"`
-	PermissionMode  string                `toml:"permission_mode"`
-	SandboxMode     string                `toml:"sandbox_mode"`
-	ToolLoading     string                `toml:"tool_loading"`
-	TUIMode         string                `toml:"tui_mode"`
-	Chat            ChatSettings          `toml:"chat"`
-	Memory          MemorySettings        `toml:"memory"`
-	Observability   ObservabilitySettings `toml:"observability"`
-	Hooks           []Hook                `toml:"hooks"`
+	Version          int                   `toml:"version"`
+	DefaultProvider  string                `toml:"default_provider"`
+	PermissionMode   string                `toml:"permission_mode"`
+	SandboxMode      string                `toml:"sandbox_mode"`
+	SandboxAutoAllow bool                  `toml:"sandbox_auto_allow"`
+	ToolLoading      string                `toml:"tool_loading"`
+	TUIMode          string                `toml:"tui_mode"`
+	Chat             ChatSettings          `toml:"chat"`
+	Memory           MemorySettings        `toml:"memory"`
+	Observability    ObservabilitySettings `toml:"observability"`
+	Hooks            []Hook                `toml:"hooks"`
 }
 
 // ObservabilitySettings is deliberately local-only in the first release. This

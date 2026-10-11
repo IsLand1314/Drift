@@ -8,10 +8,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/IsLand1314/Drift/internal/commandpolicy"
 	"github.com/IsLand1314/Drift/internal/llm"
 )
 
@@ -23,6 +25,18 @@ const (
 )
 
 type runCommandTool struct{ sandboxMode SandboxMode }
+
+// DangerousCommandError is returned before approval or process creation. The
+// assessment is retained so callers can audit the stable rule ID without
+// parsing user-visible error text.
+type DangerousCommandError struct {
+	Command    string
+	Assessment commandpolicy.Assessment
+}
+
+func (e *DangerousCommandError) Error() string {
+	return fmt.Sprintf("dangerous command rejected: %s (%s)", e.Assessment.RuleID, e.Assessment.Reason)
+}
 
 func (runCommandTool) Name() string                   { return "Bash" }
 func (runCommandTool) Definition() llm.ToolDefinition { return RunCommandDefinition() }
@@ -137,14 +151,22 @@ func RunCommandPreviewWithSandbox(root, raw string, sandboxMode SandboxMode) (Pr
 		}
 		maxOutput = args.MaxOutputBytes
 	}
+	safety := commandpolicy.Assess(args.Command, commandpolicy.ShellForPlatform(runtime.GOOS))
+	if safety.Dangerous() {
+		return Preview{}, &DangerousCommandError{Command: args.Command, Assessment: safety}
+	}
 	sandbox, err := SelectSandbox(sandboxMode, DetectSandboxForWorkspace(root))
 	if err != nil {
 		return Preview{}, fmt.Errorf("Bash: %w", err)
 	}
-	return Preview{Operation: "run_command", Path: args.CWD, Command: args.Command, CWD: args.CWD, Timeout: timeout, OutputLimit: maxOutput, SandboxMode: sandboxMode, Sandbox: sandbox, Profile: SandboxProfileBash}, nil
+	return Preview{Operation: "run_command", Path: args.CWD, Command: args.Command, CWD: args.CWD, Timeout: timeout, OutputLimit: maxOutput, SandboxMode: sandboxMode, Sandbox: sandbox, CommandSafety: safety, Profile: SandboxProfileBash}, nil
 }
 
 func ExecuteCommand(parent context.Context, root string, preview Preview) (string, error) {
+	safety := commandpolicy.Assess(preview.Command, commandpolicy.ShellForPlatform(runtime.GOOS))
+	if safety.Dangerous() {
+		return "", &DangerousCommandError{Command: preview.Command, Assessment: safety}
+	}
 	if preview.SandboxMode == SandboxRequired && !preview.Sandbox.Available {
 		return "", &SandboxDeniedError{Mode: preview.SandboxMode, Decision: preview.Sandbox}
 	}

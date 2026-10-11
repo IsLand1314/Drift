@@ -48,6 +48,11 @@ type Entry struct {
 	ExecutionStatus   string    `json:"execution_status,omitempty"`
 	ChildState        string    `json:"child_state,omitempty"`
 	FailureReason     string    `json:"failure_reason,omitempty"`
+	CommandRisk       string    `json:"command_risk,omitempty"`
+	CommandRuleID     string    `json:"command_rule_id,omitempty"`
+	DecisionLayer     string    `json:"decision_layer,omitempty"`
+	AutoAllowed       bool      `json:"auto_allowed,omitempty"`
+	SandboxFallback   bool      `json:"sandbox_fallback,omitempty"`
 	InputTokens       int       `json:"input_tokens,omitempty"`
 	OutputTokens      int       `json:"output_tokens,omitempty"`
 	TotalTokens       int       `json:"total_tokens,omitempty"`

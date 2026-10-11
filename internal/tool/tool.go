@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/IsLand1314/Drift/internal/commandpolicy"
 	"github.com/IsLand1314/Drift/internal/llm"
 )
 
@@ -15,21 +16,22 @@ const (
 
 // Preview describes a write that has not changed the target yet.
 type Preview struct {
-	Operation    string
-	Path         string
-	Command      string
-	CWD          string
-	Timeout      time.Duration
-	OutputLimit  int
-	SandboxMode  SandboxMode
-	Sandbox      SandboxDecision
-	Profile      SandboxProfile
-	Content      []byte
-	Before       []byte
-	BeforeExists bool
-	OldBytes     int
-	NewBytes     int
-	Diff         string
+	Operation     string
+	Path          string
+	Command       string
+	CWD           string
+	Timeout       time.Duration
+	OutputLimit   int
+	SandboxMode   SandboxMode
+	Sandbox       SandboxDecision
+	CommandSafety commandpolicy.Assessment
+	Profile       SandboxProfile
+	Content       []byte
+	Before        []byte
+	BeforeExists  bool
+	OldBytes      int
+	NewBytes      int
+	Diff          string
 }
 
 // Previewable is implemented by tools that require caller approval before execution.

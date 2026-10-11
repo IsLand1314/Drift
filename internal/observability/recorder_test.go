@@ -63,6 +63,21 @@ func TestRecorderCollectsBoundedOperationalDimensions(t *testing.T) {
 	}
 }
 
+func TestRecorderCollectsCommandPolicyDimensions(t *testing.T) {
+	publisher := &recordingPublisher{}
+	recorder := NewRecorder(Options{Enabled: true, Publisher: publisher})
+	recorder.Observe(agent.Event{Type: agent.EventPermissionDecision, ToolName: "Bash", CommandRisk: "dangerous", CommandRuleID: "git_reset_hard", DecisionLayer: "command_policy", Allowed: false})
+	if err := recorder.Finish(context.Background(), OutcomeFailed); err != nil {
+		t.Fatal(err)
+	}
+	if len(publisher.snapshots) != 1 {
+		t.Fatalf("snapshots=%d", len(publisher.snapshots))
+	}
+	if publisher.snapshots[0].CommandPolicyDecisions[CommandPolicyKey{Risk: "dangerous", Outcome: "denied", RuleID: "git_reset_hard"}] != 1 {
+		t.Fatalf("command policy=%#v", publisher.snapshots[0].CommandPolicyDecisions)
+	}
+}
+
 func TestRecorderNeverPublishesWhenDisabled(t *testing.T) {
 	publisher := &recordingPublisher{}
 	recorder := NewRecorder(Options{Enabled: false, Publisher: publisher})

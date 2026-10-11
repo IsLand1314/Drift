@@ -13,7 +13,15 @@ import (
 	"github.com/IsLand1314/Drift/internal/agent"
 )
 
-const permissionPolicyVersion = 1
+const permissionPolicyVersion = 2
+
+type permissionEffect string
+
+const (
+	permissionEffectAllow permissionEffect = "allow"
+	permissionEffectAsk   permissionEffect = "ask"
+	permissionEffectDeny  permissionEffect = "deny"
+)
 
 type permissionPolicy struct {
 	root  string
@@ -32,6 +40,7 @@ type permissionRule struct {
 	Path      string `json:"path,omitempty"`
 	Command   string `json:"command,omitempty"`
 	CWD       string `json:"cwd,omitempty"`
+	Effect    string `json:"effect,omitempty"`
 	CreatedAt string `json:"created_at"`
 }
 
@@ -54,13 +63,19 @@ func loadPermissionPolicy(root string) (*permissionPolicy, error) {
 	if err := decoder.Decode(&document); err != nil {
 		return nil, err
 	}
-	if document.Version != permissionPolicyVersion {
+	if document.Version != 1 && document.Version != permissionPolicyVersion {
 		return nil, fmt.Errorf("unsupported permission policy version %d", document.Version)
 	}
 	seen := make(map[string]struct{}, len(document.Rules))
 	for _, rule := range document.Rules {
 		if rule.Tool == "" || rule.Operation == "" || rule.CreatedAt == "" {
 			return nil, errors.New("invalid permission policy rule")
+		}
+		if rule.Effect == "" && document.Version == 1 {
+			rule.Effect = string(permissionEffectAllow)
+		}
+		if rule.Effect != string(permissionEffectAllow) && rule.Effect != string(permissionEffectAsk) && rule.Effect != string(permissionEffectDeny) {
+			return nil, fmt.Errorf("invalid permission policy effect %q", rule.Effect)
 		}
 		key := permissionRuleKey(rule)
 		if _, ok := seen[key]; ok {
@@ -83,6 +98,7 @@ func permissionRuleFromRequest(request agent.PermissionRequest) permissionRule {
 		Path:      filepath.ToSlash(strings.TrimSpace(request.Path)),
 		Command:   strings.TrimSpace(request.Command),
 		CWD:       filepath.ToSlash(strings.TrimSpace(request.CWD)),
+		Effect:    string(permissionEffectAllow),
 	}
 }
 
@@ -91,18 +107,22 @@ func permissionRuleKey(rule permissionRule) string {
 }
 
 func (p *permissionPolicy) allows(request agent.PermissionRequest) bool {
+	return p.effectFor(request) == permissionEffectAllow
+}
+
+func (p *permissionPolicy) effectFor(request agent.PermissionRequest) permissionEffect {
 	if p == nil {
-		return false
+		return ""
 	}
 	key := permissionRuleKey(permissionRuleFromRequest(request))
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	for _, rule := range p.rules {
 		if permissionRuleKey(rule) == key {
-			return true
+			return permissionEffect(rule.Effect)
 		}
 	}
-	return false
+	return ""
 }
 
 func (p *permissionPolicy) remember(request agent.PermissionRequest) error {
@@ -192,7 +212,11 @@ func (p *permissionPolicy) summary() []string {
 		if rule.Command != "" {
 			target = rule.Command + " (cwd " + rule.CWD + ")"
 		}
-		result = append(result, rule.Tool+"/"+rule.Operation+": "+target)
+		effect := rule.Effect
+		if effect == "" {
+			effect = string(permissionEffectAllow)
+		}
+		result = append(result, rule.Tool+"/"+rule.Operation+" ["+effect+"]: "+target)
 	}
 	return result
 }

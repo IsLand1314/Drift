@@ -26,16 +26,17 @@ func runChatLoop(ctx context.Context, runner *agent.Runner, audit audit.Writer, 
 }
 
 type chatStatus struct {
-	Model          string
-	Provider       string
-	Workspace      string
-	ToolCount      int
-	Registry       tool.Registry
-	PermissionMode permissionMode
-	SandboxMode    tool.SandboxMode
-	Hooks          []config.Hook
-	AutoMemory     bool
-	AutoRetrieve   bool
+	Model            string
+	Provider         string
+	Workspace        string
+	ToolCount        int
+	Registry         tool.Registry
+	PermissionMode   permissionMode
+	SandboxMode      tool.SandboxMode
+	SandboxAutoAllow bool
+	Hooks            []config.Hook
+	AutoMemory       bool
+	AutoRetrieve     bool
 }
 
 type chatPersistence struct {
@@ -238,7 +239,7 @@ func runTuiMainScreenLoop(ctx context.Context, runner *agent.Runner, audit audit
 					currentActivity.Start()
 				}
 			}()
-			decision, decisionErr := confirmWrite(promptCtx, input, out, permissionMode, permissionMemory, permissionPolicyStore, request)
+			decision, decisionErr := confirmWrite(promptCtx, input, out, permissionMode, permissionMemory, permissionPolicyStore, status.SandboxAutoAllow, request)
 			if decisionErr == nil && decision.Reason == "persistent_pattern_pending" {
 				pendingPermissions[permissionRuleKey(permissionRuleFromRequest(request))] = request
 			}
@@ -286,8 +287,8 @@ func runTuiMainScreenLoop(ctx context.Context, runner *agent.Runner, audit audit
 			if err != nil {
 				return false, err
 			}
-			request := agent.PermissionRequest{ToolName: "Hook:" + hook.ID, Operation: "hook_command", Command: hook.Command, CWD: status.Workspace}
-			decision, err := confirmWrite(hookCtx, input, out, permissionMode, permissionMemory, permissionPolicyStore, request)
+			request := agent.PermissionRequest{ToolName: "Hook:" + hook.ID, Operation: "hook_command", Command: hook.Command, CWD: status.Workspace, CommandRisk: string(preview.CommandSafety.Risk), CommandRuleID: preview.CommandSafety.RuleID, SandboxMode: string(preview.SandboxMode), SandboxAvailable: preview.Sandbox.Available}
+			decision, err := confirmWrite(hookCtx, input, out, permissionMode, permissionMemory, permissionPolicyStore, status.SandboxAutoAllow, request)
 			if err != nil || !decision.Allow {
 				return false, err
 			}
@@ -1026,7 +1027,26 @@ func permissionAlreadyAllowed(memory *permissionMemory, policy *permissionPolicy
 }
 
 func resolvePermission(mode permissionMode, memory *permissionMemory, policy *permissionPolicy, request agent.PermissionRequest) agent.PermissionDecision {
+	return resolvePermissionWithSettings(mode, memory, policy, request, false)
+}
+
+func resolvePermissionWithSettings(mode permissionMode, memory *permissionMemory, policy *permissionPolicy, request agent.PermissionRequest, sandboxAutoAllow bool) agent.PermissionDecision {
+	if request.CommandRisk == "dangerous" {
+		return agent.PermissionDecision{Reason: "dangerous_command", Policy: agent.PolicyDeny, Approval: agent.ApprovalDeny, Source: agent.PermissionSourceSystem}
+	}
 	decision := decidePermission(mode, request)
+	if policy != nil {
+		switch policy.effectFor(request) {
+		case permissionEffectDeny:
+			if decision.Policy != agent.PolicyDeny {
+				return agent.PermissionDecision{Reason: "persistent_rule_denied", Policy: agent.PolicyDeny, Approval: agent.ApprovalDeny, Source: agent.PermissionSourcePersistent}
+			}
+		case permissionEffectAsk:
+			if decision.Policy != agent.PolicyDeny {
+				return agent.PermissionDecision{Reason: "persistent_rule_requires_approval", Policy: agent.PolicyAsk, Source: agent.PermissionSourcePersistent}
+			}
+		}
+	}
 	if decision.Policy != agent.PolicyAsk {
 		return decision
 	}
@@ -1036,11 +1056,14 @@ func resolvePermission(mode permissionMode, memory *permissionMemory, policy *pe
 	if memory != nil && memory.Allow(request) {
 		return agent.PermissionDecision{Allow: true, Reason: "session_pattern_approved", Policy: agent.PolicyAsk, Approval: agent.ApprovalAllowOnce, Source: agent.PermissionSourceSession}
 	}
+	if sandboxAutoAllow && request.ToolName == "Bash" && request.CommandRisk == "read_only" && request.SandboxAvailable && request.SandboxMode != string(tool.SandboxOff) {
+		return agent.PermissionDecision{Allow: true, Reason: "builtin_safe_command", Policy: agent.PolicyAllow, Approval: agent.ApprovalAllowOnce, Source: agent.PermissionSourceSystem}
+	}
 	return decision
 }
 
-func confirmWrite(ctx context.Context, input chatInput, out io.Writer, mode permissionMode, memory *permissionMemory, policy *permissionPolicy, request agent.PermissionRequest) (agent.PermissionDecision, error) {
-	if decision := resolvePermission(mode, memory, policy, request); decision.Policy != agent.PolicyAsk {
+func confirmWrite(ctx context.Context, input chatInput, out io.Writer, mode permissionMode, memory *permissionMemory, policy *permissionPolicy, sandboxAutoAllow bool, request agent.PermissionRequest) (agent.PermissionDecision, error) {
+	if decision := resolvePermissionWithSettings(mode, memory, policy, request, sandboxAutoAllow); decision.Policy != agent.PolicyAsk {
 		return decision, nil
 	}
 	if _, ok := input.(*tuiMainScreenInput); ok {

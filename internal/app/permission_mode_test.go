@@ -45,6 +45,32 @@ func TestMCPCallsAlwaysAskExceptPlan(t *testing.T) {
 	}
 }
 
+func TestResolvePermissionBuiltInReadOnlyBashIsAutomaticallyAllowed(t *testing.T) {
+	request := agent.PermissionRequest{ToolName: "Bash", Operation: "run_command", Command: "git status", CWD: ".", CommandRisk: "read_only", SandboxMode: "auto", SandboxAvailable: true}
+	got := resolvePermissionWithSettings(permissionModeDefault, newPermissionMemory(), newPermissionPolicy(t.TempDir()), request, true)
+	if !got.Allow || got.Policy != agent.PolicyAllow || got.Reason != "builtin_safe_command" {
+		t.Fatalf("decision=%+v, want built-in read-only allow", got)
+	}
+}
+
+func TestResolvePermissionReadOnlyBashNeedsApprovalWithoutVerifiedAutoAllow(t *testing.T) {
+	request := agent.PermissionRequest{ToolName: "Bash", Operation: "run_command", Command: "git status", CWD: ".", CommandRisk: "read_only", SandboxMode: "auto", SandboxAvailable: false}
+	got := resolvePermissionWithSettings(permissionModeDefault, newPermissionMemory(), newPermissionPolicy(t.TempDir()), request, true)
+	if got.Allow || got.Policy != agent.PolicyAsk {
+		t.Fatalf("decision=%+v, want approval when sandbox is unavailable", got)
+	}
+}
+
+func TestResolvePermissionDangerousCommandAlwaysDenies(t *testing.T) {
+	request := agent.PermissionRequest{ToolName: "Bash", Operation: "run_command", Command: "git reset --hard", CWD: ".", CommandRisk: "dangerous", CommandRuleID: "git_reset_hard"}
+	for _, mode := range []permissionMode{permissionModeDefault, permissionModeAcceptEdits, permissionModeBypass} {
+		got := resolvePermission(mode, newPermissionMemory(), newPermissionPolicy(t.TempDir()), request)
+		if got.Allow || got.Policy != agent.PolicyDeny || got.Reason != "dangerous_command" {
+			t.Fatalf("mode=%q decision=%+v, want hard deny", mode, got)
+		}
+	}
+}
+
 func TestPlanModeTransitions(t *testing.T) {
 	enter := decidePermission(permissionModeDefault, agent.PermissionRequest{ToolName: "EnterPlanMode", Operation: "enterplanmode"})
 	if !enter.Allow || enter.Policy != agent.PolicyAllow {

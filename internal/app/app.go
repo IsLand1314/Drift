@@ -478,7 +478,7 @@ func RunWithSignals(ctx context.Context, args []string, getenv func(string) stri
 		runner = agent.NewRunnerWithSystemContext(modelClient{Client: client, model: *model}, selection.Root, selection.Focus, selectedSkill.Name, selectedSkill.Content, registry)
 	}
 	if chat {
-		status := chatStatus{Model: *model, Provider: providerName, Workspace: selection.Root, ToolCount: len(registry.Definitions()), Registry: registry, PermissionMode: permissionMode, SandboxMode: sandboxMode, Hooks: userConfig.Settings.Hooks, AutoMemory: userConfig.Settings.Memory.AutoExtract, AutoRetrieve: userConfig.Settings.Memory.AutoRetrieve}
+		status := chatStatus{Model: *model, Provider: providerName, Workspace: selection.Root, ToolCount: len(registry.Definitions()), Registry: registry, PermissionMode: permissionMode, SandboxMode: sandboxMode, SandboxAutoAllow: userConfig.Settings.SandboxAutoAllow, Hooks: userConfig.Settings.Hooks, AutoMemory: userConfig.Settings.Memory.AutoExtract, AutoRetrieve: userConfig.Settings.Memory.AutoRetrieve}
 		code := runChatLoopWithPersistence(runCtx, runner, eventWriter, traceSink, persistence, status, coordinator, in, out, stderr)
 		if childManager != nil {
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

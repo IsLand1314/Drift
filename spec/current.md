@@ -473,13 +473,14 @@ M3.6 在 M3.3–M3.5 的审批基础上，持久化用户明确选择“允许�
 - 授权只写入当前 workspace 的 `.drift/permissions.json`，不跨 workspace 或用户目录共享。
 - 只持久化第二项 `Yes, and don't ask again for this pattern`；第一项只对当前操作有效，`No` 和取消不写入。
 - 匹配必须同时满足工具、操作、相对路径，或命令与 cwd；不支持 glob、前缀、正则和 `allow all`。
-- 策略文件使用版本 `1`、目录 `0700`、文件 `0600`，通过同目录临时文件和原子替换保存。
+- 策略文件当前使用版本 `2`，兼容迁移版本 `1`；目录 `0700`、文件 `0600`，通过同目录临时文件和原子替换保存。
+- 规则效果支持 `allow`、`ask`、`deny`；危险命令和 `plan` 模式优先级高于所有普通规则。
 - 缺失、损坏、未知版本、重复规则或保存失败均安全降级为 `ask`，不得自动放行。
 - `/permissions` 显示脱敏摘要，`/permissions clear` 清除当前 workspace 的持久化授权。
 
 ### 非目标
 
-- 不提供用户级全局授权、跨 workspace 授权、命令白名单、通配符策略、权限继承或永久 `allow all`。
+- 不提供用户级全局授权、跨 workspace 授权、自定义通配符命令白名单、权限继承或永久 `allow all`；内建低风险命令只在经过验证的沙箱和显式 `sandbox_auto_allow` 下自动放行。
 - 不改变现有路径、符号链接、隐藏目录、特殊文件和命令 cwd 安全校验。
 
 ### 验收
@@ -517,3 +518,34 @@ M3.5 在 M3.4 的 `run_command` 基础上，确保取消或超时时命令进程
 | AC-M35-002 | chat + Ctrl+C 人工验收及 TUI 等价测试 | 当前轮取消后 chat 不退出，下一条消息可继续；空闲 Ctrl+C 仍退出 | 测试日志 | `artifacts/verification/m3.5/audit-check.txt` | chat 退出或无法继续 |
 | AC-M35-003 | Agent/TUI/审计专项测试 | 安全取消提示、当前轮回滚、审计不含正文 | 测试日志 | `artifacts/verification/m3.5/audit-check.txt` | 泄露原始错误或半轮状态 |
 | AC-M35-004 | `go test ./... -count=1`、`go vet ./...`、build、diff 检查 | 全部退出码为 0 | 命令日志 | `artifacts/verification/m3.5/final-check.txt` | 任一命令退出码非 0 |
+
+## M5.28：Bash 命令策略与分层安全
+
+M5.28 在权限模式、精确授权、workspace 边界、OS 沙箱和审计之上增加独立的命令内容风险层。危险命令在普通权限决策之前硬拒绝；低风险命令只作为经过验证沙箱下的可选自动放行候选。
+
+### 当前范围
+
+- `internal/commandpolicy` 统一评估 POSIX `/bin/sh` 和 Windows `cmd.exe` 的命令风险。
+- 危险规则覆盖递归删除、格式化、设备覆盖、fork bomb、pipe-to-shell、高危权限变更和高风险 Git 操作。
+- `bypassPermissions` 不能绕过危险命令、`plan`、workspace 边界或 `required` 沙箱失败。
+- 权限规则版本 `1` 自动按 `allow` 迁移到版本 `2`；版本 `2` 支持 `allow`、`ask`、`deny`。
+- 内建低风险命令默认不自动放行；只有 `sandbox_auto_allow=true`、OS 沙箱探测通过且无显式 `ask/deny` 时才可自动放行。
+- 审计和 Prometheus 记录命令风险、规则 ID、决策层、沙箱回退和执行结果。
+
+### 非目标
+
+- 不实现完整 POSIX、CMD 或 PowerShell Shell AST 解释器。
+- 不把规则分类器视为 OS 安全边界；实际执行仍必须经过 workspace 校验、进程限制和 OS 沙箱策略。
+- 不实现 PowerShell 专用执行器或 macOS OS 沙箱后端。
+
+### 验收
+
+| ID | 验证方法 | 通过阈值 | 证据类型 | 失败判定 |
+| --- | --- | --- | --- | --- |
+| AC-M528-001 | `go test ./internal/commandpolicy -count=1` | POSIX/CMD 危险、控制结构和只读分类通过 | 测试日志 | 危险规则漏判或安全命令误判 |
+| AC-M528-002 | Bash 预览与执行测试 | 危险命令在审批前拒绝，直接构造 Preview 也不能执行 | 测试日志 | 启动子进程或进入审批 |
+| AC-M528-003 | 权限模式矩阵 | default、acceptEdits、bypassPermissions 均不能绕过 dangerous；plan 拒绝 Bash | 测试日志 | 任一模式放行危险命令 |
+| AC-M528-004 | 权限 v1/v2 迁移测试 | v1 规则作为 allow 读取并在下次保存时升级为 v2；ask/deny 优先级正确 | 测试日志 | 授权扩大或迁移丢失 |
+| AC-M528-005 | 审计与可观测性测试 | RuleID、decision layer、risk 和 sandbox 回退可查询，正文不泄露 | 测试日志 | 无法区分危险拒绝与普通拒绝 |
+| AC-M528-006 | 沙箱自动放行矩阵 | auto 无后端不自动放行；required 无后端拒绝；verified sandbox + auto_allow 仅放行 read-only | 测试日志、人工记录 | 沙箱回退导致自动放行 |
+| AC-M528-007 | `go test ./...`、`go vet ./...`、build、diff check | 全部退出码为 0 | 命令日志 | 任一命令失败 |
