@@ -2,7 +2,7 @@
 
 Drift 是一个使用 Go 构建的本地受控 Coding Agent Runtime。模型负责理解目标，Runtime 负责工具、权限、审批、沙箱、会话、审计和验证。当前交付阶段为 M5.26。
 
-Drift 借鉴 FoxCode 的“协议适配 → 统一事件 → Agent 工具循环 → TUI”思路，但不复制未实现能力：配置采用工作区级 `.drift`，MCP 只作为 Client 调用外部工具，不对外提供 MCP Server；Codex 登录态当前保持 text-only。
+Drift 参考 Hermes 的经验沉淀与 Agent 协作思路，以及 Pi-agent 的运行时和终端交互设计；同时坚持按 Drift 当前真实能力交付：配置采用工作区级 `.drift`，MCP 只作为 Client 调用外部工具，不对外提供 MCP Server；Codex 登录态当前保持 text-only。
 
 ## 设计与运行链路
 
